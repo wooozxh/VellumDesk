@@ -24,6 +24,7 @@ import {
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
+  ensureVideoMetaForAssets,
   readAsDataUrl,
   isImage
 } from './thumbs'
@@ -138,7 +139,13 @@ export function registerIpc(): void {
       .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
     const metas = await ensureImageMetaForAssets(metaRows)
 
-    return { ...result, thumbs, metas }
+    // B-02：补视频时长 / 编码 / 尺寸（只处理还没有 duration_ms 的视频）
+    const videoRows = db
+      .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+    const videoMetas = await ensureVideoMetaForAssets(videoRows)
+
+    return { ...result, thumbs, metas, videoMetas }
   })
   // ---------- A-06 包视图 ----------
   ipcMain.handle('view:packs', () => {
@@ -186,8 +193,10 @@ export function registerIpc(): void {
       const rows = listAssets(opts ?? {})
       const withThumb = rows.map((r) => ({
         ...r,
+        // thumb_path 有值就直接读缩略图（图片 .webp / 视频 .jpg 都走这里）；
+        // 没有缩略图且本身是图片才读原图 —— 视频原文件绝不直接读（太大）
         thumb:
-          r.thumb_path && isImage(r.ext)
+          r.thumb_path
             ? readAsDataUrl(join(root, r.thumb_path))
             : isImage(r.ext)
               ? readAsDataUrl(r.abs_path)
@@ -206,7 +215,7 @@ export function registerIpc(): void {
       withThumb[role] = items.map((r) => ({
         ...r,
         thumb:
-          r.thumb_path && isImage(r.ext)
+          r.thumb_path
             ? readAsDataUrl(join(root, r.thumb_path))
             : isImage(r.ext)
               ? readAsDataUrl(r.abs_path)

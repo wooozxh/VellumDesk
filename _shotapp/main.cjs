@@ -12,6 +12,8 @@ const { writeFileSync, mkdirSync } = require('fs')
 const { join } = require('path')
 
 const ROOT = join(__dirname, '..')
+// B-02：给测试壳 bundle 里的 thumbs 副本指路 FFmpeg（显式注入走不了，用环境变量兜底）
+process.env.MEDIA_FFMPEG_DIR = join(ROOT, 'resources', 'ffmpeg')
 const { registerIpc } = require(join(ROOT, 'out/test/ipc.cjs'))
 const { getWorkspaceRoot, initWorkspace, scanAll } = require(join(ROOT, 'out/test/workspace.cjs'))
 
@@ -51,6 +53,37 @@ app.whenReady().then(async () => {
   } catch (e) {
     errs.push('准备素材失败：' + e.message)
   }
+
+  // B-02：FFmpeg 就位则造两个测试视频（横版 / 竖版），文件名写死时长便于核对
+  // 用异步 spawn（沙箱拦 spawnSync；正式应用两种都行）
+  let ffmpegOk = false
+  try {
+    const ff = join(ROOT, 'resources', 'ffmpeg', 'ffmpeg.exe')
+    if (require('fs').existsSync(ff)) {
+      const { spawn } = require('child_process')
+      const runFf = (args) =>
+        new Promise((resolve) => {
+          const c = spawn(ff, args, { windowsHide: true })
+          const t = setTimeout(() => resolve(false), 60000)
+          c.on('error', () => { clearTimeout(t); resolve(false) })
+          c.on('close', (code) => { clearTimeout(t); resolve(code === 0) })
+        })
+      const vDir = join(root, '元信息演示包', '01-成品')
+      mkdirSync(vDir, { recursive: true })
+      // 横版 3 秒 640x360（LGPL 版无 libx264，用 libopenh264）
+      const ok1 = await runFf(['-f', 'lavfi', '-i', 'testsrc=duration=3:size=640x360:rate=10',
+        '-c:v', 'libopenh264', '-pix_fmt', 'yuv420p', '-y', join(vDir, '横版视频-3秒.mp4')])
+      const vDir2 = join(root, '元信息演示包', '02-素材')
+      mkdirSync(vDir2, { recursive: true })
+      const ok2 = await runFf(['-f', 'lavfi', '-i', 'smptebars=duration=2:size=360x640:rate=10',
+        '-c:v', 'libopenh264', '-pix_fmt', 'yuv420p', '-y', join(vDir2, '竖版视频-2秒.mp4')])
+      ffmpegOk = ok1 && ok2
+      if (!ffmpegOk) errs.push('FFmpeg 造视频失败（ok1=' + ok1 + ' ok2=' + ok2 + '）')
+    }
+  } catch (e) {
+    errs.push('FFmpeg 环节异常：' + e.message)
+  }
+  say('ffmpeg video samples', ffmpegOk)
 
   scanAll(root)
   registerIpc()
@@ -461,6 +494,34 @@ app.whenReady().then(async () => {
   const sized = checks.filter((c) => c.expect)
   say('size cross-check', sized.map((c) => (c.ok ? 'OK' : 'MISMATCH') + ' ' + c.expect).join(' | ') || '(无带尺寸的文件名)')
   say('all sizes match', sized.length > 0 && sized.every((c) => c.ok))
+
+  // ── 11. B-02 视频行：信息行应有 时长 + 编码，缩略图应是真图 ──
+  const videoRows = (metaDump || []).filter((s) => /\.mp4|\.mov|\.mkv|\.avi|\.webm/i.test(s))
+  say('video rows found', videoRows.length)
+  say('video meta lines', JSON.stringify(videoRows))
+  if (videoRows.length) {
+    say(
+      'video has duration',
+      videoRows.every((s) => /00:0\d/.test(s))
+    )
+    say(
+      'video has codec',
+      videoRows.every((s) => /h264|hevc|vp9|av1/i.test(s))
+    )
+  }
+  // 视频行缩略图：.pic 里应是 <img>（抽帧成功）而不是 .ext 占位块
+  const videoThumbs = await js(`
+    (() => {
+      const rows = Array.from(document.querySelectorAll('.file-row')).filter(r => /\\.mp4|\\.mov|\\.mkv|\\.avi|\\.webm/i.test(r.querySelector('.fn')?.innerText || ''))
+      return rows.map(r => ({
+        name: r.querySelector('.fn')?.innerText,
+        hasImg: !!r.querySelector('.pic img'),
+        hasPlaceholder: !!r.querySelector('.pic .ext')
+      }))
+    })()
+  `)
+  say('video thumbs', JSON.stringify(videoThumbs))
+  shot('shot-b2-video.png', (await win.webContents.capturePage()).toPNG())
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))

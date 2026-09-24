@@ -145,4 +145,27 @@
 - **补齐双路径**：应用启动后台全库补齐（`enrichAllImageMeta`）+ 每次扫描完对新文件定点补齐（`ensureImageMetaForAssets`），均幂等（已有值的跳过）
 - **放弃**：引入 image-size / exiftool 等新依赖；采集失败弹错误提示（骚扰用户）
 
+## 2026-09-24　FFmpeg 选 BtbN LGPL 静态版随包分发；测试视频用 libopenh264 生成
+
+- **决定**：
+  1. FFmpeg 用 **BtbN win64-lgpl 静态构建**（`ffmpeg-master-latest-win64-lgpl.zip`），只取 `ffmpeg.exe`/`ffprobe.exe`/`LICENSE.txt` 放 `resources/ffmpeg/`，electron-builder `extraResources` 随安装包分发
+  2. 生成测试视频用 **libopenh264** 编码器（LGPL 版自带），不用 libx264
+- **原因**：
+  1. LGPL 许可可随闭源软件分发（GPL 版有传染风险）；静态构建免 DLL 依赖，拷过去就能跑；exe 共 267 MB 换来"同事机器开箱即用"
+  2. **x264 编码器是 GPL 的，LGPL 版不含**；但 libopenh264 是 Cisco 开源的 BSD 许可 H.264 编码器，codec 名同为 h264。关键认知：GPL 限制只在**编码器**，H.264/HEVC 等**解码器**不受影响——用户视频的信息读取与抽帧完全正常
+- **运行时定位**：dev 从项目根 `resources/ffmpeg`，打包后 `process.resourcesPath/ffmpeg`；找不到时不崩，视频功能整体降级（缩略图/信息留空）
+- **已知代价**：安装包体积 +267 MB；FFmpeg 版本升级需手动换 exe
+- **放弃**：让用户自装 FFmpeg（环境步骤多）；GPL 版（许可风险）；gyan.dev 版（文件大、更新慢）
+
+## 2026-09-24　视频信息与抽帧的超时与降级铁则
+
+- **决定**：
+  1. 所有 ffmpeg/ffprobe 调用走统一 `runCmd()`：**超时强杀**（probe 15s / 抽帧 25s），绝不挂死主进程
+  2. 探测失败的文件**不报错不中断**：duration_ms/video_codec 留 null，文件照常入库显示
+  3. FFmpeg 缺失时功能整体降级（补齐函数直接返回 0），界面其余功能不受影响
+  4. 抽帧先试 `-ss 1`，失败回退 `-ss 0`（兜底超短视频）
+- **原因**：视频文件损坏、编码怪异、超大体积都是常态；媒体增强功能绝不能成为入库主链路的故障点。视频行哪怕没有时长没有缩略图，也要出现在列表里可以被搜到、打开
+- **验证锚点**：假视频（文本冒充 mp4）探测失败 → duration_ms=null 且不崩；摘掉 ffmpeg.exe → 补齐返回 0
+- **放弃**：探测失败重试队列（原型不需要）；FFmpeg 缺失时弹窗提示（降级静默，README 已记录）
+
 ---

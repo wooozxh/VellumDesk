@@ -20,7 +20,13 @@ import {
   SUB_FOLDERS,
   UNASSIGNED_ROLE
 } from './src/main/workspace'
-import { ensureThumbsForAssets, ensureImageMetaForAssets } from './src/main/thumbs'
+import {
+  ensureThumbsForAssets,
+  ensureImageMetaForAssets,
+  ensureVideoMetaForAssets,
+  setFfmpegDir,
+  ffmpegReady
+} from './src/main/thumbs'
 import { getDb, closeDb } from './src/main/db'
 
 /** 每次跑用一个全新的工作区目录，避免上一次的残留污染结果 */
@@ -631,6 +637,154 @@ async function main(): Promise<void> {
 
   // 回到主工作区继续
   initWorkspace(WS)
+
+  // ============ 第 2 批 B-02：视频信息与视频缩略图 ============
+  log('\n[13] 第 2 批 B-02：FFmpeg 视频探测 / 抽帧')
+
+  // FFmpeg 就位检测（resources/ffmpeg；没就位则视频功能应整体降级而不是崩）
+  const projFfDir = 'D:\\proj_media\\resources\\ffmpeg'
+  setFfmpegDir(existsSync(join(projFfDir, 'ffmpeg.exe')) ? projFfDir : '')
+  log(`  （FFmpeg 就位：${ffmpegReady() ? '是' : '否 —— 本轮跑降级断言'}）`)
+
+  // 13.1 无 FFmpeg 时：批量补视频信息应返回 0 且不报错
+  if (!ffmpegReady()) {
+    const vRows = getDb()
+      .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+    const vRet = await ensureVideoMetaForAssets(vRows)
+    ok(vRet === 0, `无 FFmpeg 时视频补齐返回 0（降级不崩）：实际 ${vRet}`)
+  }
+
+  // 13.2 有 FFmpeg 时：造 2 秒 320x240 测试视频（ffmpeg 自己生成，格式绝对正确）
+  const videoPack = createPack({ name: '视频测试包', workspaceRoot: WS })
+  const vidPath = join(videoPack.folder_path, '01-成品', 'demo.mp4')
+  let videoMade = false
+  if (ffmpegReady()) {
+    // 用异步 spawn（沙箱环境拦 spawnSync，见 PROGRESS.md 已知问题）
+    const { spawn } = require('child_process') as typeof import('child_process')
+    videoMade = await new Promise<boolean>((resolve) => {
+      let settled = false
+      const done = (v: boolean): void => {
+        if (!settled) {
+          settled = true
+          resolve(v)
+        }
+      }
+      // 45 秒兜底，防止 ffmpeg 挂死拖垮整个验收
+      const timer = setTimeout(() => done(false), 45000)
+      try {
+        const child = spawn(
+          join(projFfDir, 'ffmpeg.exe'),
+          [
+            '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x240:rate=10',
+            // 注意：LGPL 版不含 libx264（GPL），用 libopenh264（BSD，codec 名同为 h264）
+            '-c:v', 'libopenh264', '-pix_fmt', 'yuv420p', '-y', vidPath
+          ],
+          { windowsHide: true }
+        )
+        child.on('error', () => {
+          clearTimeout(timer)
+          done(false)
+        })
+        child.on('close', (code) => {
+          clearTimeout(timer)
+          done(code === 0 && existsSync(vidPath))
+        })
+      } catch {
+        clearTimeout(timer)
+        done(false)
+      }
+    })
+  }
+  if (!videoMade) {
+    // 没有可用 FFmpeg 就造一个假 mp4，至少验证降级路径
+    writeFileSync(vidPath, '这不是一个真视频')
+  }
+  ok(existsSync(vidPath), `测试视频已生成：demo.mp4（真实=${videoMade}）`)
+
+  scanAll(WS)
+  const vMetaRows = getDb()
+    .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+  const vWritten = await ensureVideoMetaForAssets(vMetaRows)
+
+  const vRow = getDb()
+    .prepare(
+      'SELECT width, height, duration_ms, video_codec, probe_info FROM assets WHERE file_name = ?'
+    )
+    .get('demo.mp4') as
+    | { width: number | null; height: number | null; duration_ms: number | null; video_codec: string | null; probe_info: string | null }
+    | undefined
+  ok(!!vRow, '视频已登记进库')
+
+  if (videoMade) {
+    ok(vWritten >= 1, `本次补齐 ${vWritten} 个视频的元信息`)
+    ok(
+      vRow?.duration_ms !== null && vRow.duration_ms > 1500 && vRow.duration_ms < 2500,
+      `时长正确：${vRow?.duration_ms} ms（造的是 2 秒，允许 ±500）`
+    )
+    ok(vRow?.video_codec === 'h264', `视频编码识别为 ${vRow?.video_codec}（应为 h264）`)
+    ok(vRow?.width === 320 && vRow?.height === 240, `视频尺寸 ${vRow?.width}×${vRow?.height}（应为 320×240）`)
+    ok(
+      !!vRow?.probe_info && vRow.probe_info.includes('fps'),
+      `probe_info 已存（${vRow?.probe_info?.slice(0, 60)}）`
+    )
+
+    // 13.3 幂等
+    const vAgain = await ensureVideoMetaForAssets(
+      getDb()
+        .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+        .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+    )
+    ok(vAgain === 0, `视频元信息第二次运行处理 0 个（幂等）：实际 ${vAgain}`)
+
+    // 13.4 视频缩略图：抽帧生成 .jpg
+    const vThumbRows = getDb()
+      .prepare('SELECT id, abs_path, size, ext, thumb_path, modified_at FROM assets WHERE file_name = ?')
+      .all('demo.mp4') as Array<{
+      id: number
+      abs_path: string
+      size: number
+      ext: string
+      thumb_path: string | null
+      modified_at: string
+    }>
+    const thumbed = await ensureThumbsForAssets(WS, vThumbRows)
+    ok(thumbed >= 1, `视频缩略图生成 ${thumbed} 张`)
+    const vAfter = getDb()
+      .prepare('SELECT thumb_path FROM assets WHERE file_name = ?')
+      .get('demo.mp4') as { thumb_path: string | null }
+    ok(
+      !!vAfter.thumb_path && vAfter.thumb_path.endsWith('.jpg') && existsSync(join(WS, vAfter.thumb_path)),
+      `视频缩略图落盘：${vAfter.thumb_path}`
+    )
+
+    // 13.5 假视频（文本冒充 mp4）：探测失败降级，不崩、不阻断
+    const fakePath = join(videoPack.folder_path, '02-素材', 'fake.mp4')
+    writeFileSync(fakePath, '这不是一个真视频，只是文本')
+    scanAll(WS)
+    await ensureVideoMetaForAssets(
+      getDb()
+        .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+        .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+    )
+    const fakeRow = getDb()
+      .prepare('SELECT id, duration_ms FROM assets WHERE file_name = ?')
+      .get('fake.mp4') as { id: number; duration_ms: number | null }
+    ok(!!fakeRow, '假视频依然被登记进库（不丢弃用户文件）')
+    ok(fakeRow?.duration_ms === null, '假视频探测失败 → duration_ms 保持 null（没崩）')
+  }
+
+  // 13.6 临时摘掉 FFmpeg 再跑：整体降级返回 0（恢复后再继续）
+  if (ffmpegReady()) {
+    setFfmpegDir('')
+    const offRows = getDb()
+      .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
+    const offRet = await ensureVideoMetaForAssets(offRows)
+    ok(offRet === 0, `摘掉 FFmpeg 后补齐返回 0（功能降级而非报错）：实际 ${offRet}`)
+    setFfmpegDir(projFfDir)
+  }
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

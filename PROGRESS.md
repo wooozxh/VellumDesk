@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**MVP 第 2 批「缩略图与媒体信息」—— 步骤 1（图片元信息）完成 ✅，步骤 2（FFmpeg+视频）待开工**
-- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 1/4（图片元信息）；MVP 整体约 31%
+- 阶段：**MVP 第 2 批「缩略图与媒体信息」—— 步骤 1（图片元信息）+ 步骤 2（FFmpeg+视频）完成 ✅，剩 PDF / PSD**
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 2/4（图片元信息 + 视频全链路）；MVP 整体约 35%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 已完成
@@ -29,25 +29,26 @@
 - [x] 2026-09-24　✅ **第 1 批自动验收通过**：`node accept.cjs` 45 项断言全过；真实窗口截图验证界面正常、控制台零报错
 - [x] 2026-09-24　✅ **项目管理增强完成**（用户中途插入需求）：项目可自建/编辑/真删，11 项新增断言并入回归（共 71 项全过）+ 老库迁移实测通过 + 界面截图验证通过
 - [x] 2026-09-24　✅ **排序 + 左栏宽度完成**：项目上下箭头排序（83 项断言）；左栏默认 220px + 拖拽 170~420px 存 localStorage（提交 `c860100` / `20346ce` / `c050a0d`）
-- [x] 2026-09-24　✅ **第 2 批步骤 1（图片元信息）完成**：DB 6 新列 + sharp 采集尺寸/色彩 + 列表直显，101 项断言全过 + 截图验证尺寸正确（详见第 6 次会话日志）
+- [x] 2026-09-24　✅ **第 2 批步骤 1（图片元信息）完成**：DB 6 新列 + sharp 采集尺寸/色彩 + 列表直显，101 项断言全过 + 截图验证尺寸正确（提交 `0ebae98`）
+- [x] 2026-09-24　✅ **第 2 批步骤 2（FFmpeg + 视频）完成**：ffmpeg.exe/ffprobe.exe 随包就位（LGPL 版）+ ffprobe 读时长/编码/尺寸/帧率 + ffmpeg 抽帧做视频缩略图 + 无 FFmpeg 时功能降级，**114 项断言全过** + 截图壳验证视频行信息与真缩略图
 
 ## 待办
 
-- [ ] **第 2 批步骤 2：FFmpeg + 视频缩略图/视频信息**（用户已拍板：FFmpeg 随软件打包，下载 LGPL static build → `resources/` → electron-builder `extraResources`）
-- [ ] 第 2 批步骤 3：PDF 首页缩略图（选型 `pdfjs-dist`+canvas 或 `mupdf`）
+- [ ] **第 2 批步骤 3：PDF 首页缩略图**（选型 `pdfjs-dist`+canvas 或 `mupdf`）
 - [ ] 第 2 批步骤 4：PSD 内嵌预览图（**用户会提供 PSD 样本**）
-- [ ] 用户上手验收：第 1 批 + 项目管理 + 排序 + 左栏宽度 + 图片元信息
+- [ ] 用户上手验收：第 1 批 + 项目管理 + 排序 + 左栏宽度 + 图片元信息 + 视频
 
 ## 下一步（下次开工从这里开始）
 
-**第 2 批步骤 2：FFmpeg + 视频。**
+**第 2 批步骤 3：PDF 首页缩略图。**
 
-1. 下载 FFmpeg LGPL static build（gyan.dev 或 BtbN），放 `resources/ffmpeg/`（`ffmpeg.exe` + `ffprobe.exe`）
-2. `package.json` electron-builder 配 `extraResources`；主进程按 `app.isPackaged` 解析运行时路径
-3. `thumbs.ts` 加视频抽帧（ffmpeg `-ss 1 -vframes 1`）+ `ffprobe -show_streams` 读时长/编码 → 写 `duration_ms`/`video_codec`/`probe_info`
-4. 扫描/启动补齐双路径对齐图片元信息的写法
-5. 验收断言 + 截图壳验证（造 mp4 样本：ffmpeg 本身就能生成 testsrc）
-6. PSD 样本等用户提供后做步骤 4
+1. 选型：`pdfjs-dist` + @napi-rs/canvas（纯 JS 渲染）或 `mupdf`（官方 node 绑定，C++ 更快）
+2. `thumbs.ts` 加 `ensurePdfThumb()`：渲染第 1 页 → 320 宽 webp，与图片/视频同一 thumbKey 复用逻辑
+3. `isPdf()` 加入 `ensureThumbsForAssets` 分派；信息行补页数（可选）
+4. 验收断言（造 PDF 样本：sharp 不能产 PDF，可用 pdf-lib 或手工最小 PDF）+ 截图壳验证
+5. PSD 样本等用户提供后做步骤 4
+
+注意：AI 沙箱里 node 的 **spawnSync 全部 EBUSY**（连 ping 都不行），异步 spawn 正常——验收脚本里跑外部命令一律用异步 spawn。
 
 ## 已知问题与风险
 
@@ -190,6 +191,26 @@
   - TS6133：ipc.ts 误 import 未使用的 `readImageMeta` → 移除
 - **验收结果**：✅ 101 项断言全过 + `npm run build` 成功 + 截图壳全流程验证（排序换位/信息行尺寸/控制台零报错）
 - **下一步**：第 2 批步骤 2 —— FFmpeg 随包 + 视频缩略图/信息
+
+### 2026-09-24（第 6 次会话续）—— 第 2 批步骤 2：FFmpeg + 视频全链路
+
+- **做了什么**：
+  - **FFmpeg 就位**：BtbN `ffmpeg-master-latest-win64-lgpl.zip`（172 MB）下载校验 → 提取 `ffmpeg.exe`/`ffprobe.exe`/`LICENSE.txt` 到 `resources/ffmpeg/`（267 MB，exe 不入 git，README 记录重建方式）；package.json 配 electron-builder `extraResources`（打包后位于 `<安装目录>/resources/ffmpeg`）
+  - **thumbs.ts 扩展视频支持**（保持不依赖 electron，路径注入）：
+    - `setFfmpegDir()` + 环境变量 `MEDIA_FFMPEG_DIR` 兜底（测试壳 bundle 里 thumbs 副本拿不到显式注入）
+    - `runCmd()`：spawn 封装，超时杀进程，绝不挂死主进程
+    - `readVideoMeta()`：ffprobe JSON 读时长/编码/宽高/fps/音频编码/总码率 → `ensureVideoMetaForAssets()` 定点补齐 + `enrichAllVideoMeta()` 启动补齐，幂等
+    - `ensureVideoThumb()`：`ffmpeg -ss 1 -vframes 1` 抽帧缩 320 宽 jpg，短视频自动回退 `-ss 0` 重试
+  - **集成**：`ensureThumbsForAssets` 按扩展名分派（图片走 sharp / 视频走 ffmpeg）；`scan:refresh` 补视频信息；`view:assets`/`view:packDetail` 缩略图读取改为「有 thumb_path 直接读」——修复视频缩略图读不出（原来按素材扩展名 isImage 判断，mp4 被排除）
+  - **index.ts**：`locateFfmpegDir()`（dev=项目根 / packaged=process.resourcesPath）+ 启动补视频信息
+  - **验收**：accept.ts 加 [13] 段视频断言 → **114 项全过**（真视频 2 秒 mp4：时长 2000ms、h264、320×240、probe_info 含 fps；幂等二次 0 个；抽帧落盘 .jpg；**假视频降级** duration_ms=null 不崩；**摘掉 FFmpeg 整体降级**返回 0）
+  - **截图壳**：FFmpeg 造横版 640×360 3 秒 + 竖版 360×640 2 秒测试视频 → 视频行显示 `640×360 · 00:03 · h264`，两个视频都渲染**真抽帧缩略图**（hasImg:true），图片尺寸交叉核对保持 OK，控制台零报错
+- **遇到的问题（3 个连环坑）**：
+  - **LGPL 版不含 libx264**（GPL 库）→ 测试视频生成报 `Unknown encoder 'libx264'`。改用 **libopenh264**（BSD 许可，LGPL 版自带，codec 名同为 h264，断言不用改）。真实用户场景不受影响：H.264/HEVC **解码**不受 GPL 限制
+  - **AI 沙箱 node 的 spawnSync 一律 EBUSY**（连 ping / node 自己都派生失败），异步 spawn 正常 → accept.ts 与截图壳里跑 ffmpeg 一律改异步 spawn + 超时兜底。**用户本机不受任何影响**（正式应用两种都行）
+  - **下载 172 MB 中途被杀** → curl `-C -` 断点续传补完 + zip testzip 校验
+- **验收结果**：✅ 114 项断言全过 + `npm run build` 成功 + 截图壳视频行验证（信息/缩略图/零报错）
+- **下一步**：第 2 批步骤 3 —— PDF 首页缩略图
 
 ---
 

@@ -15,3 +15,8 @@ _shotapp/_userdata
 _shotapp/probe.cjs
 electron.vite.config.*.mjs
 *.tsbuildinfo
+
+# FFmpeg 下载缓存（resources/ffmpeg/ 里的 exe 入库）
+_dl/
+resources/ffmpeg/*.exe
+resources/ffmpeg/LICENSE.txt
