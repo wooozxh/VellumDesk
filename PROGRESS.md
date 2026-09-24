@@ -6,8 +6,9 @@
 
 ## 当前状态
 
-- 阶段：**环境搭建 ✅ 验收通过**（2026-09-24 窗口弹出成功）
-- 完成度：环境阶段 100%；MVP 功能 0%
+- 阶段：**MVP 第 1 批「素材入库」—— 代码完成，验收通过 ✅（待用户上手验收）**
+- 完成度：环境阶段 100%；MVP 第 1 批 100%（代码+自动验收）；MVP 整体约 25%
+- 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 已完成
 
@@ -23,33 +24,33 @@
 - [x] 2026-09-24　Electron 二进制就位（`node_modules/electron/dist/electron.exe`，201 MB）
 - [x] 2026-09-24　编译链路验证通过（main / preload / renderer 三段全部构建成功）
 - [x] 2026-09-24　✅ **环境验收通过**：`npm run dev` 窗口弹出成功（Electron 39.8.10 / Chromium 142 / 内置 Node 22.22.1）
+- [x] 2026-09-24　**入库功能方案定稿** → `docs/03-MVP入库功能方案.md`（经三轮讨论：包的概念 → 双面板 → 走法乙）
+- [x] 2026-09-24　✅ **第 1 批代码完成**：A-01 ~ A-11 全部落地（详见下方会话日志）
+- [x] 2026-09-24　✅ **第 1 批自动验收通过**：`node accept.cjs` 45 项断言全过；真实窗口截图验证界面正常、控制台零报错
 
 ## 待办
 
-（无 —— 环境阶段完结）
+- [ ] **用户上手验收第 1 批**：双击/命令行跑起来，按方案 5.3 节主线实际操作一遍（建包 → 丢文件 → 刷新 → 归位 → 认领）
+- [ ] 第 2 批：视频缩略图（先装 FFmpeg）、PDF/PSD 缩略图、图片尺寸色彩、视频媒体信息
 
 ## 下一步（下次开工从这里开始）
 
-**开新会话，做 MVP 第一个功能：素材入库**
+**用户上手验收通过后，开新会话做第 2 批（缩略图与媒体信息）。**
 
-开场白直接用这句：
-
-> 先读 D:\proj_media 里的 PROJECT.md、PROGRESS.md、DECISIONS.md，我们做素材入库功能。
-
-**⚠️ 注意：本轮不直接写代码。** 按 `PROJECT.md` 的「铁律」，第一步是**先出功能方案给用户确认**（界面上有什么、操作几步、边界怎么处理），确认后更新需求文档，再动代码。
-
-入库功能的技术轮廓（供出方案时参考）：
-选一个文件夹 → 扫描里面的图片/视频/设计文件 → 存进 SQLite 索引 → 列表页展示出来。
+- 回归测试：`node accept.cjs` 前先 `./node_modules/.bin/esbuild accept.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:sharp --outfile=accept.cjs`
+- 第 2 批动工前记得先装 FFmpeg
 
 ## 已知问题与风险
 
 | 问题 | 影响 | 状态 |
 |---|---|---|
+| **better-sqlite3 不需要 electron-rebuild** | v13 起用 N-API 预编译二进制（`prebuilds/win32-x64.node`），Electron 下直接可用；旧台账"必须重编译"的结论作废，且本机无 Visual Studio 也编译不了 | ✅ 已实测确认（2026-09-24） |
 | 本机有两个 Node 版本（系统 v24.21.0 / 内置 v22.22.2） | 排查"这边能跑那边报错"时留意 | 已知 |
 | npm 11 禁止用 `config set` 写非标准配置项 | 曾导致 Electron 镜像配置报错，已改用用户环境变量 | 已解决 |
 | C 盘空间紧张（剩 34 GB） | 已通过 npm 缓存外迁到 D 盘缓解 | 已解决 |
-| FFmpeg 未安装 | 第二步（视频抽帧）前必须补 | 延后处理 |
-| better-sqlite3 是原生模块 | 做数据库功能时需 `npx electron-rebuild` | 延后处理 |
+| FFmpeg 未安装 | 第 2 批（视频抽帧）前必须补 | 延后处理 |
+| **AI 沙箱里跑 Electron 会被拦** | AI 的 shell 带 `ELECTRON_RUN_AS_NODE=1`（Electron 退化成纯 Node）且 GPU 不可用；用户自己双击/终端跑不受影响。AI 验证界面用 `_shotapp/`（内含禁用 GPU 的测试壳） | 已解决（有绕行方案） |
+| 正式应用已全局禁用 GPU 硬加速 | 缩略图走 sharp（CPU），界面软件渲染足够；任何显卡有问题的办公机都能稳启动，演示不翻车 | ✅ 有意为之 |
 
 ---
 
@@ -81,6 +82,50 @@
 - **遇到的问题**：`npm config set electron_mirror` 在 npm 11 下报 `not a valid npm option`
 - **验收结果**：✅ 窗口弹出成功（Electron 39.8.10），环境阶段完结
 - **下一步**：开新会话做 MVP 第一功能 —— 素材入库
+
+### 2026-09-24（第 3 次会话）
+
+- **做了什么**：
+  - 读三份档案接上进度，核对需求文档 M1 全部 11 条、M2 五维度、7.4 节六张表设计
+  - 出入库功能方案 → 用户提出**重大调整：入库单元从「文件」改成「任务包」**
+  - 逐轮讨论：包的概念 → 包从哪来（先建包 vs 扫出来）→ 双面板 → 走法甲/乙
+  - **用户拍板：走法乙**（第 1 批就立「包」为核心对象），理由是要先拿到**能向领导汇报的原型**
+  - 方案定稿落文档 → `docs/03-MVP入库功能方案.md`
+- **改了哪些文件**：
+  - 新增 `docs/03-MVP入库功能方案.md`（方案定稿，含 4 处与需求文档的冲突清单）
+  - `PROJECT.md`：重写「包」核心概念、入库施工顺序改 4 批、技术栈加"素材工作区"
+  - `DECISIONS.md`：新增 3 条决策（包进第 1 批 / 归类按文件夹不按后缀 / 未归属池）
+  - `PROGRESS.md`：本文件
+  - **未写任何业务代码**（铁律第 ①②③ 步）
+- **遇到的问题**：需求文档 8.1 节把包的核心能力（M6 版本、M5 交付）划在第二步，与"第 1 批立包"冲突 → **已在方案文档 8 节列明，属明知而接受的债务**，第二步做 M6 时回来补
+- **验收结果**：方案待用户确认（已口头同意走法乙）
+- **下一步**：开新会话写第 1 批代码，先 `npx electron-rebuild`
+
+### 2026-09-24（第 4 次会话）
+
+- **做了什么**：
+  - 装依赖 `better-sqlite3@13` + `sharp@0.35`；**实测发现 better-sqlite3 用 N-API 预编译、无需 electron-rebuild**（无 Visual Studio 也能跑），旧风险结清
+  - 写第 1 批全部代码（A-01 ~ A-11）：
+    - 主进程：`db.ts`（packs/assets 两表）、`workspace.ts`（建包/扫描归位/认领/查询）、`thumbs.ts`（sharp 缩略图）、`ipc.ts`（全部 ipcMain.handle）
+    - 通信：preload 用 `contextBridge` 暴露 invoke 接口（遵守方案 6.1，不用 send）
+    - 界面：`App.tsx` 双面板主框架 + `PackCard`/`FileRow`/`NewPackModal`/`PackDetailModal`，手写深色 CSS
+    - 共享类型抽到 `src/shared/types.ts`（三端同一份）
+  - 自动验收：`accept.ts` 按方案 5.3 节主线写 45 项断言，**全部通过**（含"归类按文件夹不按后缀""软件不悄悄扔文件"两条铁则校验）
+  - 界面验证：`_shotapp/` 测试壳启动真实窗口截图——包视图/文件视图/新建包弹窗全部正常渲染，控制台零报错
+  - 正式应用加 `app.disableHardwareAcceleration()`（缩略图走 CPU，禁 GPU 换取任何机器都能稳启动）
+- **改了哪些文件**：
+  - 新增 `src/main/db.ts` / `src/main/workspace.ts` / `src/main/thumbs.ts` / `src/main/ipc.ts`
+  - 新增 `src/shared/types.ts`、`src/renderer/src/components/{PackCard,FileRow,NewPackModal,PackDetailModal}.tsx`、`src/renderer/src/types.ts`
+  - 新增 `accept.ts`（回归验收脚本）、`_shotapp/`（界面测试壳）
+  - 重写 `src/main/index.ts` / `src/preload/index.ts` / `src/preload/index.d.ts` / `src/renderer/src/App.tsx` / `src/renderer/src/assets/main.css`
+  - `package.json`：+better-sqlite3、+sharp
+  - 归档更新：`PROGRESS.md` / `DECISIONS.md` / `PROJECT.md`
+- **遇到的问题**：
+  - `electron-rebuild` 报"找不到 Visual Studio" → 查明 v13 预编译二进制可直接用，问题不存在
+  - AI 沙箱环境 `ELECTRON_RUN_AS_NODE=1` + 无 GPU，Electron 退化成纯 Node → 用 `_shotapp`（unset 变量 + 禁 GPU + 软件渲染）绕行完成界面验证；用户本机正常跑不受影响
+  - AI 沙箱的"批量删除护栏"会拦 `npm run dev/preview`（Vite 清 out/ 目录触发）→ 用户本机不受影响；AI 侧验证改用直接跑构建产物
+- **验收结果**：✅ 45 项断言全过 + 真实窗口截图验证通过。**待用户上手按 5.3 节主线实际操作一遍**
+- **下一步**：用户上手验收 → 第 2 批（视频/PDF/PSD 缩略图，先装 FFmpeg）
 
 ---
 

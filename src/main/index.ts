@@ -1,15 +1,20 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { registerIpc } from './ipc'
+import { getWorkspaceRoot, initWorkspace } from './workspace'
 
 function createWindow(): void {
-  // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1360,
+    height: 860,
+    minWidth: 1000,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
+    backgroundColor: '#15161a',
+    title: '素材管家',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -26,8 +31,6 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -35,40 +38,36 @@ function createWindow(): void {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+// 禁用 GPU 硬件加速：本工具的缩略图走 sharp（CPU），界面软件渲染足够；
+// 换来的好处是任何显卡驱动有问题的办公机都能稳定启动（演示不翻车）
+app.disableHardwareAcceleration()
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.mediabutler')
+
+  // 启动即初始化工作区（A-02）：建目录 + 建库，避免界面首次查询时表还不存在
+  try {
+    const root = getWorkspaceRoot(app.getPath('userData'))
+    initWorkspace(root)
+  } catch (e) {
+    console.error('[workspace] 初始化失败：', e)
+  }
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  registerIpc()
 
   createWindow()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
