@@ -4,3 +4,13 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# 界面验证截图与测试产物（本地产物，不入库）
+shot-*.png
+shot-*.txt
+shot-*.json
+accept-result.txt
+accept.cjs
+_shotapp/_userdata
+_shotapp/probe.cjs
+electron.vite.config.*.mjs

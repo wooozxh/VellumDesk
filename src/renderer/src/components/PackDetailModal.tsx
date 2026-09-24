@@ -144,7 +144,25 @@ export function PackDetailModal({
                 <div className="info">
                   <div className="row">
                     <span className="k">所属项目：</span>
-                    <span className="tag proj">{detail.pack.project}</span>
+                    {detail.pack.projectName ? (
+                      <span
+                        className="tag proj"
+                        style={{
+                          color: detail.pack.projectColor ?? 'var(--accent)',
+                          borderColor: (detail.pack.projectColor ?? '#4f8cff') + '77',
+                          background: (detail.pack.projectColor ?? '#4f8cff') + '22'
+                        }}
+                      >
+                        {detail.pack.projectName}
+                      </span>
+                    ) : (
+                      <span
+                        className="tag"
+                        style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}
+                      >
+                        未指定项目
+                      </span>
+                    )}
                     <span className="k">类别：</span>
                     <span className="tag">{detail.pack.category}</span>
                   </div>

@@ -11,15 +11,28 @@ const api = {
   wsSetRoot: (root: string) => ipcRenderer.invoke('ws:setRoot', root),
   wsOpenRoot: () => ipcRenderer.invoke('ws:openRoot'),
 
+  // 项目维护
+  listProjects: () => ipcRenderer.invoke('project:list'),
+  createProject: (input: { name: string; color?: string; note?: string }) =>
+    ipcRenderer.invoke('project:create', input),
+  updateProject: (id: number, patch: { name?: string; color?: string; note?: string }) =>
+    ipcRenderer.invoke('project:update', { id, patch }),
+  removeProject: (id: number, action: { moveTo: number | null }) =>
+    ipcRenderer.invoke('project:remove', { id, moveTo: action.moveTo }),
+
   // 建包 / 扫描
-  createPack: (input: { name?: string; project?: string; category?: string }) =>
+  createPack: (input: { name?: string; projectId?: number | null; category?: string }) =>
     ipcRenderer.invoke('pack:create', input),
   refreshScan: () => ipcRenderer.invoke('scan:refresh'),
 
   // 视图
   listPacks: () => ipcRenderer.invoke('view:packs'),
-  listAssets: (opts: { keyword?: string; view?: 'all' | 'unassigned'; packId?: number }) =>
-    ipcRenderer.invoke('view:assets', opts),
+  listAssets: (opts: {
+    keyword?: string
+    view?: 'all' | 'unassigned'
+    packId?: number
+    projectId?: number
+  }) => ipcRenderer.invoke('view:assets', opts),
   packDetail: (packId: number) => ipcRenderer.invoke('view:packDetail', packId),
 
   // 认领

@@ -32,7 +32,26 @@ export function PackCard({
           {pack.fileCount} 个文件 · {fmtSize(pack.totalSize)}
         </div>
         <div className="tags">
-          <span className="tag proj">{pack.project}</span>
+          {pack.projectName ? (
+            <span
+              className="tag proj"
+              style={{
+                color: pack.projectColor ?? 'var(--accent)',
+                borderColor: (pack.projectColor ?? '#4f8cff') + '77',
+                background: (pack.projectColor ?? '#4f8cff') + '22'
+              }}
+            >
+              {pack.projectName}
+            </span>
+          ) : (
+            <span
+              className="tag"
+              style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}
+              title="这个包没有指定项目"
+            >
+              未指定项目
+            </span>
+          )}
           <span className="tag">{pack.category}</span>
         </div>
       </div>

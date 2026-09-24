@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**MVP 第 1 批「素材入库」—— 代码完成，验收通过 ✅（待用户上手验收）**
-- 完成度：环境阶段 100%；MVP 第 1 批 100%（代码+自动验收）；MVP 整体约 25%
+- 阶段：**MVP 第 1 批「素材入库」+ 项目管理增强 —— 代码完成，验收通过 ✅（待用户上手验收）**
+- 完成度：环境阶段 100%；MVP 第 1 批 100%（代码+自动验收）；项目管理增强 100%；MVP 整体约 27%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 已完成
@@ -27,6 +27,7 @@
 - [x] 2026-09-24　**入库功能方案定稿** → `docs/03-MVP入库功能方案.md`（经三轮讨论：包的概念 → 双面板 → 走法乙）
 - [x] 2026-09-24　✅ **第 1 批代码完成**：A-01 ~ A-11 全部落地（详见下方会话日志）
 - [x] 2026-09-24　✅ **第 1 批自动验收通过**：`node accept.cjs` 45 项断言全过；真实窗口截图验证界面正常、控制台零报错
+- [x] 2026-09-24　✅ **项目管理增强完成**（用户中途插入需求）：项目可自建/编辑/真删，11 项新增断言并入回归（共 71 项全过）+ 老库迁移实测通过 + 界面截图验证通过
 
 ## 待办
 
@@ -125,6 +126,31 @@
   - AI 沙箱环境 `ELECTRON_RUN_AS_NODE=1` + 无 GPU，Electron 退化成纯 Node → 用 `_shotapp`（unset 变量 + 禁 GPU + 软件渲染）绕行完成界面验证；用户本机正常跑不受影响
   - AI 沙箱的"批量删除护栏"会拦 `npm run dev/preview`（Vite 清 out/ 目录触发）→ 用户本机不受影响；AI 侧验证改用直接跑构建产物
 - **验收结果**：✅ 45 项断言全过 + 真实窗口截图验证通过。**待用户上手按 5.3 节主线实际操作一遍**
+- **下一步**：用户上手验收 → 第 2 批（视频/PDF/PSD 缩略图，先装 FFmpeg）
+
+### 2026-09-24（第 5 次会话）—— 项目管理增强（用户中途插入需求）
+
+- **做了什么**：
+  - 用户提出：左栏「所属项目」不能只有预制项目，要能自己新建（公司开新业务 / 内部孵化新项目）
+  - 三个设计取舍经用户确认：**删除=能真删但需确认（有包时指定去向）**；**建包弹窗不加新建项目入口（只在左栏建）**；**项目颜色要，且用户自己挑**
+  - 数据层：新增 `projects` 表（name/color/note/sort_order/archived），`packs.project` 文本列升级为 `project_id` 外键；写幂等迁移（老库自动建表、按旧项目名搬迁回填、包归属不丢），空库落 3 个预制项目
+  - 业务层：项目 CRUD 五个函数（列表带包数、建、改、删）；**删项目铁则——包永不跟着消失**，要么转移给别的项目、要么变「未归属」；拒绝删掉最后一个项目
+  - 界面层：左栏项目行带色点 + 悬浮出 ✎/✕ 小按钮 +「＋ 新建项目」；`ProjectModal`（新建/编辑，10 色色块自选、重名拦截）；`DeleteProjectModal`（无包直接确认；有包给二选一去向）；包卡片/详情的项目标签用项目配色；`NewPackModal` 项目下拉改读 projects 表
+  - 修了两个真 bug：`idx_packs_project` 索引建在新库无 `project_id` 时会崩（移出建表块）；`uniqueFolderPath` 只查磁盘不查库，DB 残留记录触发 UNIQUE 冲突（改为同时查两者）
+  - 自动验收：`accept.ts` 扩到 **71 项断言全过**（新增项目 CRUD、删项目铁则、老库迁移），工作区改用每次全新的 `D:\_accept_ws\run_<ts>` 规避沙箱删除护栏
+  - 界面验证：截图壳驱动态真实 UI 走完整流程——新建项目（选色）→ 悬浮出按钮 → 编辑回填 → 删除空项目 → 删有包项目出二选一 → 新建包下拉带出全部项目；**11 张截图 + 控制台零报错**
+- **改了哪些文件**：
+  - `src/main/db.ts`（projects 表 + 迁移 + PROJECT_COLORS/pickColor）、`src/main/workspace.ts`（项目 CRUD + createPack 收 projectId + uniqueFolderPath 修 bug）、`src/main/ipc.ts`（project:list/create/update/remove + ws:info 带 projects）
+  - `src/shared/types.ts`（+Project/ProjectWithCount，PackCard 改 project_id/projectName/projectColor）
+  - `src/preload/index.ts` / `src/preload/index.d.ts`、`src/renderer/src/types.ts`
+  - `src/renderer/src/App.tsx`（项目面板重写）、新增 `components/ProjectModal.tsx` / `components/DeleteProjectModal.tsx`
+  - `components/PackCard.tsx` / `PackDetailModal.tsx` / `NewPackModal.tsx`（配色 + projectId）、`assets/main.css`（新样式类）
+  - `accept.ts`（71 断言）、`_shotapp/main.cjs`（重写为项目管理验证流）
+  - 归档更新：`PROGRESS.md` / `DECISIONS.md` / `PROJECT.md`
+- **遇到的问题**：
+  - 截图壳第一版找不到新项目的 `.mini` 按钮 → 根因是按钮只在 React hover state 为真时才渲染，DOM 派发 `mouseover` 需带 `bubbles: true` 才能触发 React 合成事件；改为先 `body` 上派发移开焦点再对目标行派发，稳定复现
+  - 其余坑均已在第 4 次会话记录过（沙箱 ELECTRON_RUN_AS_NODE / GPU / 删除护栏），本次直接沿用绕行方案
+- **验收结果**：✅ 71 项断言全过 + 老库迁移实测通过（包归属不丢）+ `npm run build` 成功 + 界面截图全流程验证通过（控制台零报错）。**待用户上手验收**
 - **下一步**：用户上手验收 → 第 2 批（视频/PDF/PSD 缩略图，先装 FFmpeg）
 
 ---

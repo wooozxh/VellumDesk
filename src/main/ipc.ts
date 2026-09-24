@@ -13,11 +13,15 @@ import {
   getWorkspaceRoot,
   initWorkspace,
   saveWorkspaceRoot,
+  listProjectsWithCount,
+  createProject,
+  updateProject,
+  removeProject,
   SUB_FOLDERS,
   type SubFolder
 } from './workspace'
 import { ensureThumbsForAssets, readAsDataUrl, isImage } from './thumbs'
-import { PROJECTS, CATEGORIES } from './db'
+import { PROJECT_COLORS, CATEGORIES } from './db'
 
 /**
  * 主进程 / 界面的全部通信接口。
@@ -33,12 +37,44 @@ export function registerIpc(): void {
     initWorkspace(root)
     return {
       workspaceRoot: root,
-      projects: [...PROJECTS],
+      projects: listProjectsWithCount(),
+      projectColors: [...PROJECT_COLORS],
       categories: [...CATEGORIES],
       subFolders: [...SUB_FOLDERS],
       unassigned: countUnassigned()
     }
   })
+
+  // ---------- 项目维护 ----------
+  ipcMain.handle('project:list', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return listProjectsWithCount()
+  })
+
+  ipcMain.handle('project:create', (_e, input: { name: string; color?: string; note?: string }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return createProject(input)
+  })
+
+  ipcMain.handle(
+    'project:update',
+    (_e, args: { id: number; patch: { name?: string; color?: string; note?: string } }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      return updateProject(args.id, args.patch)
+    }
+  )
+
+  ipcMain.handle(
+    'project:remove',
+    (_e, args: { id: number; moveTo: number | null }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      return removeProject(args.id, { moveTo: args.moveTo })
+    }
+  )
 
   ipcMain.handle('ws:setRoot', (_e, root: string) => {
     saveWorkspaceRoot(appData, root)
@@ -56,10 +92,7 @@ export function registerIpc(): void {
   // ---------- A-01 建包 ----------
   ipcMain.handle(
     'pack:create',
-    (
-      _e,
-      input: { name?: string; project?: string; category?: string }
-    ) => {
+    (_e, input: { name?: string; projectId?: number | null; category?: string }) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       const pack = createPack({ ...input, workspaceRoot: root })
@@ -119,7 +152,15 @@ export function registerIpc(): void {
   // ---------- A-07 文件视图 ----------
   ipcMain.handle(
     'view:assets',
-    (_e, opts: { keyword?: string; view?: 'all' | 'unassigned'; packId?: number }) => {
+    (
+      _e,
+      opts: {
+        keyword?: string
+        view?: 'all' | 'unassigned'
+        packId?: number
+        projectId?: number
+      }
+    ) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       const rows = listAssets(opts ?? {})

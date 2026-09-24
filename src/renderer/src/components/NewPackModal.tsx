@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import type { ProjectWithCount } from '../types'
 
 /**
  * A-01 新建任务包弹窗。
  * 包名称不校验、不拦截，留空也允许创建（方案 2.2 / 6.0）——
  * 输入框里放灰色示例只作引导。
+ * 项目列表来自数据库（用户可自己新建项目）；如需新项目请到左栏「＋ 新建项目」。
  */
 export function NewPackModal({
   projects,
@@ -11,13 +13,17 @@ export function NewPackModal({
   onClose,
   onSubmit
 }: {
-  projects: string[]
+  projects: ProjectWithCount[]
   categories: string[]
   onClose: () => void
-  onSubmit: (v: { name: string; project: string; category: string }) => Promise<void>
+  onSubmit: (v: {
+    name: string
+    projectId: number | null
+    category: string
+  }) => Promise<void>
 }): React.JSX.Element {
   const [name, setName] = useState('')
-  const [project, setProject] = useState(projects[0] ?? '集团通用')
+  const [projectId, setProjectId] = useState<number | null>(projects[0]?.id ?? null)
   const [category, setCategory] = useState(categories[0] ?? '海报')
   const [busy, setBusy] = useState(false)
 
@@ -25,7 +31,7 @@ export function NewPackModal({
     if (busy) return
     setBusy(true)
     try {
-      await onSubmit({ name, project, category })
+      await onSubmit({ name, projectId, category })
     } finally {
       setBusy(false)
     }
@@ -60,13 +66,19 @@ export function NewPackModal({
 
           <div className="field">
             <label>所属项目</label>
-            <select value={project} onChange={(e) => setProject(e.target.value)}>
+            <select
+              value={projectId ?? ''}
+              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+            >
               {projects.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>
+            <div className="hint">
+              项目在左栏「所属项目 → ＋ 新建项目」里维护（可自己新增）
+            </div>
           </div>
 
           <div className="field">

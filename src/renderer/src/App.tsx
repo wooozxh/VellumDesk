@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AssetItem, PackCard as PackCardType, WsInfo } from './types'
+import type {
+  AssetItem,
+  PackCard as PackCardType,
+  ProjectWithCount,
+  WsInfo
+} from './types'
 
 import { PackCard, UnassignedCard } from './components/PackCard'
 import { FileRow, fmtSize } from './components/FileRow'
 import { NewPackModal } from './components/NewPackModal'
 import { PackDetailModal } from './components/PackDetailModal'
+import { ProjectModal } from './components/ProjectModal'
+import { DeleteProjectModal } from './components/DeleteProjectModal'
 
 type ViewMode = 'packs' | 'files'
 
@@ -14,11 +21,14 @@ interface ToastMsg {
   kind: 'ok' | 'err' | 'info'
 }
 
+/** 左栏项目筛选：'全部' 或具体项目 id（null 表示「未指定项目」的包） */
+type ProjectFilter = '全部' | number | null
+
 export default function App(): React.JSX.Element {
   const [info, setInfo] = useState<WsInfo | null>(null)
   const [view, setView] = useState<ViewMode>('packs')
   const [keyword, setKeyword] = useState('')
-  const [projectFilter, setProjectFilter] = useState<string>('全部')
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
 
   const [packs, setPacks] = useState<PackCardType[]>([])
   const [stats, setStats] = useState({ packs: 0, files: 0, size: 0, unassigned: 0 })
@@ -32,6 +42,13 @@ export default function App(): React.JSX.Element {
 
   const [showNew, setShowNew] = useState(false)
   const [openPackId, setOpenPackId] = useState<number | 'unassigned' | null>(null)
+
+  // 项目维护弹窗
+  const [showProjectModal, setShowProjectModal] = useState(false)
+  const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null)
+  const [deletingProject, setDeletingProject] = useState<ProjectWithCount | null>(null)
+  const [hoverProject, setHoverProject] = useState<number | null>(null)
+
   const [scanning, setScanning] = useState(false)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
 
@@ -54,7 +71,6 @@ export default function App(): React.JSX.Element {
     const r = await window.api.listPacks()
     setPacks(r.packs)
     setStats(r.total)
-    // 未归属容量：单独算一遍（列表里 role 是未归属的那些）
     const un = await window.api.listAssets({ view: 'unassigned' })
     setUnassignedSize(un.items.reduce((s, i) => s + i.size, 0))
   }, [])
@@ -79,14 +95,12 @@ export default function App(): React.JSX.Element {
     })()
   }, [loadWs, loadPacks, loadAssets])
 
-  // 切换视图时刷新对应数据
   useEffect(() => {
     if (view === 'packs') loadPacks()
     else loadAssets(keyword, unassignedOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, unassignedOnly])
 
-  // 搜索防抖
   useEffect(() => {
     if (view !== 'files') return
     const t = setTimeout(() => loadAssets(keyword, unassignedOnly), 220)
@@ -95,9 +109,10 @@ export default function App(): React.JSX.Element {
   }, [keyword])
 
   const reloadAll = useCallback(async (): Promise<void> => {
+    await loadWs()
     await loadPacks()
     await loadAssets(keyword, unassignedOnly)
-  }, [loadPacks, loadAssets, keyword, unassignedOnly])
+  }, [loadWs, loadPacks, loadAssets, keyword, unassignedOnly])
 
   // ---------------- A-10 刷新扫描 ----------------
 
@@ -123,7 +138,7 @@ export default function App(): React.JSX.Element {
 
   const doCreatePack = async (v: {
     name: string
-    project: string
+    projectId: number | null
     category: string
   }): Promise<void> => {
     try {
@@ -134,6 +149,47 @@ export default function App(): React.JSX.Element {
     } catch (e) {
       toast('创建失败：' + (e as Error).message, 'err')
     }
+  }
+
+  // ---------------- 项目维护 ----------------
+
+  const submitProject = async (v: {
+    name: string
+    color: string
+    note: string
+  }): Promise<{ ok: boolean; error?: string }> => {
+    const r = editingProject
+      ? await window.api.updateProject(editingProject.id, v)
+      : await window.api.createProject(v)
+    if (r.ok) {
+      toast(editingProject ? `项目「${v.name}」已保存` : `项目「${v.name}」已创建`, 'ok')
+      setShowProjectModal(false)
+      setEditingProject(null)
+      await reloadAll()
+    }
+    return r
+  }
+
+  const confirmDeleteProject = async (action: {
+    moveTo: number | null
+  }): Promise<{ ok: boolean; error?: string }> => {
+    if (!deletingProject) return { ok: false, error: '没有待删除的项目' }
+    const name = deletingProject.name
+    const n = deletingProject.packCount
+    const r = await window.api.removeProject(deletingProject.id, action)
+    if (r.ok) {
+      setDeletingProject(null)
+      // 若当前筛选正是被删的项目，退回「全部」
+      if (projectFilter === deletingProject.id) setProjectFilter('全部')
+      await reloadAll()
+      toast(
+        n > 0
+          ? `项目「${name}」已删除，${r.moved} 个包已${action.moveTo !== null ? '转移' : '变为未归属'}`
+          : `项目「${name}」已删除`,
+        'ok'
+      )
+    }
+    return r
   }
 
   // ---------------- A-09 认领 ----------------
@@ -158,37 +214,40 @@ export default function App(): React.JSX.Element {
 
   // ---------------- 派生数据 ----------------
 
-  const projectCounts = useMemo(() => {
-    const m = new Map<string, number>()
-    m.set('全部', packs.length)
-    for (const p of packs) m.set(p.project, (m.get(p.project) ?? 0) + 1)
-    return m
-  }, [packs])
+  const projects: ProjectWithCount[] = info?.projects ?? []
+
+  const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
+
+  /** 没挂项目的包数量（删项目选「变成未归属」后会出现） */
+  const noProjectCount = useMemo(
+    () => packs.filter((p) => p.project_id === null || !knownProjectIds.has(p.project_id)).length,
+    [packs, knownProjectIds]
+  )
 
   const shownPacks = useMemo(() => {
     if (projectFilter === '全部') return packs
-    return packs.filter((p) => p.project === projectFilter)
-  }, [packs, projectFilter])
+    if (projectFilter === null) {
+      return packs.filter((p) => p.project_id === null || !knownProjectIds.has(p.project_id))
+    }
+    return packs.filter((p) => p.project_id === projectFilter)
+  }, [packs, projectFilter, knownProjectIds])
 
   const shownAssets = useMemo(() => {
-    let list = assets
-    if (projectFilter !== '全部') {
-      const ids = new Set(packs.filter((p) => p.project === projectFilter).map((p) => p.id))
-      list = list.filter((a) => a.pack_id !== null && ids.has(a.pack_id))
-    }
-    return list
-  }, [assets, projectFilter, packs])
+    if (projectFilter === '全部') return assets
+    const ids = new Set(shownPacks.map((p) => p.id))
+    return assets.filter((a) => a.pack_id !== null && ids.has(a.pack_id))
+  }, [assets, shownPacks, projectFilter])
 
   const shownSize = useMemo(() => shownAssets.reduce((s, i) => s + i.size, 0), [shownAssets])
 
-  const filterProjects = useMemo(() => {
-    const set = new Set<string>(['全部'])
-    for (const p of info?.projects ?? []) set.add(p)
-    for (const p of packs) set.add(p.project)
-    return [...set]
-  }, [info, packs])
-
   // ---------------- 渲染 ----------------
+
+  const currentProjectLabel = useMemo(() => {
+    if (projectFilter === '全部') return `全部（${packs.length} 个包）`
+    if (projectFilter === null) return `未指定项目（${noProjectCount} 个包）`
+    const p = projects.find((x) => x.id === projectFilter)
+    return p ? `${p.name}（${p.packCount} 个包）` : ''
+  }, [projectFilter, packs.length, noProjectCount, projects])
 
   return (
     <div className="app">
@@ -233,16 +292,87 @@ export default function App(): React.JSX.Element {
       <div className="body">
         <div className="side">
           <h4>所属项目</h4>
-          {filterProjects.map((p) => (
+
+          <button
+            className={`item${projectFilter === '全部' ? ' on' : ''}`}
+            onClick={() => setProjectFilter('全部')}
+          >
+            <span>全部</span>
+            <span className="n">{packs.length}</span>
+          </button>
+
+          {projects.map((p) => {
+            const active = projectFilter === p.id
+            const hovering = hoverProject === p.id
+            return (
+              <div
+                key={p.id}
+                className={`proj-row${active ? ' on' : ''}`}
+                onMouseEnter={() => setHoverProject(p.id)}
+                onMouseLeave={() => setHoverProject(null)}
+              >
+                <button
+                  className="item proj-item"
+                  onClick={() => setProjectFilter(p.id)}
+                  title={p.note || p.name}
+                >
+                  <span className="proj-label">
+                    <i className="cdot" style={{ background: p.color }} />
+                    <span className="pname">{p.name}</span>
+                  </span>
+                  <span className="n">{p.packCount}</span>
+                </button>
+
+                {hovering && (
+                  <span className="proj-acts">
+                    <button
+                      className="mini"
+                      title="编辑名称 / 颜色"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingProject(p)
+                        setShowProjectModal(true)
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="mini danger"
+                      title="删除项目"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeletingProject(p)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                )}
+              </div>
+            )
+          })}
+
+          {noProjectCount > 0 && (
             <button
-              key={p}
-              className={`item${projectFilter === p ? ' on' : ''}`}
-              onClick={() => setProjectFilter(p)}
+              className={`item${projectFilter === null ? ' on' : ''}`}
+              onClick={() => setProjectFilter(null)}
+              title="没有指定项目的包"
             >
-              <span>{p}</span>
-              <span className="n">{projectCounts.get(p) ?? 0}</span>
+              <span>未指定项目</span>
+              <span className="n">{noProjectCount}</span>
             </button>
-          ))}
+          )}
+
+          <button
+            className="add-proj"
+            onClick={() => {
+              setEditingProject(null)
+              setShowProjectModal(true)
+            }}
+            title="公司开了新业务 / 内部孵化了新项目，就在这里加"
+          >
+            ＋ 新建项目
+          </button>
 
           <div className="divider" />
 
@@ -288,7 +418,11 @@ export default function App(): React.JSX.Element {
               shownPacks.length === 0 ? (
                 <div className="empty">
                   <div className="big">🗂</div>
-                  <div className="t">还没有任何任务包</div>
+                  <div className="t">
+                    {projectFilter === '全部'
+                      ? '还没有任何任务包'
+                      : `「${currentProjectLabel}」下还没有包`}
+                  </div>
                   <div className="s">
                     点右上角「＋ 新建任务包」建第一个包，
                     <br />
@@ -313,7 +447,11 @@ export default function App(): React.JSX.Element {
               <div className="empty">
                 <div className="big">{unassignedOnly ? '📥' : '🔍'}</div>
                 <div className="t">
-                  {unassignedOnly ? '未归属池是空的' : keyword ? '没找到匹配的文件' : '还没有登记任何文件'}
+                  {unassignedOnly
+                    ? '未归属池是空的'
+                    : keyword
+                      ? '没找到匹配的文件'
+                      : '还没有登记任何文件'}
                 </div>
                 <div className="s">
                   往工作区里的包文件夹丢文件，然后点右上角「🔄 刷新扫描」。
@@ -370,7 +508,12 @@ export default function App(): React.JSX.Element {
                   <input
                     className="cb"
                     type="checkbox"
-                    style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }}
+                    style={{
+                      width: 15,
+                      height: 15,
+                      accentColor: 'var(--accent)',
+                      cursor: 'pointer'
+                    }}
                     checked={shownAssets.length > 0 && shownAssets.every((a) => selected.has(a.id))}
                     onChange={() => {
                       const all = shownAssets.every((a) => selected.has(a.id))
@@ -425,6 +568,8 @@ export default function App(): React.JSX.Element {
               <span style={{ color: 'var(--warn)' }}>未归属 {stats.unassigned} 个待整理</span>
             )}
             <span style={{ marginLeft: 'auto' }}>
+              当前：{currentProjectLabel}
+              <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
               工作区 <span className="path">{info?.workspaceRoot}</span>
             </span>
           </div>
@@ -434,7 +579,7 @@ export default function App(): React.JSX.Element {
       {/* 弹窗 */}
       {showNew && info && (
         <NewPackModal
-          projects={info.projects}
+          projects={projects}
           categories={info.categories}
           onClose={() => setShowNew(false)}
           onSubmit={doCreatePack}
@@ -448,6 +593,27 @@ export default function App(): React.JSX.Element {
           onClose={() => setOpenPackId(null)}
           onChanged={reloadAll}
           toast={toast}
+        />
+      )}
+
+      {showProjectModal && info && (
+        <ProjectModal
+          editing={editingProject}
+          colors={info.projectColors}
+          onClose={() => {
+            setShowProjectModal(false)
+            setEditingProject(null)
+          }}
+          onSubmit={submitProject}
+        />
+      )}
+
+      {deletingProject && (
+        <DeleteProjectModal
+          project={deletingProject}
+          others={projects.filter((p) => p.id !== deletingProject.id)}
+          onClose={() => setDeletingProject(null)}
+          onConfirm={confirmDeleteProject}
         />
       )}
 

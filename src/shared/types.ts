@@ -3,10 +3,24 @@
  * 这里是唯一出处 —— 改这里，三端一起生效。
  */
 
+export interface Project {
+  id: number
+  name: string
+  color: string
+  note: string
+  sort_order: number
+  archived: number
+  created_at: string
+}
+
+export interface ProjectWithCount extends Project {
+  packCount: number
+}
+
 export interface PackCard {
   id: number
   name: string
-  project: string
+  project_id: number | null
   category: string
   folder_path: string
   created_at: string
@@ -14,6 +28,9 @@ export interface PackCard {
   fileCount: number
   totalSize: number
   cover: string | null
+  /** 项目名与配色（LEFT JOIN projects 得来，未归属时为 null） */
+  projectName: string | null
+  projectColor: string | null
 }
 
 export interface AssetItem {
@@ -33,7 +50,8 @@ export interface AssetItem {
 
 export interface WsInfo {
   workspaceRoot: string
-  projects: string[]
+  projects: ProjectWithCount[]
+  projectColors: string[]
   categories: string[]
   subFolders: string[]
   unassigned: number
@@ -68,9 +86,26 @@ export interface Api {
   wsInfo: () => Promise<WsInfo>
   wsSetRoot: (root: string) => Promise<{ ok: boolean; workspaceRoot: string }>
   wsOpenRoot: () => Promise<{ ok: boolean; error?: string }>
+
+  // 项目维护
+  listProjects: () => Promise<ProjectWithCount[]>
+  createProject: (input: {
+    name: string
+    color?: string
+    note?: string
+  }) => Promise<{ ok: boolean; project?: Project; error?: string }>
+  updateProject: (
+    id: number,
+    patch: { name?: string; color?: string; note?: string }
+  ) => Promise<{ ok: boolean; project?: Project; error?: string }>
+  removeProject: (
+    id: number,
+    action: { moveTo: number | null }
+  ) => Promise<{ ok: boolean; moved: number; error?: string }>
+
   createPack: (input: {
     name?: string
-    project?: string
+    projectId?: number | null
     category?: string
   }) => Promise<{ ok: boolean; pack: PackCard }>
   refreshScan: () => Promise<ScanResult>
@@ -79,6 +114,7 @@ export interface Api {
     keyword?: string
     view?: 'all' | 'unassigned'
     packId?: number
+    projectId?: number
   }) => Promise<{ items: AssetItem[]; total: number }>
   packDetail: (packId: number) => Promise<PackDetail>
   claim: (args: { paths: string[]; packId: number; subFolder: string }) => Promise<ClaimResult>
