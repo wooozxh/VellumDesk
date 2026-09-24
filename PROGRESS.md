@@ -250,6 +250,26 @@
 
 ---
 
+### 2026-09-24（第 6 次会话续 4）—— 第 3 批：标签体系与检索（M2 核心）完结
+
+- **做了什么**（用户验收通过第 2 批后开工；两处拍板：一次做全 5 个维度 / 列表勾选批量打标签）：
+  - **方案定稿**：`docs/05-MVP标签与检索方案.md`（C-01~C-08 需求 → 两表结构 → 5 维度定义 → 界面 → 施工 5 步 → 验收标准）
+  - **数据层**：db.ts 加 `tags`/`asset_tags` 两表 + 4 索引；迁移 5（空库落预制标签：类别 9 / 渠道 6 / 状态 4，跳过 project/time 维度）；`TAG_DIMENSIONS` 常量（5 维度含 presets/colors/hint/mode）；**项目维度不落 tags 表，实时映射 projects 表，tag id 用负数编码（-projectId）**避免两处维护
+  - **业务层**：新文件 `src/main/tags.ts`（listTagDimensions/createTag/updateTag/tagUsage/removeTag/applyTags/removeTagsFrom/tagsOfAssets/suggestTagsForAssets）；`applyTags` 先清同维度旧标签再贴（批量整理直觉）；`suggestTagsForAssets` 按文件名/路径匹配，**只推荐不自动贴**，单字标签跳过
+  - **筛选 SQL**：listAssets 支持 tagIds —— 同维度内「或」、跨维度「并且」（`GROUP BY a.id HAVING COUNT(DISTINCT t.dimension) = @dimCount`）
+  - **IPC/类型**：9 个 `tag:*` 通道 + preload 暴露；共享类型 Tag/TagWithCount/DimensionGroup/ApplyTagsResult/SuggestTagsResult；AssetItem 加 tags 字段
+  - **界面**：左栏改**维度式面板**（5 维度折叠/已选徽标/一键清除，项目维度并入其中）；标签管理弹窗（4 可维护维度切换/加标签/改名/改色/用量提示删除）；批量打标签弹窗（5 维度全展/单选维度自动替换/自动建议★标/一键全选建议）；文件行标签色块（带×可摘除）；claimbar 加「🏷 打标签」按钮
+  - **验收**：accept.ts 新增 [16]~[21] 六段 55 项断言 → **192 项全过**；截图壳第 14 段 7 图（面板/筛选/勾选/弹窗/已选/贴完/管理）全过，库内直查 6 条关联正确
+- **遇到的问题**：
+  - db.ts `TAG_DIMENSIONS` 引用了声明在后面的 `PROJECT_COLORS`（TS2448）→ 把配色池上移到维度常量前
+  - accept.ts 新段落变量 `dup`/`upd` 与 [0] 段重名 → 改名 dupTag/updTag
+  - 截图壳第一次跑「row tag chips 只显示海报不显示抖音」→ 排查是**旧库残留脏数据**（上次会话的测试行只贴了海报），重置工作区库后 6 条关联完全正确，代码本身无 bug
+  - heredoc 写 TS 探针被 shell 展开 `${...}` → 改用 Write 工具（再次踩，牢记）
+- **提交**：`56c2789`
+- **下一步**：第 3 批收尾（时间维度自动生成还没接 scanAll；自动建议入口已有但未挂「建议」快捷按钮）→ 或直接进第 4 批（M6 版本 / 打包交付，见 DECISIONS）
+
+---
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）
