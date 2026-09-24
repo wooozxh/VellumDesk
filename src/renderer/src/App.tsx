@@ -24,11 +24,22 @@ interface ToastMsg {
 /** 左栏项目筛选：'全部' 或具体项目 id（null 表示「未指定项目」的包） */
 type ProjectFilter = '全部' | number | null
 
+/** 左栏宽度（px）。默认、最小、最大 */
+const SIDE_DEFAULT = 220
+const SIDE_MIN = 170
+const SIDE_MAX = 420
+const SIDE_KEY = 'media.sideWidth'
+
 export default function App(): React.JSX.Element {
   const [info, setInfo] = useState<WsInfo | null>(null)
   const [view, setView] = useState<ViewMode>('packs')
   const [keyword, setKeyword] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
+  const [sideWidth, setSideWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SIDE_KEY))
+    return saved >= SIDE_MIN && saved <= SIDE_MAX ? saved : SIDE_DEFAULT
+  })
+  const [resizing, setResizing] = useState(false)
 
   const [packs, setPacks] = useState<PackCardType[]>([])
   const [stats, setStats] = useState({ packs: 0, files: 0, size: 0, unassigned: 0 })
@@ -232,6 +243,42 @@ export default function App(): React.JSX.Element {
     if (!r.ok) toast(r.error ?? '打开失败', 'err')
   }
 
+  // ---------------- 左栏宽度拖拽 ----------------
+
+  /** 按住分隔条左右拖：实时改宽度，松手落盘 */
+  const startResize = useCallback(
+    (e: React.MouseEvent): void => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startW = sideWidth
+      setResizing(true)
+
+      const onMove = (ev: MouseEvent): void => {
+        const next = Math.min(SIDE_MAX, Math.max(SIDE_MIN, startW + (ev.clientX - startX)))
+        setSideWidth(next)
+      }
+      const onUp = (): void => {
+        setResizing(false)
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+        // 记录最终宽度（从 state 拿不到最新的，用一次同步读取）
+        setSideWidth((w) => {
+          localStorage.setItem(SIDE_KEY, String(w))
+          return w
+        })
+      }
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [sideWidth]
+  )
+
+  /** 双击分隔条：恢复默认宽度 */
+  const resetSideWidth = useCallback((): void => {
+    setSideWidth(SIDE_DEFAULT)
+    localStorage.setItem(SIDE_KEY, String(SIDE_DEFAULT))
+  }, [])
+
   // ---------------- 派生数据 ----------------
 
   const projects: ProjectWithCount[] = info?.projects ?? []
@@ -310,7 +357,7 @@ export default function App(): React.JSX.Element {
 
       {/* 主体 */}
       <div className="body">
-        <div className="side">
+        <div className="side" style={{ width: sideWidth }}>
           <h4>所属项目</h4>
 
           <button
@@ -455,6 +502,14 @@ export default function App(): React.JSX.Element {
             {info?.workspaceRoot}
           </div>
         </div>
+
+        {/* 左栏宽度拖拽条：按住左右拖，双击复位 */}
+        <div
+          className={`side-resizer${resizing ? ' dragging' : ''}`}
+          title="拖动调整左栏宽度，双击恢复默认"
+          onMouseDown={startResize}
+          onDoubleClick={resetSideWidth}
+        />
 
         <div className="main">
           <div className="main-scroll">
