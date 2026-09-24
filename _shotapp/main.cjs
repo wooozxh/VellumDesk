@@ -47,10 +47,18 @@ app.whenReady().then(async () => {
     errs.push('RENDER GONE: ' + JSON.stringify(d))
   )
 
-  const js = (code) => win.webContents.executeJavaScript(code)
+  const jsRaw = (code) => win.webContents.executeJavaScript(code)
+  // 包一层：任何一步失败都只记录不中断，保证后面的截图和汇总照常出
+  const js = async (code) => {
+    try {
+      return await jsRaw(code)
+    } catch (e) {
+      return '__JSERR__ ' + (e && e.message ? e.message : String(e))
+    }
+  }
 
   await win.loadFile(join(ROOT, 'out/renderer/index.html'))
-  await wait(3000)
+  await wait(2600)
 
   // ── 1. 左栏项目面板基线 ───────────────────────────────
   shot('shot-proj-1-list.png', (await win.webContents.capturePage()).toPNG())
@@ -66,7 +74,7 @@ app.whenReady().then(async () => {
   await js(`
     (() => { document.querySelector('.add-proj')?.click() })()
   `)
-  await wait(700)
+  await wait(400)
   shot('shot-proj-2-newmodal.png', (await win.webContents.capturePage()).toPNG())
   say('new-project modal', await js(`!!document.querySelector('.modal')`))
   say('swatch count', await js(`document.querySelectorAll('.swatch').length`))
@@ -106,7 +114,7 @@ app.whenReady().then(async () => {
       b.click(); return true
     })()
   `)
-  await wait(1200)
+  await wait(600)
   say('clicked create/save', created)
   say('proj rows after create', await js(`document.querySelectorAll('.proj-row').length`))
   say('new row present', await js(`
@@ -124,7 +132,7 @@ app.whenReady().then(async () => {
   // 悬浮某项目行：React 用 onMouseEnter 合成事件，需派发可冒泡的 mouseover
   const hoverRow = (name) => js(`
     (() => {
-      const r = [...document.querySelectorAll('.proj-row')].find(x => x.innerText.includes(${JSON.stringify(name)}))
+      const r = Array.from(document.querySelectorAll('.proj-row')).find(x => x.innerText.includes(${JSON.stringify(name)}))
       if (!r) return false
       r.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
       r.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
@@ -137,7 +145,7 @@ app.whenReady().then(async () => {
   await js(`document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`)
   await wait(300)
   const hover = await hoverRow('内部孵化')
-  await wait(600)
+  await wait(400)
   say('hover applied', hover)
   say('proj-acts visible', await js(`
     (() => {
@@ -170,7 +178,7 @@ app.whenReady().then(async () => {
       b.click(); return true
     })()
   `)
-  await wait(800)
+  await wait(400)
   say('edit modal opened', editOpened)
   say('edit modal prefilled', JSON.stringify(await js(`
     (() => {
@@ -181,13 +189,13 @@ app.whenReady().then(async () => {
   say('edit modal has name', await js(`(document.querySelector('.modal')?.innerText||'').includes('内部孵化')`))
   shot('shot-proj-6-edit.png', (await win.webContents.capturePage()).toPNG())
   await js(`[...document.querySelectorAll('.modal .btn')].find(x => /取消/.test(x.textContent))?.click()`)
-  await wait(600)
+  await wait(400)
 
   // ── 6. 点删除按钮 → 确认弹窗（无包时应可直接删）─────
   await js(`document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`)
   await wait(300)
   await hoverRow('内部孵化')
-  await wait(500)
+  await wait(400)
   const delOpened = await js(`
     (() => {
       const r = [...document.querySelectorAll('.proj-row')].find(x => x.innerText.includes('内部孵化'))
@@ -196,7 +204,7 @@ app.whenReady().then(async () => {
       b.click(); return true
     })()
   `)
-  await wait(800)
+  await wait(400)
   say('delete modal opened', delOpened)
   say('delete modal text', JSON.stringify(await js(`document.querySelector('.modal')?.innerText || ''`)))
   shot('shot-proj-7-delconfirm.png', (await win.webContents.capturePage()).toPNG())
@@ -209,7 +217,7 @@ app.whenReady().then(async () => {
       b.click(); return true
     })()
   `)
-  await wait(1200)
+  await wait(600)
   say('delete confirmed', delDone)
   say('new row gone', await js(`
     ![...document.querySelectorAll('.proj-row')].some(r => r.innerText.includes('内部孵化'))
@@ -229,7 +237,7 @@ app.whenReady().then(async () => {
       return r.querySelector('.pname')?.innerText || null
     })()
   `)
-  await wait(500)
+  await wait(400)
   say('picked project w/ packs', JSON.stringify(packProj))
   const delOpened2 = await js(`
     (() => {
@@ -239,14 +247,14 @@ app.whenReady().then(async () => {
       b.click(); return true
     })()
   `)
-  await wait(800)
+  await wait(400)
   say('delete(has packs) modal', delOpened2)
   say('radio-line count', await js(`document.querySelectorAll('.radio-line').length`))
   say('has move option', await js(`(document.querySelector('.modal')?.innerText||'').includes('转移')`))
   say('has unassigned option', await js(`(document.querySelector('.modal')?.innerText||'').includes('未归属')`))
   shot('shot-proj-9-delwithpacks.png', (await win.webContents.capturePage()).toPNG())
   await js(`[...document.querySelectorAll('.modal .btn')].find(x => /取消/.test(x.textContent))?.click()`)
-  await wait(600)
+  await wait(400)
 
   // ── 8. 文件视图 + 新建包弹窗（项目下拉读新表）────────
   const switched = await js(`
@@ -256,7 +264,7 @@ app.whenReady().then(async () => {
       return false
     })()
   `)
-  await wait(1500)
+  await wait(700)
   say('switched to files view', switched)
   shot('shot-proj-10-files.png', (await win.webContents.capturePage()).toPNG())
 
@@ -267,12 +275,121 @@ app.whenReady().then(async () => {
       return false
     })()
   `)
-  await wait(1000)
+  await wait(500)
   say('new-pack modal opened', newOpened)
   say('new-pack project options', JSON.stringify(await js(`
     [...document.querySelectorAll('.modal select option')].map(o => o.textContent)
   `)))
   shot('shot-proj-11-newpack.png', (await win.webContents.capturePage()).toPNG())
+
+  // ── 9. 项目排序：悬浮出 ↑↓，点一下换位 ──────────────
+  await js(`document.querySelector('.modal .close')?.click()`)
+  await js(`[...document.querySelectorAll('.modal .btn')].find(x => /取消/.test(x.textContent))?.click()`)
+  await wait(500)
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tabs button')].find(x => x.textContent.includes('包视图'))
+      b?.click()
+    })()
+  `)
+  await wait(700)
+  await js(`document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`)
+  await wait(300)
+
+  const orderBefore = await js(`[...document.querySelectorAll('.proj-row .pname')].map(e => e.innerText)`)
+  say('order before', JSON.stringify(orderBefore))
+
+  // 悬浮第三行，检查 ↑↓ 出现且首位/末位禁用态正确
+  const thirdName = orderBefore[2]
+  await js(`
+    (() => {
+      const r = Array.from(document.querySelectorAll('.proj-row'))[2]
+      r.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()
+  `)
+  await wait(400)
+  say('mini count on 3rd row', await js(`
+    Array.from(document.querySelectorAll('.proj-row'))[2].querySelectorAll('.mini').length
+  `))
+  say('mini titles', JSON.stringify(await js(`
+    Array.from(Array.from(document.querySelectorAll('.proj-row'))[2].querySelectorAll('.mini')).map(b => b.title + (b.disabled ? '(禁用)' : ''))
+  `)))
+  shot('shot-sort-1-hover-arrows.png', (await win.webContents.capturePage()).toPNG())
+
+  // 检查首位 ↑ 禁用、末位 ↓ 禁用
+  await js(`
+    (() => {
+      document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      const rows = Array.from(document.querySelectorAll('.proj-row'))
+      rows[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()
+  `)
+  await wait(400)
+  say('first row up disabled', await js(`
+    Array.from(document.querySelectorAll('.proj-row'))[0].querySelector('.mini').disabled
+  `))
+  await js(`
+    (() => {
+      document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      const rows = [...document.querySelectorAll('.proj-row')]
+      rows[rows.length-1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()
+  `)
+  await wait(400)
+  say('last row down disabled', await js(`
+    (() => {
+      const rows = [...document.querySelectorAll('.proj-row')]
+      const bs = Array.from(rows[rows.length-1].querySelectorAll('.mini'))
+      return bs[1].disabled
+    })()
+  `))
+
+  // 点第三行的 ↑，应上移一位
+  await js(`
+    (() => {
+      document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      const rows = Array.from(document.querySelectorAll('.proj-row'))
+      rows[2].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()
+  `)
+  await wait(400)
+  const clickedUp = await js(`
+    (() => {
+      const b = Array.from(document.querySelectorAll('.proj-row'))[2].querySelector('.mini')
+      if (!b || b.disabled) return false
+      b.click(); return true
+    })()
+  `)
+  await wait(900)
+  const orderAfter = await js(`[...document.querySelectorAll('.proj-row .pname')].map(e => e.innerText)`)
+  say('clicked up arrow', clickedUp)
+  say('order after up', JSON.stringify(orderAfter))
+  say(
+    'swapped correctly',
+    orderAfter[1] === thirdName && orderAfter[2] === orderBefore[1]
+  )
+  shot('shot-sort-2-after-up.png', (await win.webContents.capturePage()).toPNG())
+
+  // 点↓ 移回去
+  await js(`
+    (() => {
+      document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      const rows = Array.from(document.querySelectorAll('.proj-row'))
+      rows[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })()
+  `)
+  await wait(400)
+  await js(`
+    (() => {
+      const bs = Array.from(Array.from(document.querySelectorAll('.proj-row'))[1].querySelectorAll('.mini'))
+      bs[1]?.click()
+    })()
+  `)
+  await wait(600)
+  const orderBack = await js(`[...document.querySelectorAll('.proj-row .pname')].map(e => e.innerText)`)
+  say('order after down', JSON.stringify(orderBack))
+  say('reversible', JSON.stringify(orderBack) === JSON.stringify(orderBefore))
+  shot('shot-sort-3-after-down.png', (await win.webContents.capturePage()).toPNG())
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))
@@ -280,4 +397,11 @@ app.whenReady().then(async () => {
   console.log('console errors:', errs.length ? errs.join('\n') : '(none)')
   console.log('===END===')
   app.exit(0)
+}).catch((e) => {
+  console.log('\n===UI-CHECK===')
+  console.log(log.join('\n'))
+  console.log('---')
+  console.log('FATAL:', e && e.stack ? e.stack : String(e))
+  console.log('===END===')
+  app.exit(1)
 })

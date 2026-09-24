@@ -17,6 +17,7 @@ import {
   createProject,
   updateProject,
   removeProject,
+  moveProject,
   SUB_FOLDERS,
   type SubFolder
 } from './workspace'
@@ -75,6 +76,13 @@ export function registerIpc(): void {
       return removeProject(args.id, { moveTo: args.moveTo })
     }
   )
+
+  // 调整项目在左栏的显示顺序（上移 / 下移一位）
+  ipcMain.handle('project:move', (_e, args: { id: number; direction: 'up' | 'down' }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return moveProject(args.id, args.direction)
+  })
 
   ipcMain.handle('ws:setRoot', (_e, root: string) => {
     saveWorkspaceRoot(appData, root)

@@ -16,6 +16,7 @@ import {
   createProject,
   updateProject,
   removeProject,
+  moveProject,
   SUB_FOLDERS,
   UNASSIGNED_ROLE
 } from './src/main/workspace'
@@ -383,6 +384,67 @@ async function main(): Promise<void> {
     .prepare("SELECT abs_path FROM assets WHERE ext = 'png' LIMIT 1")
     .get() as { abs_path: string }
   ok(existsSync(sample.abs_path), `待打开文件真实存在：${sample.abs_path.replace(WS, '…')}`)
+
+  // ============ 项目排序：上移 / 下移 ============
+  log('\n[9.5] 项目排序：上移 / 下移一位')
+
+  const namesOf = (): string[] => listProjectsWithCount().map((p) => p.name)
+
+  // 保证至少 3 个项目再做排序测试
+  while (listProjectsWithCount().length < 3) {
+    const r = createProject({ name: `排序测试项目${listProjectsWithCount().length + 1}` })
+    if (!r.ok) break
+  }
+
+  const orderStart = namesOf()
+  ok(orderStart.length >= 3, `排序前顺序：${orderStart.join(' → ')}`)
+
+  // 把第 3 个往上挪一位，应与第 2 个互换
+  const third = listProjectsWithCount()[2]
+  const secondName = orderStart[1]
+  const upRes = moveProject(third.id, 'up')
+  ok(upRes.ok && upRes.moved, `「${third.name}」上移成功`)
+  const orderAfterUp = namesOf()
+  ok(
+    orderAfterUp[1] === third.name && orderAfterUp[2] === secondName,
+    `上移一位后与相邻项互换：${orderAfterUp.join(' → ')}`
+  )
+  ok(
+    orderAfterUp.length === orderStart.length &&
+      [...orderAfterUp].sort().join('|') === [...orderStart].sort().join('|'),
+    '上移只改顺序，不增不减任何项目'
+  )
+
+  // 再下移回来，应回到初始顺序
+  const downRes = moveProject(third.id, 'down')
+  ok(downRes.ok && downRes.moved, `「${third.name}」下移成功`)
+  ok(namesOf().join('|') === orderStart.join('|'), '下移回来后顺序与初始完全一致（可逆）')
+
+  // 边界：第一个再上移 → 不动，且不报错
+  const first = listProjectsWithCount()[0]
+  const edgeTop = moveProject(first.id, 'up')
+  ok(edgeTop.ok && !edgeTop.moved, '首位项目再上移：静默不动，不报错')
+  ok(namesOf().join('|') === orderStart.join('|'), '边界上移没有打乱顺序')
+
+  // 边界：最后一个再下移 → 不动
+  const allNow = listProjectsWithCount()
+  const last = allNow[allNow.length - 1]
+  const edgeBottom = moveProject(last.id, 'down')
+  ok(edgeBottom.ok && !edgeBottom.moved, '末位项目再下移：静默不动，不报错')
+  ok(namesOf().join('|') === orderStart.join('|'), '边界下移没有打乱顺序')
+
+  // 不存在的项目
+  const ghost = moveProject(999999, 'up')
+  ok(!ghost.ok, `对不存在的项目排序被拒：${ghost.error}`)
+
+  // 排序结果要能持久化（重新读一遍库）
+  const third2 = listProjectsWithCount()[1]
+  moveProject(third2.id, 'up')
+  ok(
+    listProjectsWithCount()[0].id === third2.id,
+    `排序结果持久化：重新查询后「${third2.name}」仍在首位`
+  )
+  moveProject(third2.id, 'down')
 
   // ============ 项目删除：绝不让包跟着消失 ============
   log('\n[10] 删项目铁则：包和文件一个都不能少')

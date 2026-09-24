@@ -473,6 +473,52 @@ export function updateProject(
 }
 
 /**
+ * 调整项目在左栏的显示顺序（上移 / 下移一位）。
+ *
+ * 实现：拿当前未归档项目的完整有序列表，找到目标项，与相邻项交换 sort_order。
+ * 只交换两个值，不动其他项目 —— 避免整表重排写坏顺序。
+ * 到顶再上移 / 到底再下移，直接返回成功但不改动（界面据此禁用按钮，这里只做兜底）。
+ */
+export function moveProject(
+  id: number,
+  direction: 'up' | 'down'
+): { ok: boolean; moved: boolean; error?: string } {
+  const db = getDb()
+  const cur = getProject(id)
+  if (!cur) return { ok: false, moved: false, error: '项目不存在' }
+  if (cur.archived) return { ok: false, moved: false, error: '已归档的项目不参与排序' }
+
+  const list = listProjects(false)
+  const idx = list.findIndex((p) => p.id === id)
+  if (idx < 0) return { ok: false, moved: false, error: '项目不存在' }
+
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+  if (swapIdx < 0 || swapIdx >= list.length) {
+    return { ok: true, moved: false }
+  }
+
+  const a = list[idx]
+  const b = list[swapIdx]
+
+  // sort_order 全部相同（老库可能都是 0）时，交换值等于没动 —— 先把顺序固化下来
+  const allSame = list.every((p) => p.sort_order === list[0].sort_order)
+  if (allSame) {
+    const stmt = db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?')
+    db.transaction(() => list.forEach((p, i) => stmt.run(i, p.id)))()
+    // 固化后重新取，保证下面的交换基于真实位次
+    return moveProject(id, direction)
+  }
+
+  const stmt = db.prepare('UPDATE projects SET sort_order = ? WHERE id = ?')
+  db.transaction(() => {
+    stmt.run(b.sort_order, a.id)
+    stmt.run(a.sort_order, b.id)
+  })()
+
+  return { ok: true, moved: true }
+}
+
+/**
  * 删除项目。
  * **不允许出现"包跟着项目一起消失"** —— 项目下有包时，必须由调用方指定去向：
  *   - moveTo: 把包转到另一个项目

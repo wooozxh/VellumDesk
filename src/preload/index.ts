@@ -19,6 +19,8 @@ const api = {
     ipcRenderer.invoke('project:update', { id, patch }),
   removeProject: (id: number, action: { moveTo: number | null }) =>
     ipcRenderer.invoke('project:remove', { id, moveTo: action.moveTo }),
+  moveProject: (id: number, direction: 'up' | 'down') =>
+    ipcRenderer.invoke('project:move', { id, direction }),
 
   // 建包 / 扫描
   createPack: (input: { name?: string; projectId?: number | null; category?: string }) =>

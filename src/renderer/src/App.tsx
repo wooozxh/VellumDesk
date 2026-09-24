@@ -170,6 +170,26 @@ export default function App(): React.JSX.Element {
     return r
   }
 
+  /** 上移 / 下移项目一位。成功后重新拉数据，左栏立即按新顺序渲染 */
+  const moveProj = async (p: ProjectWithCount, direction: 'up' | 'down'): Promise<void> => {
+    // 本地先挪一下，避免等 IPC 回来才动、手感发滞
+    const i = projects.findIndex((x) => x.id === p.id)
+    const j = direction === 'up' ? i - 1 : i + 1
+    if (i >= 0 && j >= 0 && j < projects.length) {
+      const next = [...projects]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      setInfo((prev) => (prev ? { ...prev, projects: next } : prev))
+    }
+
+    const r = await window.api.moveProject(p.id, direction)
+    if (!r.ok) {
+      toast(r.error ?? '调整顺序失败', 'err')
+      await loadWs()
+      return
+    }
+    await loadWs()
+  }
+
   const confirmDeleteProject = async (action: {
     moveTo: number | null
   }): Promise<{ ok: boolean; error?: string }> => {
@@ -301,9 +321,11 @@ export default function App(): React.JSX.Element {
             <span className="n">{packs.length}</span>
           </button>
 
-          {projects.map((p) => {
+          {projects.map((p, pi) => {
             const active = projectFilter === p.id
             const hovering = hoverProject === p.id
+            const isFirst = pi === 0
+            const isLast = pi === projects.length - 1
             return (
               <div
                 key={p.id}
@@ -325,6 +347,28 @@ export default function App(): React.JSX.Element {
 
                 {hovering && (
                   <span className="proj-acts">
+                    <button
+                      className="mini"
+                      title="上移一位"
+                      disabled={isFirst}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void moveProj(p, 'up')
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="mini"
+                      title="下移一位"
+                      disabled={isLast}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void moveProj(p, 'down')
+                      }}
+                    >
+                      ↓
+                    </button>
                     <button
                       className="mini"
                       title="编辑名称 / 颜色"

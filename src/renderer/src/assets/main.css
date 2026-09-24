@@ -312,11 +312,17 @@ input {
 
 .proj-acts {
   position: absolute;
-  right: 5px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
-  gap: 3px;
+  gap: 2px;
+  align-items: center;
+  /* 悬浮时盖住项目名尾部和包数，避免文字从按钮缝里透出来 */
+  padding: 2px 3px;
+  border-radius: 6px;
+  background: var(--bg-mute);
+  box-shadow: -6px 0 8px var(--bg-mute);
 }
 
 .mini {
@@ -333,10 +339,15 @@ input {
   line-height: 1;
 }
 
-.mini:hover {
+.mini:hover:not(:disabled) {
   color: var(--text);
   background: var(--bg-hover);
   border-color: var(--text-3);
+}
+
+.mini:disabled {
+  opacity: 0.28;
+  cursor: default;
 }
 
 .mini.danger:hover {

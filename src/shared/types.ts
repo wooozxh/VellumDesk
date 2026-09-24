@@ -102,6 +102,10 @@ export interface Api {
     id: number,
     action: { moveTo: number | null }
   ) => Promise<{ ok: boolean; moved: number; error?: string }>
+  moveProject: (
+    id: number,
+    direction: 'up' | 'down'
+  ) => Promise<{ ok: boolean; moved: boolean; error?: string }>
 
   createPack: (input: {
     name?: string
