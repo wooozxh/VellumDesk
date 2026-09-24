@@ -10,7 +10,14 @@ import {
   copyFileSync,
   unlinkSync
 } from 'fs'
-import { getDb, openDb, pickColor, type AssetRow, type PackRow, type ProjectRow } from './db'
+import {
+  getDb,
+  openDb,
+  pickColor,
+  type AssetRow,
+  type PackRow,
+  type ProjectRow
+} from './db'
 
 /**
  * 工作区与「包」的业务逻辑。
@@ -606,12 +613,19 @@ export function listPacks(): PackWithStats[] {
   })
 }
 
-/** A-07：文件视图数据 —— 全部文件平铺，未归属的文件 role = '未归属' */
+/** A-07：文件视图数据 —— 全部文件平铺，未归属的文件 role = '未归属'
+ *  第 3 批：额外支持标签筛选（tagIds 之间是「并且」关系，需求文档 M3-02）*/
 export function listAssets(opts: {
   keyword?: string
   view?: 'all' | 'unassigned'
   packId?: number
   projectId?: number
+  /** 已选标签（tags 表 id）；同维度内是「或」，跨维度是「并且」 */
+  tagIds?: number[]
+  /** 已选项目 id（项目维度走 packs.project_id） */
+  filterProjectIds?: number[]
+  /** 是否把每条素材的标签一起带出来（tagId 数组 + 名称色块） */
+  withTags?: boolean
 } = {}): AssetRow[] {
   const db = getDb()
   const where: string[] = []
@@ -629,15 +643,46 @@ export function listAssets(opts: {
     where.push('k.project_id = @projectId')
     params.projectId = opts.projectId
   }
+  if (opts.filterProjectIds && opts.filterProjectIds.length) {
+    where.push(`k.project_id IN (${opts.filterProjectIds.map((_, i) => `@fp${i}`).join(',')})`)
+    opts.filterProjectIds.forEach((id, i) => {
+      params[`fp${i}`] = id
+    })
+  }
   if (opts.keyword && opts.keyword.trim()) {
     where.push('a.file_name LIKE @kw')
     params.kw = `%${opts.keyword.trim()}%`
   }
 
-  const sql = `SELECT a.* FROM assets a
-               LEFT JOIN packs k ON k.id = a.pack_id
-               ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-               ORDER BY a.modified_at DESC`
+  let sql: string
+  if (opts.tagIds && opts.tagIds.length) {
+    // 跨维度「并且」：要求每个被选中的维度都至少命中一个标签
+    // 例：类别=海报 且 渠道=公众号 且 状态=已交付 → COUNT(DISTINCT dimension)=3
+    // （tagIds 是内部数字 id，拼接无注入风险）
+    opts.tagIds.forEach((id, i) => {
+      params[`t${i}`] = id
+    })
+    const dimRows = db
+      .prepare(`SELECT DISTINCT dimension FROM tags WHERE id IN (${opts.tagIds.join(',')})`)
+      .all() as Array<{ dimension: string }>
+    const dimCount = dimRows.length || 1
+
+    sql = `SELECT a.* FROM assets a
+           LEFT JOIN packs k ON k.id = a.pack_id
+           JOIN asset_tags at ON at.asset_id = a.id
+           JOIN tags t ON t.id = at.tag_id
+           WHERE t.id IN (${opts.tagIds.map((_, i) => `@t${i}`).join(',')})
+                 ${where.length ? 'AND ' + where.join(' AND ') : ''}
+           GROUP BY a.id
+           HAVING COUNT(DISTINCT t.dimension) = @dimCount
+           ORDER BY a.modified_at DESC`
+    params.dimCount = dimCount
+  } else {
+    sql = `SELECT a.* FROM assets a
+           LEFT JOIN packs k ON k.id = a.pack_id
+           ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+           ORDER BY a.modified_at DESC`
+  }
   return db.prepare(sql).all(params) as AssetRow[]
 }
 

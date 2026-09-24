@@ -20,3 +20,4 @@ electron.vite.config.*.mjs
 _dl/
 resources/ffmpeg/*.exe
 resources/ffmpeg/LICENSE.txt
+素材工作区/

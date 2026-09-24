@@ -30,6 +30,15 @@ export interface PackRow {
   updated_at: string
 }
 
+export interface TagRow {
+  id: number
+  dimension: string // project | category | channel | status | time
+  name: string
+  color: string
+  sort_order: number
+  created_at: string
+}
+
 export interface AssetRow {
   id: number
   pack_id: number | null
@@ -119,6 +128,28 @@ function migrate(d: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_assets_pack ON assets(pack_id);
     CREATE INDEX IF NOT EXISTS idx_assets_role ON assets(role);
+
+    -- 第 3 批：标签体系（需求文档 7.4 节定的两张表）
+    CREATE TABLE IF NOT EXISTS tags (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      dimension    TEXT    NOT NULL,
+      name         TEXT    NOT NULL,
+      color        TEXT    NOT NULL DEFAULT '#4f8cff',
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT    NOT NULL,
+      UNIQUE(dimension, name)
+    );
+
+    -- 关联表：一条素材可贴多个标签。标准做法，别省。
+    CREATE TABLE IF NOT EXISTS asset_tags (
+      asset_id   INTEGER NOT NULL,
+      tag_id     INTEGER NOT NULL,
+      PRIMARY KEY (asset_id, tag_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tags_dim ON tags(dimension, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_at_tag ON asset_tags(tag_id);
+    CREATE INDEX IF NOT EXISTS idx_at_asset ON asset_tags(asset_id);
   `)
 
   // ---- 迁移 1：packs 表加 project_id（旧库是 project 文本列）----
@@ -188,6 +219,117 @@ function migrate(d: Database.Database): void {
   if (defaultProject) {
     d.prepare('UPDATE packs SET project_id = ? WHERE project_id IS NULL').run(defaultProject.id)
   }
+
+  // ---- 迁移 5：首次使用（空库）→ 落预制标签（项目维度不落，走 projects 表映射）----
+  const tagCount = (d.prepare('SELECT COUNT(*) AS c FROM tags').get() as { c: number }).c
+  if (tagCount === 0) {
+    const insTag = d.prepare(
+      `INSERT INTO tags (dimension, name, color, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    for (const dim of TAG_DIMENSIONS) {
+      if (dim.key === 'project') continue // 项目维度复用 projects 表
+      if (dim.key === 'time') continue // 时间维度由文件修改时间自动生成
+      dim.presets.forEach((name, i) => {
+        insTag.run(dim.key, name, dim.colors[i % dim.colors.length], i, now)
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 第 3 批：标签维度定义
+
+export type DimensionKey = 'project' | 'category' | 'channel' | 'status' | 'time'
+
+export interface DimensionDef {
+  key: DimensionKey
+  label: string
+  /** 该维度下一条素材能贴几个标签：'single' 单选 / 'multi' 多选 */
+  mode: 'single' | 'multi'
+  /** 标签来源：'projects' 表示实时映射 projects 表，'tags' 表示存 tags 表 */
+  source: 'projects' | 'tags'
+  /** 是否允许用户自行增删标签 */
+  editable: boolean
+  /** 预制标签（空库初始化用） */
+  presets: string[]
+  /** 预制标签的配色池 */
+  colors: string[]
+  hint: string
+}
+
+/** 新建项目时的自动配色池（深色主题下都清晰可辨） */
+export const PROJECT_COLORS = [
+  '#4f8cff', // 蓝
+  '#3fb950', // 绿
+  '#e8a33d', // 橙
+  '#a884ff', // 紫
+  '#f0603f', // 红
+  '#2bb5b5', // 青
+  '#e86fa8', // 粉
+  '#8fa83d', // 橄榄
+  '#d9a0ff', // 浅紫
+  '#6b7280' // 灰
+] as const
+
+/** 5 个标签维度（需求文档 5.2 节：项目 / 类别 / 渠道 / 状态 / 时间） */
+export const TAG_DIMENSIONS: readonly DimensionDef[] = [
+  {
+    key: 'project',
+    label: '所属项目',
+    mode: 'single',
+    source: 'projects',
+    editable: true, // 走左栏项目面板维护
+    presets: [],
+    colors: [...PROJECT_COLORS],
+    hint: '一条素材同一时刻只属于一个项目'
+  },
+  {
+    key: 'category',
+    label: '物料类别',
+    mode: 'multi',
+    source: 'tags',
+    editable: true,
+    presets: [
+      '海报', '折页', '详情长图', '短视频', '宣传片',
+      '直播物料', '字体', '图标素材', '参考图'
+    ],
+    colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5', '#e86fa8', '#8fa83d', '#d9a0ff'],
+    hint: '一张海报可以同时是「海报」和「参考图」'
+  },
+  {
+    key: 'channel',
+    label: '使用渠道',
+    mode: 'multi',
+    source: 'tags',
+    editable: true,
+    presets: ['公众号', '朋友圈', '视频号', '抖音', '线下门店', '官网'],
+    colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5'],
+    hint: '同一张图可以发多个渠道'
+  },
+  {
+    key: 'status',
+    label: '状态',
+    mode: 'single',
+    source: 'tags',
+    editable: true,
+    presets: ['草稿', '待审核', '已交付', '已归档'],
+    colors: ['#6b7280', '#e8a33d', '#3fb950', '#8fa83d'],
+    hint: '一条素材同一时刻只处于一种状态'
+  },
+  {
+    key: 'time',
+    label: '时间',
+    mode: 'multi',
+    source: 'tags',
+    editable: true,
+    presets: [], // 由文件修改时间自动生成（2026 / 2026-09）
+    colors: ['#4f8cff', '#2bb5b5', '#a884ff'],
+    hint: '入库时按文件修改时间自动贴年月标签'
+  }
+] as const
+
+export function getDimension(key: string): DimensionDef | undefined {
+  return TAG_DIMENSIONS.find((d) => d.key === key)
 }
 
 /** 按名字找项目，没有就建（迁移用） */
@@ -207,20 +349,6 @@ function ensureProjectByName(d: Database.Database, name: string, ts: string): nu
     .run(name, pickColor(maxOrder + 1), maxOrder + 1, ts)
   return Number(info.lastInsertRowid)
 }
-
-/** 新建项目时的自动配色池（深色主题下都清晰可辨） */
-export const PROJECT_COLORS = [
-  '#4f8cff', // 蓝
-  '#3fb950', // 绿
-  '#e8a33d', // 橙
-  '#a884ff', // 紫
-  '#f0603f', // 红
-  '#2bb5b5', // 青
-  '#e86fa8', // 粉
-  '#8fa83d', // 橄榄
-  '#d9a0ff', // 浅紫
-  '#6b7280' // 灰
-] as const
 
 export function pickColor(seed: number): string {
   return PROJECT_COLORS[Math.abs(seed) % PROJECT_COLORS.length]

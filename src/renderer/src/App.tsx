@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AssetItem,
+  DimensionGroup,
   PackCard as PackCardType,
   ProjectWithCount,
   WsInfo
@@ -12,6 +13,9 @@ import { NewPackModal } from './components/NewPackModal'
 import { PackDetailModal } from './components/PackDetailModal'
 import { ProjectModal } from './components/ProjectModal'
 import { DeleteProjectModal } from './components/DeleteProjectModal'
+import { TagPanel } from './components/TagPanel'
+import { TagManagerModal } from './components/TagManagerModal'
+import { TagPickerModal } from './components/TagPickerModal'
 
 type ViewMode = 'packs' | 'files'
 
@@ -47,6 +51,15 @@ export default function App(): React.JSX.Element {
   const [assets, setAssets] = useState<AssetItem[]>([])
   const [unassignedOnly, setUnassignedOnly] = useState(false)
 
+  // ---- 第 3 批：标签（M2）----
+  const [tagDimensions, setTagDimensions] = useState<DimensionGroup[]>([])
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [showTagManager, setShowTagManager] = useState(false)
+  const [tagManagerDim, setTagManagerDim] = useState<string | undefined>(undefined)
+  /** 待打标签的素材 id 集合（null = 弹窗关闭） */
+  const [tagPickerIds, setTagPickerIds] = useState<number[] | null>(null)
+  const [tagSuggestions, setTagSuggestions] = useState<Record<number, number[]>>({})
+
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [claimPackId, setClaimPackId] = useState<number | null>(null)
   const [claimTarget, setClaimTarget] = useState<string>('02-素材')
@@ -78,6 +91,20 @@ export default function App(): React.JSX.Element {
     return i
   }, [])
 
+  /** 第 3 批：拉 5 个维度及其标签（带使用计数） */
+  const loadTags = useCallback(async (): Promise<DimensionGroup[]> => {
+    const d = await window.api.listTagDimensions()
+    setTagDimensions(d)
+    // 已删/已归档的项目对应的负数 id 要从已选里剔掉，避免筛出空结果
+    const valid = new Set<number>()
+    for (const g of d) for (const t of g.tags) valid.add(t.id)
+    setSelectedTagIds((prev) => {
+      const next = prev.filter((id) => valid.has(id))
+      return next.length === prev.length ? prev : next
+    })
+    return d
+  }, [])
+
   const loadPacks = useCallback(async (): Promise<void> => {
     const r = await window.api.listPacks()
     setPacks(r.packs)
@@ -87,10 +114,12 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const loadAssets = useCallback(
-    async (kw: string, unassigned: boolean): Promise<void> => {
+    async (kw: string, unassigned: boolean, tagIds: number[]): Promise<void> => {
       const r = await window.api.listAssets({
         keyword: kw,
-        view: unassigned ? 'unassigned' : 'all'
+        view: unassigned ? 'unassigned' : 'all',
+        tagIds,
+        withTags: true
       })
       setAssets(r.items)
       if (unassigned) setUnassignedSize(r.items.reduce((s, i) => s + i.size, 0))
@@ -101,29 +130,38 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     ;(async () => {
       await loadWs()
+      await loadTags()
       await loadPacks()
-      await loadAssets('', false)
+      await loadAssets('', false, [])
     })()
-  }, [loadWs, loadPacks, loadAssets])
+  }, [loadWs, loadTags, loadPacks, loadAssets])
 
   useEffect(() => {
     if (view === 'packs') loadPacks()
-    else loadAssets(keyword, unassignedOnly)
+    else loadAssets(keyword, unassignedOnly, selectedTagIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, unassignedOnly])
 
   useEffect(() => {
     if (view !== 'files') return
-    const t = setTimeout(() => loadAssets(keyword, unassignedOnly), 220)
+    const t = setTimeout(() => loadAssets(keyword, unassignedOnly, selectedTagIds), 220)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyword])
 
+  // 标签勾选变化：左侧筛选立即生效
+  useEffect(() => {
+    if (view !== 'files') setView('files')
+    loadAssets(keyword, unassignedOnly, selectedTagIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTagIds])
+
   const reloadAll = useCallback(async (): Promise<void> => {
     await loadWs()
+    await loadTags()
     await loadPacks()
-    await loadAssets(keyword, unassignedOnly)
-  }, [loadWs, loadPacks, loadAssets, keyword, unassignedOnly])
+    await loadAssets(keyword, unassignedOnly, selectedTagIds)
+  }, [loadWs, loadTags, loadPacks, loadAssets, keyword, unassignedOnly, selectedTagIds])
 
   // ---------------- A-10 刷新扫描 ----------------
 
@@ -234,6 +272,43 @@ export default function App(): React.JSX.Element {
     setSelected(new Set())
     setClaimPackId(null)
     await reloadAll()
+  }
+
+  // ---------------- 第 3 批：批量打标签 ----------------
+
+  /** 打开打标签弹窗：先拿自动建议（C-07），再显示 */
+  const openTagPicker = async (): Promise<void> => {
+    const ids = assets.filter((a) => selected.has(a.id)).map((a) => a.id)
+    if (ids.length === 0) return
+    try {
+      const sug = await window.api.suggestTags(ids)
+      setTagSuggestions(sug)
+    } catch {
+      setTagSuggestions({})
+    }
+    if (tagDimensions.length === 0) await loadTags()
+    setTagPickerIds(ids)
+  }
+
+  const submitTags = async (args: {
+    assetIds: number[]
+    tagIds: number[]
+  }): Promise<void> => {
+    const r = await window.api.applyTags(args)
+    if (!r.ok) {
+      toast(r.error ?? '打标签失败', 'err')
+      return
+    }
+    setTagPickerIds(null)
+    setSelected(new Set())
+    await reloadAll()
+    toast(`已给 ${args.assetIds.length} 个文件贴上 ${args.tagIds.length} 个标签`, 'ok')
+  }
+
+  /** 从当前勾选的素材上摘掉某个标签（在文件行上点标签的小叉） */
+  const dropTag = async (assetId: number, tagId: number): Promise<void> => {
+    const r = await window.api.removeTagsFrom({ assetIds: [assetId], tagIds: [tagId] })
+    if (r.ok) await loadAssets(keyword, unassignedOnly, selectedTagIds)
   }
 
   // ---------------- 打开 ----------------
@@ -358,7 +433,32 @@ export default function App(): React.JSX.Element {
       {/* 主体 */}
       <div className="body">
         <div className="side" style={{ width: sideWidth }}>
-          <h4>所属项目</h4>
+          {/* 第 3 批：维度式标签筛选（项目维度也在里面，映射 projects 表） */}
+          <TagPanel
+            dimensions={tagDimensions}
+            selected={selectedTagIds}
+            onChange={setSelectedTagIds}
+            onManage={(dim) => {
+              setTagManagerDim(dim)
+              setShowTagManager(true)
+            }}
+          />
+
+          <div className="divider" />
+
+          <h4 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>项目</span>
+            <button
+              className="tp-manage-btn"
+              onClick={() => {
+                setEditingProject(null)
+                setShowProjectModal(true)
+              }}
+              title="新建项目"
+            >
+              ＋
+            </button>
+          </h4>
 
           <button
             className={`item${projectFilter === '全部' ? ' on' : ''}`}
@@ -453,17 +553,6 @@ export default function App(): React.JSX.Element {
               <span className="n">{noProjectCount}</span>
             </button>
           )}
-
-          <button
-            className="add-proj"
-            onClick={() => {
-              setEditingProject(null)
-              setShowProjectModal(true)
-            }}
-            title="公司开了新业务 / 内部孵化了新项目，就在这里加"
-          >
-            ＋ 新建项目
-          </button>
 
           <div className="divider" />
 
@@ -588,6 +677,9 @@ export default function App(): React.JSX.Element {
                     >
                       确定认领
                     </button>
+                    <button className="btn" onClick={openTagPicker} title="给选中的文件批量打标签">
+                      🏷 打标签
+                    </button>
                     <button className="btn" onClick={() => setSelected(new Set())}>
                       取消
                     </button>
@@ -638,6 +730,7 @@ export default function App(): React.JSX.Element {
                     }
                     onOpen={() => openFile(a.abs_path)}
                     onReveal={() => window.api.revealFile(a.abs_path)}
+                    onDropTag={(tagId) => void dropTag(a.id, tagId)}
                   />
                 ))}
               </>
@@ -713,6 +806,30 @@ export default function App(): React.JSX.Element {
           others={projects.filter((p) => p.id !== deletingProject.id)}
           onClose={() => setDeletingProject(null)}
           onConfirm={confirmDeleteProject}
+        />
+      )}
+
+      {/* 第 3 批：标签管理 / 批量打标签 */}
+      {showTagManager && (
+        <TagManagerModal
+          dimensions={tagDimensions}
+          focusDimension={tagManagerDim}
+          onClose={() => {
+            setShowTagManager(false)
+            setTagManagerDim(undefined)
+          }}
+          onChanged={reloadAll}
+          toast={toast}
+        />
+      )}
+
+      {tagPickerIds && (
+        <TagPickerModal
+          assetIds={tagPickerIds}
+          dimensions={tagDimensions}
+          suggestions={tagSuggestions}
+          onClose={() => setTagPickerIds(null)}
+          onSubmit={submitTags}
         />
       )}
 

@@ -169,8 +169,12 @@ app.whenReady().then(async () => {
   // ── 1. 左栏项目面板基线 ───────────────────────────────
   shot('shot-proj-1-list.png', (await win.webContents.capturePage()).toPNG())
   say('proj rows', await js(`document.querySelectorAll('.proj-row').length`))
-  say('has add-proj button', await js(`!!document.querySelector('.add-proj')`))
-  say('add-proj label', JSON.stringify(await js(`document.querySelector('.add-proj')?.innerText || ''`)))
+  say('has new-proj button', await js(`!!document.querySelector('.tp-manage-btn')`))
+  say('new-proj label', JSON.stringify(await js(`document.querySelector('.tp-manage-btn')?.innerText || ''`)))
+  say('tag panel dims', await js(`document.querySelectorAll('.tag-panel .tp-dim').length`))
+  say('tag panel labels', JSON.stringify(await js(`
+    [...document.querySelectorAll('.tag-panel .tp-dim-label')].map(e => e.innerText)
+  `)))
   say('color dots', await js(`document.querySelectorAll('.proj-row .cdot').length`))
   say('dot colors', JSON.stringify(await js(`
     [...document.querySelectorAll('.proj-row .cdot')].map(d => getComputedStyle(d).backgroundColor)
@@ -178,7 +182,7 @@ app.whenReady().then(async () => {
 
   // ── 2. 打开新建项目弹窗，检查色块 ─────────────────────
   await js(`
-    (() => { document.querySelector('.add-proj')?.click() })()
+    (() => { document.querySelector('.tp-manage-btn')?.click() })()
   `)
   await wait(400)
   shot('shot-proj-2-newmodal.png', (await win.webContents.capturePage()).toPNG())
@@ -621,6 +625,176 @@ app.whenReady().then(async () => {
   `)
   say('pdf thumbs', JSON.stringify(pdfThumbs))
   shot('shot-b2-pdf.png', (await win.webContents.capturePage()).toPNG())
+
+  // ── 14. 第 3 批：标签体系界面 ──────────────────────
+  // 14.1 左栏维度面板：5 个维度都在
+  say('b3 dim count', await js(`document.querySelectorAll('.tag-panel .tp-dim').length`))
+  const dimKeys = await js(`
+    [...document.querySelectorAll('.tag-panel .tp-dim')].map(d => ({
+      label: d.querySelector('.tp-dim-label')?.innerText,
+      tags: d.querySelectorAll('.tp-tag').length
+    }))
+  `)
+  say('b3 dims', JSON.stringify(dimKeys))
+  shot('shot-b3-1-panel.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.2 展开类别维度看预制标签
+  const catTags = await js(`
+    (() => {
+      const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
+      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      if (!cat) return null
+      cat.querySelector('.tp-dim-head')?.click()
+      return [...cat.querySelectorAll('.tp-tag-name')].map(e => e.innerText)
+    })()
+  `)
+  await wait(300)
+  say('b3 category tags', JSON.stringify(catTags))
+
+  // 14.3 点一个标签 → 应进入文件视图并过滤
+  const clicked = await js(`
+    (() => {
+      const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
+      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      const t = [...(cat?.querySelectorAll('.tp-tag') || [])].find(x => x.innerText.includes('海报'))
+      if (!t) return null
+      t.click()
+      return t.innerText
+    })()
+  `)
+  await wait(900)
+  say('b3 clicked tag', JSON.stringify(clicked))
+  say('b3 view switched to files', await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tabs button')].find(x => /文件/.test(x.textContent))
+      return !!b && b.classList.contains('on')
+    })()
+  `))
+  say('b3 badge on dim', await js(`document.querySelector('.tag-panel .tp-badge')?.innerText || null`))
+  say('b3 clear button', await js(`document.querySelector('.tp-clear')?.innerText || null`))
+  shot('shot-b3-2-filtered.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.4 全部文件视图：勾选头几条 → 出现「打标签」按钮
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tabs button')].find(x => /文件/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(700)
+  await js(`document.querySelector('.tp-clear')?.click()`)
+  await wait(700)
+  const rowCount = await js(`document.querySelectorAll('.file-row').length`)
+  say('b3 file rows', rowCount)
+  const checked = await js(`
+    (() => {
+      const cbs = [...document.querySelectorAll('.file-row .cb')].slice(0, 3)
+      cbs.forEach(c => c.click())
+      return cbs.length
+    })()
+  `)
+  await wait(500)
+  say('b3 checked rows', checked)
+  say('b3 tag button visible', await js(`
+    [...document.querySelectorAll('.claimbar .btn')].some(b => /打标签/.test(b.textContent))
+  `))
+  shot('shot-b3-3-selected.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.5 打开打标签弹窗
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.claimbar .btn')].find(x => /打标签/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(900)
+  say('b3 picker open', await js(`!!document.querySelector('.tp-pick-body')`))
+  say('b3 picker dims', await js(`document.querySelectorAll('.tp-pick-dim').length`))
+  say('b3 picker title', JSON.stringify(await js(`document.querySelector('.modal h3')?.innerText || ''`)))
+  say('b3 suggested star', await js(`document.querySelectorAll('.tp-star').length`))
+  shot('shot-b3-4-picker.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.6 选「海报」+「抖音」→ 贴上去
+  const pickedTags = await js(`
+    (() => {
+      const out = []
+      for (const kw of ['海报', '抖音']) {
+        const t = [...document.querySelectorAll('.tp-pick-body .tp-tag')].find(x => x.innerText.includes(kw))
+        if (t) { t.click(); out.push(kw) }
+      }
+      return out
+    })()
+  `)
+  await wait(400)
+  say('b3 picked in picker', JSON.stringify(pickedTags))
+  say('b3 picked count text', JSON.stringify(await js(`document.querySelector('.tp-picked-n')?.innerText || ''`)))
+  shot('shot-b3-5-picked.png', (await win.webContents.capturePage()).toPNG())
+
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.modal .foot .btn')].find(x => /贴到/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(1200)
+  say('b3 picker closed', await js(`!document.querySelector('.tp-pick-body')`))
+  // 直接从库里核对
+  say('b3 db rows', JSON.stringify((() => {
+    try {
+      const { openDb, getDb } = require(join(ROOT, 'out/test/db.cjs'))
+      openDb(root)
+      return getDb().prepare('SELECT at.asset_id, t.dimension, t.name FROM asset_tags at JOIN tags t ON t.id=at.tag_id ORDER BY at.asset_id').all()
+    } catch (e) { return 'ERR ' + e.message }
+  })()))
+  say('b3 toast', JSON.stringify(await js(`
+    [...document.querySelectorAll('.toast')].map(t => t.innerText)
+  `)))
+
+  // 14.7 行上应出现标签色块
+  const rowTags = await js(`
+    [...document.querySelectorAll('.file-row .row-tag')].map(t => t.innerText.replace('×','').trim())
+  `)
+  say('b3 row tag chips', JSON.stringify(rowTags))
+  shot('shot-b3-6-applied.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.8 标签管理弹窗
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tp-add')].find(x => /管理/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(600)
+  say('b3 manager open', await js(`!!document.querySelector('.tm-dims')`))
+  say('b3 manager dims', await js(`document.querySelectorAll('.tm-dim').length`))
+  say('b3 manager rows', await js(`document.querySelectorAll('.tm-row').length`))
+  say('b3 manager title', JSON.stringify(await js(`document.querySelector('.modal h3')?.innerText || ''`)))
+  shot('shot-b3-7-manager.png', (await win.webContents.capturePage()).toPNG())
+
+  // 14.9 在管理弹窗里加一个新标签
+  await js(`
+    (() => {
+      const inp = document.querySelector('.tm-add input[type=text]')
+      if (!inp) return false
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(inp, '验收专用标签')
+      inp.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()
+  `)
+  await wait(300)
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tm-add .btn')].find(x => /添加/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(900)
+  say('b3 tag added in manager', await js(`
+    [...document.querySelectorAll('.tm-name')].some(e => e.innerText === '验收专用标签')
+  `))
+  await js(`document.querySelector('.modal .foot .btn')?.click()`)
+  await wait(600)
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))

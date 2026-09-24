@@ -31,6 +31,17 @@ import {
   isImage
 } from './thumbs'
 import { PROJECT_COLORS, CATEGORIES } from './db'
+import {
+  listTagDimensions,
+  createTag,
+  updateTag,
+  removeTag,
+  tagUsage,
+  applyTags,
+  removeTagsFrom,
+  tagsOfAssets,
+  suggestTagsForAssets
+} from './tags'
 
 /**
  * 主进程 / 界面的全部通信接口。
@@ -200,11 +211,24 @@ export function registerIpc(): void {
         view?: 'all' | 'unassigned'
         packId?: number
         projectId?: number
+        tagIds?: number[]
+        filterProjectIds?: number[]
+        withTags?: boolean
       }
     ) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
-      const rows = listAssets(opts ?? {})
+      const o = opts ?? {}
+      const rows = listAssets({
+        keyword: o.keyword,
+        view: o.view,
+        packId: o.packId,
+        projectId: o.projectId,
+        tagIds: o.tagIds,
+        filterProjectIds: o.filterProjectIds
+      })
+      // 第 3 批：需要标签时一并带出（列表色块展示）
+      const tagMap = o.withTags || o.tagIds?.length ? tagsOfAssets(rows.map((r) => r.id)) : {}
       const withThumb = rows.map((r) => ({
         ...r,
         // thumb_path 有值就直接读缩略图（图片 .webp / 视频 .jpg 都走这里）；
@@ -214,7 +238,8 @@ export function registerIpc(): void {
             ? readAsDataUrl(join(root, r.thumb_path))
             : isImage(r.ext)
               ? readAsDataUrl(r.abs_path)
-              : null
+              : null,
+        tags: tagMap[r.id] ?? []
       }))
       return { items: withThumb, total: withThumb.length }
     }
@@ -266,5 +291,66 @@ export function registerIpc(): void {
     if (!existsSync(p)) return { ok: false, error: '路径不存在' }
     const err = await shell.openPath(p)
     return err ? { ok: false, error: err } : { ok: true }
+  })
+
+  // ---------- 第 3 批：标签体系（M2） ----------
+  ipcMain.handle('tag:dimensions', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return listTagDimensions()
+  })
+
+  ipcMain.handle(
+    'tag:create',
+    (_e, input: { dimension: string; name: string; color?: string }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      return createTag(input)
+    }
+  )
+
+  ipcMain.handle(
+    'tag:update',
+    (_e, args: { id: number; patch: { name?: string; color?: string } }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      return updateTag(args.id, args.patch)
+    }
+  )
+
+  ipcMain.handle('tag:remove', (_e, id: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return removeTag(id)
+  })
+
+  ipcMain.handle('tag:usage', (_e, id: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return tagUsage(id)
+  })
+
+  ipcMain.handle('tag:apply', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return applyTags(args)
+  })
+
+  ipcMain.handle('tag:removeFrom', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return removeTagsFrom(args)
+  })
+
+  ipcMain.handle('tag:ofAssets', (_e, assetIds: number[]) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return tagsOfAssets(assetIds)
+  })
+
+  ipcMain.handle('tag:suggest', (_e, assetIds: number[]) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return suggestTagsForAssets(assetIds)
   })
 }

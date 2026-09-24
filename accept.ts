@@ -18,7 +18,8 @@ import {
   removeProject,
   moveProject,
   SUB_FOLDERS,
-  UNASSIGNED_ROLE
+  UNASSIGNED_ROLE,
+  listAssets
 } from './src/main/workspace'
 import {
   ensureThumbsForAssets,
@@ -31,6 +32,17 @@ import {
   ffmpegReady
 } from './src/main/thumbs'
 import { getDb, closeDb } from './src/main/db'
+import {
+  listTagDimensions,
+  createTag,
+  updateTag,
+  tagUsage,
+  removeTag,
+  applyTags,
+  removeTagsFrom,
+  tagsOfAssets,
+  suggestTagsForAssets
+} from './src/main/tags'
 
 /** 每次跑用一个全新的工作区目录，避免上一次的残留污染结果 */
 const RUN_ID = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
@@ -978,6 +990,209 @@ async function main(): Promise<void> {
       .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
   )
   ok(pdfAgain === 0, `PDF 页数第二次运行处理 0 个（幂等）：实际 ${pdfAgain}`)
+
+  // ============ 第 3 批 C-01：标签维度与预制标签 ============
+  log('\n[16] 第 3 批 C-01：5 个标签维度 + 预制标签')
+
+  const dims = listTagDimensions()
+  ok(dims.length === 5, `维度数 = ${dims.length}（应为 5：项目/类别/渠道/状态/时间）`)
+  ok(
+    dims.map((d) => d.key).join(',') === 'project,category,channel,status,time',
+    `维度顺序：${dims.map((d) => d.key).join(',')}`
+  )
+  const projectDim = dims.find((d) => d.key === 'project')!
+  const categoryDim = dims.find((d) => d.key === 'category')!
+  const statusDim = dims.find((d) => d.key === 'status')!
+  ok(projectDim.mode === 'single', `项目维度为单选（mode=${projectDim.mode}）`)
+  ok(categoryDim.mode === 'multi', `类别维度为多选（mode=${categoryDim.mode}）`)
+  ok(statusDim.mode === 'single', `状态维度为单选（mode=${statusDim.mode}）`)
+  ok(projectDim.tags.length > 0, `项目维度标签数 = ${projectDim.tags.length}（实时映射 projects 表）`)
+  ok(
+    projectDim.tags.every((t) => t.id < 0),
+    '项目维度 id 全为负数（-projectId 编码，不与 tags 表正数 id 冲突）'
+  )
+  ok(categoryDim.tags.length >= 9, `类别预制标签 ${categoryDim.tags.length} 个（≥9）`)
+  ok(categoryDim.tags.some((t) => t.name === '海报'), '类别含预制「海报」')
+  ok(categoryDim.tags.some((t) => t.name === '详情长图'), '类别含预制「详情长图」')
+  const channelDim = dims.find((d) => d.key === 'channel')!
+  ok(channelDim.tags.length >= 6, `渠道预制标签 ${channelDim.tags.length} 个（≥6）`)
+  ok(channelDim.tags.some((t) => t.name === '视频号'), '渠道含预制「视频号」')
+  ok(statusDim.tags.length >= 4, `状态预制标签 ${statusDim.tags.length} 个（≥4）`)
+  ok(statusDim.tags.some((t) => t.name === '待审核'), '状态含预制「待审核」')
+  ok(
+    dims.every((d) => d.tags.every((t) => typeof t.name === 'string' && typeof t.id === 'number')),
+    '每个标签都有 name / id 字段'
+  )
+
+  // ============ 第 3 批 C-02：标签增 / 改 / 删 ============
+  log('\n[17] 第 3 批 C-02：标签增改删 + 重名校验')
+
+  const mk1 = createTag({ dimension: 'category', name: '验收测试类别' })
+  ok(mk1.ok && !!mk1.tag, `新建标签成功（id=${mk1.tag?.id}）`)
+  ok(mk1.tag?.name === '验收测试类别', `标签名正确：${mk1.tag?.name}`)
+  ok(!!mk1.tag?.color && /^#[0-9a-f]{6}$/i.test(mk1.tag!.color), `标签自动配色：${mk1.tag?.color}`)
+
+  const dupTag = createTag({ dimension: 'category', name: '验收测试类别' })
+  ok(!dupTag.ok && !!dupTag.error, `同维度同名被拒：${dupTag.error}`)
+
+  const crossOk = createTag({ dimension: 'channel', name: '验收测试类别' })
+  ok(crossOk.ok, '跨维度同名允许（维度内唯一即可）')
+
+  const empty = createTag({ dimension: 'category', name: '   ' })
+  ok(!empty.ok, `空名被拒：${empty.error}`)
+
+  const projCreate = createTag({ dimension: 'project', name: '不该能建项目' })
+  ok(!projCreate.ok, `项目维度不允许从标签入口新建：${projCreate.error}`)
+
+  const badDim = createTag({ dimension: 'nope', name: 'x' })
+  ok(!badDim.ok, `不存在的维度被拒：${badDim.error}`)
+
+  const updTag = updateTag(mk1.tag!.id, { name: '验收改名后', color: '#ff0000' })
+  ok(updTag.ok && updTag.tag?.name === '验收改名后', `改名生效：${updTag.tag?.name}`)
+  ok(updTag.tag?.color === '#ff0000', `改色生效：${updTag.tag?.color}`)
+
+  const badUpd = updateTag(mk1.tag!.id, { name: '   ' })
+  ok(!badUpd.ok, `改成空名被拒：${badUpd.error}`)
+
+  // ============ 第 3 批 C-03：批量打标签（覆盖语义） ============
+  log('\n[18] 第 3 批 C-03：列表勾选批量打标签')
+
+  const allAssetIds = (
+    getDb().prepare('SELECT id FROM assets ORDER BY id').all() as Array<{ id: number }>
+  ).map((r) => r.id)
+  ok(allAssetIds.length >= 5, `库内素材 ${allAssetIds.length} 条（≥5，可用于批量打标签）`)
+
+  const pick = allAssetIds.slice(0, 3)
+  const posterTag = categoryDim.tags.find((t) => t.name === '海报')!
+  const douyinTag = channelDim.tags.find((t) => t.name === '抖音')!
+
+  const r1 = applyTags({ assetIds: pick, tagIds: [posterTag.id, douyinTag.id] })
+  ok(r1.ok, `批量贴标签返回 ok（tagged=${r1.tagged}, cleared=${r1.cleared}）`)
+  ok(r1.tagged === pick.length * 2, `张贴记录数 = ${r1.tagged}（3 素材 × 2 标签）`)
+  ok(r1.cleared === 0, `首次贴无清除（cleared=${r1.cleared}）`)
+
+  const fromDb = tagsOfAssets(pick)
+  ok(fromDb[pick[0]]?.length === 2, `第 1 条素材有 2 个标签：${fromDb[pick[0]]?.length}`)
+  ok(
+    fromDb[pick[1]]?.some((t) => t.name === '海报') && fromDb[pick[1]]?.some((t) => t.name === '抖音'),
+    '两个标签都贴上了'
+  )
+
+  // 覆盖语义：同维度再贴一次，旧的要被清掉
+  const foldTag = categoryDim.tags.find((t) => t.name === '折页')!
+  const r2 = applyTags({ assetIds: pick, tagIds: [foldTag.id] })
+  ok(r2.cleared === pick.length, `同维度覆盖清掉旧标签 ${r2.cleared} 条（=3，类别维度单选语义）`)
+  const after2 = tagsOfAssets(pick)
+  ok(
+    after2[pick[0]]?.some((t) => t.name === '折页') === true,
+    '新标签「折页」已贴上'
+  )
+  ok(
+    after2[pick[0]]?.some((t) => t.name === '海报') === false,
+    '旧类别标签「海报」被清掉（同维度覆盖）'
+  )
+  ok(
+    after2[pick[0]]?.some((t) => t.name === '抖音') === true,
+    '非同维度标签「抖音」不受影响，仍保留'
+  )
+
+  // ============ 第 3 批 C-04：去标签 / 使用量 / 删标签 ============
+  log('\n[19] 第 3 批 C-04：去标签 / 使用量统计 / 删标签级联')
+
+  const usageFold = tagUsage(foldTag.id)
+  ok(usageFold.assetCount === pick.length, `「折页」使用量 = ${usageFold.assetCount}（=3）`)
+
+  const r3 = removeTagsFrom({ assetIds: [pick[0]], tagIds: [foldTag.id] })
+  ok(r3.removed === 1, `去标签生效 ${r3.removed} 条`)
+  ok(
+    tagsOfAssets([pick[0]])[pick[0]]?.some((t) => t.name === '折页') === false,
+    '第 1 条已无「折页」'
+  )
+  ok(tagUsage(foldTag.id).assetCount === pick.length - 1, `使用量随之减为 ${tagUsage(foldTag.id).assetCount}`)
+
+  const delTag = createTag({ dimension: 'category', name: '待删除标签' })
+  applyTags({ assetIds: pick, tagIds: [delTag.tag!.id] })
+  const usageBeforeDel = tagUsage(delTag.tag!.id).assetCount
+  ok(usageBeforeDel === pick.length, `待删标签使用量 ${usageBeforeDel}`)
+  const rDel = removeTag(delTag.tag!.id)
+  ok(rDel.ok && rDel.deleted === pick.length, `删标签成功，连带清 ${rDel.deleted} 条关联`) 
+  ok(tagUsage(delTag.tag!.id).assetCount === 0, '关联已清空，使用量归 0')
+  ok(
+    getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() !== undefined &&
+      (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c ===
+        allAssetIds.length,
+    '删标签不动素材（素材条数不变）'
+  )
+  const rDelAgain = removeTag(delTag.tag!.id)
+  ok(!rDelAgain.ok, `删不存在的标签被拒：${rDelAgain.error}`)
+
+  // 清理跨维度同名测试标签
+  if (crossOk.tag) removeTag(crossOk.tag.id)
+
+  // ============ 第 3 批 C-05：多维筛选（并且语义） ============
+  log('\n[20] 第 3 批 C-05：多维筛选「并且」语义')
+
+  // 造一组确定数据：3 条素材，A 组贴【折页 + 抖音】，B 组贴【折页】
+  const groupA = pick
+  const groupB = allAssetIds.slice(3, 5)
+  applyTags({ assetIds: groupA, tagIds: [foldTag.id, douyinTag.id] })
+  applyTags({ assetIds: groupB, tagIds: [foldTag.id] })
+
+  const onlyFold = listAssets({ tagIds: [foldTag.id] })
+  ok(
+    onlyFold.length >= groupA.length + groupB.length,
+    `按「折页」单选筛出 ${onlyFold.length} 条（≥${groupA.length + groupB.length}）`
+  )
+
+  const foldAndDouyin = listAssets({ tagIds: [foldTag.id, douyinTag.id] })
+  ok(
+    foldAndDouyin.length === groupA.length,
+    `「折页 + 抖音」并且筛出 ${foldAndDouyin.length} 条（=${groupA.length}，跨维度 AND 生效）`
+  )
+  ok(
+    foldAndDouyin.every((a) => groupA.includes(a.id)),
+    '筛出的正是 A 组（同维度旧标签被覆盖后不串味）'
+  )
+
+  // ============ 第 3 批 C-07：标签自动建议 ============
+  log('\n[21] 第 3 批 C-07：标签自动建议（只推荐不自动贴）')
+
+  const suggestDb = getDb()
+  // 取一条「从没被打过标签」的素材（后面几条没进过 [18]/[19] 的批次）
+  const targetAsset = suggestDb
+    .prepare(
+      `SELECT a.id, a.file_name FROM assets a
+        WHERE NOT EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)
+        ORDER BY a.id DESC LIMIT 1`
+    )
+    .get() as { id: number; file_name: string }
+  ok(!!targetAsset && typeof targetAsset.id === 'number', `取到干净素材用于建议：${targetAsset?.file_name}`)
+  // 把一条渠道标签命名成文件名里必含的词，检验能否命中
+  const word = targetAsset.file_name.slice(0, 2)
+  const sugTag = createTag({ dimension: 'channel', name: word })
+  ok(sugTag.ok, `造建议用标签「${word}」（取自文件名前两字）`)
+
+  const sug = suggestTagsForAssets([targetAsset.id])
+  ok(Array.isArray(sug[targetAsset.id]), '建议返回数组')
+  ok(sug[targetAsset.id].includes(sugTag.tag!.id), `文件名含「${word}」→ 建议命中该标签 ✓`)
+
+  const before = sug[targetAsset.id].length
+  ok(
+    tagsOfAssets([targetAsset.id])[targetAsset.id] === undefined,
+    '建议阶段不会自动贴标签（素材标签表仍为空）'
+  )
+  ok(before >= 1, `建议数 ${before}（≥1）`)
+
+  // 单字标签不该被建议
+  const oneChar = createTag({ dimension: 'channel', name: '的' })
+  if (oneChar.tag) {
+    const sug2 = suggestTagsForAssets([targetAsset.id])
+    ok(sug2[targetAsset.id].includes(oneChar.tag.id) === false, '单字标签跳过建议（避免误命中）')
+    removeTag(oneChar.tag.id)
+  }
+
+  if (sugTag.tag) removeTag(sugTag.tag.id)
+  removeTag(mk1.tag!.id)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

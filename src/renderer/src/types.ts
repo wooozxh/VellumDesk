@@ -5,5 +5,11 @@ export type {
   ProjectWithCount,
   WsInfo,
   PacksView,
-  PackDetail
+  PackDetail,
+  Tag,
+  TagWithCount,
+  DimensionGroup,
+  TagSelection,
+  ApplyTagsResult,
+  SuggestTagsResult
 } from '../../shared/types'

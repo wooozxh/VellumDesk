@@ -73,7 +73,8 @@ export function FileRow({
   selectable,
   onToggle,
   onOpen,
-  onReveal
+  onReveal,
+  onDropTag
 }: {
   item: AssetItem
   selected: boolean
@@ -81,9 +82,12 @@ export function FileRow({
   onToggle: () => void
   onOpen: () => void
   onReveal: () => void
+  /** 第 3 批：点标签上的小叉摘掉这个标签 */
+  onDropTag?: (tagId: number) => void
 }): React.JSX.Element {
   const cls = useMemo(() => `file-row${selected ? ' sel' : ''}`, [selected])
   const metaLine = useMemo(() => buildMetaLine(item), [item])
+  const tags = item.tags ?? []
 
   return (
     <div className={cls} onDoubleClick={onOpen}>
@@ -108,6 +112,32 @@ export function FileRow({
           <span className="path-sep">·</span>
           <span className="rpath">{item.rel_path}</span>
         </div>
+        {tags.length > 0 && (
+          <div className="row-tags">
+            {tags.map((t) => (
+              <span
+                key={t.id}
+                className="row-tag"
+                style={{ background: t.color + '22', borderColor: t.color + '77', color: t.color }}
+                title={`${t.dimension} · ${t.name}`}
+              >
+                {t.name}
+                {onDropTag && (
+                  <button
+                    className="row-tag-x"
+                    title="摘掉这个标签"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDropTag(t.id)
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {item.role && <span className={`role ${item.role}`}>{item.role}</span>}
       <div className="act">

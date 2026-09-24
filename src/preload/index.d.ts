@@ -16,5 +16,11 @@ export type {
   PacksView,
   PackDetail,
   ScanResult,
-  ClaimResult
+  ClaimResult,
+  Tag,
+  TagWithCount,
+  DimensionGroup,
+  TagSelection,
+  ApplyTagsResult,
+  SuggestTagsResult
 } from '../shared/types'

@@ -34,12 +34,30 @@ const api = {
     view?: 'all' | 'unassigned'
     packId?: number
     projectId?: number
+    tagIds?: number[]
+    filterProjectIds?: number[]
+    withTags?: boolean
   }) => ipcRenderer.invoke('view:assets', opts),
   packDetail: (packId: number) => ipcRenderer.invoke('view:packDetail', packId),
 
   // 认领
   claim: (args: { paths: string[]; packId: number; subFolder: string }) =>
     ipcRenderer.invoke('asset:claim', args),
+
+  // 第 3 批：标签体系（M2）
+  listTagDimensions: () => ipcRenderer.invoke('tag:dimensions'),
+  createTag: (input: { dimension: string; name: string; color?: string }) =>
+    ipcRenderer.invoke('tag:create', input),
+  updateTag: (id: number, patch: { name?: string; color?: string }) =>
+    ipcRenderer.invoke('tag:update', { id, patch }),
+  removeTag: (id: number) => ipcRenderer.invoke('tag:remove', id),
+  tagUsage: (id: number) => ipcRenderer.invoke('tag:usage', id),
+  applyTags: (args: { assetIds: number[]; tagIds: number[] }) =>
+    ipcRenderer.invoke('tag:apply', args),
+  removeTagsFrom: (args: { assetIds: number[]; tagIds: number[] }) =>
+    ipcRenderer.invoke('tag:removeFrom', args),
+  tagsOfAssets: (assetIds: number[]) => ipcRenderer.invoke('tag:ofAssets', assetIds),
+  suggestTags: (assetIds: number[]) => ipcRenderer.invoke('tag:suggest', assetIds),
 
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
