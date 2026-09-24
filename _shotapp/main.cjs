@@ -627,6 +627,28 @@ app.whenReady().then(async () => {
   shot('shot-b2-pdf.png', (await win.webContents.capturePage()).toPNG())
 
   // ── 14. 第 3 批：标签体系界面 ──────────────────────
+  // 14.0 准备：把元信息演示包挂到「集团通用」项目下（模拟用户给包选了项目），
+  //     然后点一次「刷新扫描」让界面重新拉数据（loadTags/loadPacks/loadAssets）
+  try {
+    const { openDb, getDb } = require(join(ROOT, 'out/test/db.cjs'))
+    openDb(root)
+    getDb()
+      .prepare(
+        `UPDATE packs SET project_id = (SELECT id FROM projects WHERE name = '集团通用')
+          WHERE name LIKE '元信息演示%'`
+      )
+      .run()
+  } catch (e) {
+    errs.push('14.0 挂项目失败：' + e.message)
+  }
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.topbar .btn')].find(x => /刷新扫描/.test(x.textContent))
+      b?.click()
+    })()
+  `)
+  await wait(2200)
+
   // 14.1 左栏维度面板：5 个维度都在
   say('b3 dim count', await js(`document.querySelectorAll('.tag-panel .tp-dim').length`))
   const dimKeys = await js(`
@@ -638,25 +660,26 @@ app.whenReady().then(async () => {
   say('b3 dims', JSON.stringify(dimKeys))
   shot('shot-b3-1-panel.png', (await win.webContents.capturePage()).toPNG())
 
-  // 14.2 展开类别维度看预制标签
+  // 14.2 展开所属项目维度看项目标签（回归用户实测场景）
   const catTags = await js(`
     (() => {
       const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
-      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      const cat = dims.find(d => /所属项目/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
       if (!cat) return null
       cat.querySelector('.tp-dim-head')?.click()
       return [...cat.querySelectorAll('.tp-tag-name')].map(e => e.innerText)
     })()
   `)
   await wait(300)
-  say('b3 category tags', JSON.stringify(catTags))
+  say('b3 project tags', JSON.stringify(catTags))
 
-  // 14.3 点一个标签 → 应进入文件视图并过滤
+  // 14.3 点项目维度标签「集团通用」→ 应进入文件视图并筛出该项目的素材
+  //（回归：修复前负数 id 直接查 tags 表，永远筛出 0 条）
   const clicked = await js(`
     (() => {
       const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
-      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
-      const t = [...(cat?.querySelectorAll('.tp-tag') || [])].find(x => x.innerText.includes('海报'))
+      const cat = dims.find(d => /所属项目/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      const t = [...(cat?.querySelectorAll('.tp-tag') || [])].find(x => x.innerText.includes('集团通用'))
       if (!t) return null
       t.click()
       return t.innerText
@@ -672,6 +695,8 @@ app.whenReady().then(async () => {
   `))
   say('b3 badge on dim', await js(`document.querySelector('.tag-panel .tp-badge')?.innerText || null`))
   say('b3 clear button', await js(`document.querySelector('.tp-clear')?.innerText || null`))
+  say('b3 rows after proj filter', await js(`document.querySelectorAll('.file-row').length`))
+  say('b3 statusbar', JSON.stringify(await js(`document.querySelector('.statusbar')?.innerText || ''`)))
   shot('shot-b3-2-filtered.png', (await win.webContents.capturePage()).toPNG())
 
   // 14.4 全部文件视图：勾选头几条 → 出现「打标签」按钮

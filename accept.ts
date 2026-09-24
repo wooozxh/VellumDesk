@@ -1154,6 +1154,68 @@ async function main(): Promise<void> {
     '筛出的正是 A 组（同维度旧标签被覆盖后不串味）'
   )
 
+  // ---- 项目维度（负数 id）：点项目标签 = 筛该项目包下的素材 ----
+  // 回归：上线首日用户实点「集团通用」筛出 0 条的 bug —— 负数 id 没换算成 packs.project_id
+  // 注意：[10] 段的删项目测试会把前面的项目删掉，这里取「当前还活着且有包」的项目
+  const liveProj = getDb()
+    .prepare(
+      `SELECT p.id, p.name FROM projects p
+        WHERE EXISTS (SELECT 1 FROM packs k WHERE k.project_id = p.id)
+        ORDER BY p.id LIMIT 1`
+    )
+    .get() as { id: number; name: string } | undefined
+  ok(!!liveProj, `有存活且带包的项目可测：${liveProj?.name ?? '无'}`)
+  if (liveProj) {
+    const expectedCnt = (
+      getDb()
+        .prepare(
+          'SELECT COUNT(*) AS c FROM assets a JOIN packs k ON k.id = a.pack_id WHERE k.project_id = ?'
+        )
+        .get(liveProj.id) as { c: number }
+    ).c
+    const byProj = listAssets({ tagIds: [-liveProj.id] })
+    ok(
+      byProj.length === expectedCnt && byProj.length >= 2,
+      `按项目标签「${liveProj.name}」筛出 ${byProj.length} 条（=库内直算 ${expectedCnt}，负数 id 已换算成 project_id）`
+    )
+    ok(
+      byProj.every((a) => a.pack_id !== null),
+      '筛出的全是挂在项目包下的素材（未归属不混入）'
+    )
+
+    // 项目维度 + 类别维度 跨维度「并且」：给项目包里的一条素材贴「折页」再筛
+    const projAsset = getDb()
+      .prepare(
+        'SELECT a.id FROM assets a JOIN packs k ON k.id = a.pack_id WHERE k.project_id = ? ORDER BY a.id LIMIT 1'
+      )
+      .get(liveProj.id) as { id: number }
+    applyTags({ assetIds: [projAsset.id], tagIds: [foldTag.id] })
+    const expectedMixed = allAssetIds.filter((id) => {
+      const a = getDb()
+        .prepare(
+          'SELECT k.project_id FROM assets a LEFT JOIN packs k ON k.id = a.pack_id WHERE a.id = ?'
+        )
+        .get(id) as { project_id: number | null } | undefined
+      const tagged = getDb()
+        .prepare(
+          'SELECT 1 AS x FROM asset_tags at JOIN tags t ON t.id = at.tag_id WHERE at.asset_id = ? AND t.name = ?'
+        )
+        .get(id, '折页')
+      return a?.project_id === liveProj.id && !!tagged
+    })
+    const mixed = listAssets({ tagIds: [-liveProj.id, foldTag.id] })
+    ok(
+      mixed.length === expectedMixed.length &&
+        mixed.length >= 1 &&
+        mixed.every((a) => expectedMixed.includes(a.id)),
+      `「${liveProj.name} + 折页」并且筛出 ${mixed.length} 条（与库内直算一致，项目 AND 标签生效）`
+    )
+  }
+
+  // 不存在的项目 id → 空结果而不是全量
+  const noProj = listAssets({ tagIds: [-99999] })
+  ok(noProj.length === 0, `不存在的项目标签筛出 0 条（实际 ${noProj.length}）`)
+
   // ============ 第 3 批 C-07：标签自动建议 ============
   log('\n[21] 第 3 批 C-07：标签自动建议（只推荐不自动贴）')
 

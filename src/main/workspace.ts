@@ -620,7 +620,7 @@ export function listAssets(opts: {
   view?: 'all' | 'unassigned'
   packId?: number
   projectId?: number
-  /** 已选标签（tags 表 id）；同维度内是「或」，跨维度是「并且」 */
+  /** 已选标签；同维度内是「或」，跨维度是「并且」。项目维度传负数 id（-projectId） */
   tagIds?: number[]
   /** 已选项目 id（项目维度走 packs.project_id） */
   filterProjectIds?: number[]
@@ -654,16 +654,31 @@ export function listAssets(opts: {
     params.kw = `%${opts.keyword.trim()}%`
   }
 
+  // tagIds 里可能混着项目维度的负数 id（-projectId，见 tags.ts listTagDimensions）。
+  // 负数 id 不能去 tags 表查（那里没有负数），要换算成 packs.project_id 过滤；
+  // 正数 id 才走 asset_tags/tags 联表。
+  const rawTagIds = opts.tagIds ?? []
+  const projIds = rawTagIds.filter((x) => x < 0).map((x) => -x)
+  const posTagIds = rawTagIds.filter((x) => x > 0)
+
+  if (projIds.length) {
+    // 项目维度：素材必须挂在「这些项目」的包下面（未归属素材自然被排除）
+    where.push(`k.project_id IN (${projIds.map((_, i) => `@tp${i}`).join(',')})`)
+    projIds.forEach((id, i) => {
+      params[`tp${i}`] = id
+    })
+  }
+
   let sql: string
-  if (opts.tagIds && opts.tagIds.length) {
+  if (posTagIds.length) {
     // 跨维度「并且」：要求每个被选中的维度都至少命中一个标签
     // 例：类别=海报 且 渠道=公众号 且 状态=已交付 → COUNT(DISTINCT dimension)=3
-    // （tagIds 是内部数字 id，拼接无注入风险）
-    opts.tagIds.forEach((id, i) => {
+    // （posTagIds 是 tags 表内部数字 id，拼接无注入风险）
+    posTagIds.forEach((id, i) => {
       params[`t${i}`] = id
     })
     const dimRows = db
-      .prepare(`SELECT DISTINCT dimension FROM tags WHERE id IN (${opts.tagIds.join(',')})`)
+      .prepare(`SELECT DISTINCT dimension FROM tags WHERE id IN (${posTagIds.join(',')})`)
       .all() as Array<{ dimension: string }>
     const dimCount = dimRows.length || 1
 
@@ -671,7 +686,7 @@ export function listAssets(opts: {
            LEFT JOIN packs k ON k.id = a.pack_id
            JOIN asset_tags at ON at.asset_id = a.id
            JOIN tags t ON t.id = at.tag_id
-           WHERE t.id IN (${opts.tagIds.map((_, i) => `@t${i}`).join(',')})
+           WHERE t.id IN (${posTagIds.map((_, i) => `@t${i}`).join(',')})
                  ${where.length ? 'AND ' + where.join(' AND ') : ''}
            GROUP BY a.id
            HAVING COUNT(DISTINCT t.dimension) = @dimCount
