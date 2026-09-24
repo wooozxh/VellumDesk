@@ -311,19 +311,14 @@ body:has(.side-resizer.dragging) {
 .proj-row .proj-item {
   flex: 1;
   min-width: 0;
-  /* 常态：右侧留给包数 */
-  padding-right: 26px;
+  /* 常态：右侧不留空位（不再显示包数） */
+  padding-right: 8px;
   transition: padding-right 0.12s;
 }
 
 /* 悬浮时：按钮组占住右侧 96px，项目名自动缩短并省略，不再被压在按钮下面 */
 .proj-row:hover .proj-item {
   padding-right: 96px;
-}
-
-/* 包数在悬浮时让位（否则会和按钮组重叠） */
-.proj-row:hover .proj-item .n {
-  opacity: 0;
 }
 
 .proj-label {

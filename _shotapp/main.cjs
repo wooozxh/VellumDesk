@@ -658,11 +658,14 @@ app.whenReady().then(async () => {
     }))
   `)
   say('b3 dims', JSON.stringify(dimKeys))
-  say('b3 proj panel unit', JSON.stringify(await js(`
+  // 14.1 选项两：项目面板不再显示「N 包」个数（应无 .n 子元素）
+  say('b3 proj panel no count', JSON.stringify(await js(`
     (() => {
       const items = [...document.querySelectorAll('.side .item')]
-      const row = items.find(x => x.innerText.includes('集团通用') && /包$/.test(x.querySelector('.n')?.innerText.trim() || ''))
-      return row ? row.querySelector('.n')?.innerText.trim() : null
+      const bad = items
+        .filter(x => /\\d+\\s*包/.test(x.innerText))
+        .map(x => x.innerText.trim())
+      return { leaked: bad, ok: bad.length === 0 }
     })()
   `)))
   shot('shot-b3-1-panel.png', (await win.webContents.capturePage()).toPNG())

@@ -360,9 +360,9 @@ export default function App(): React.JSX.Element {
 
   const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
 
-  /** 没挂项目的包数量（删项目选「变成未归属」后会出现） */
-  const noProjectCount = useMemo(
-    () => packs.filter((p) => p.project_id === null || !knownProjectIds.has(p.project_id)).length,
+  /** 是否存在没挂项目的包（删项目选「变成未归属」后会出现）——只判有无，不显示个数 */
+  const hasNoProjectPacks = useMemo(
+    () => packs.some((p) => p.project_id === null || !knownProjectIds.has(p.project_id)),
     [packs, knownProjectIds]
   )
 
@@ -385,11 +385,11 @@ export default function App(): React.JSX.Element {
   // ---------------- 渲染 ----------------
 
   const currentProjectLabel = useMemo(() => {
-    if (projectFilter === '全部') return `全部（${packs.length} 个包）`
-    if (projectFilter === null) return `未指定项目（${noProjectCount} 个包）`
+    if (projectFilter === '全部') return '全部'
+    if (projectFilter === null) return '未指定项目'
     const p = projects.find((x) => x.id === projectFilter)
-    return p ? `${p.name}（${p.packCount} 个包）` : ''
-  }, [projectFilter, packs.length, noProjectCount, projects])
+    return p ? p.name : ''
+  }, [projectFilter, projects])
 
   return (
     <div className="app">
@@ -465,7 +465,6 @@ export default function App(): React.JSX.Element {
             onClick={() => setProjectFilter('全部')}
           >
             <span>全部</span>
-            <span className="n">{packs.length} 包</span>
           </button>
 
           {projects.map((p, pi) => {
@@ -489,7 +488,6 @@ export default function App(): React.JSX.Element {
                     <i className="cdot" style={{ background: p.color }} />
                     <span className="pname">{p.name}</span>
                   </span>
-                  <span className="n">{p.packCount} 包</span>
                 </button>
 
                 {hovering && (
@@ -543,14 +541,13 @@ export default function App(): React.JSX.Element {
             )
           })}
 
-          {noProjectCount > 0 && (
+          {hasNoProjectPacks && (
             <button
               className={`item${projectFilter === null ? ' on' : ''}`}
               onClick={() => setProjectFilter(null)}
               title="没有指定项目的包"
             >
               <span>未指定项目</span>
-              <span className="n">{noProjectCount} 包</span>
             </button>
           )}
 
