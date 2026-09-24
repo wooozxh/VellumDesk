@@ -658,28 +658,34 @@ app.whenReady().then(async () => {
     }))
   `)
   say('b3 dims', JSON.stringify(dimKeys))
+  say('b3 proj panel unit', JSON.stringify(await js(`
+    (() => {
+      const items = [...document.querySelectorAll('.side .item')]
+      const row = items.find(x => x.innerText.includes('集团通用') && /包$/.test(x.querySelector('.n')?.innerText.trim() || ''))
+      return row ? row.querySelector('.n')?.innerText.trim() : null
+    })()
+  `)))
   shot('shot-b3-1-panel.png', (await win.webContents.capturePage()).toPNG())
 
-  // 14.2 展开所属项目维度看项目标签（回归用户实测场景）
+  // 14.2 展开类别维度看预制标签（项目/时间维度已砍，面板应只剩 3 个维度）
   const catTags = await js(`
     (() => {
       const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
-      const cat = dims.find(d => /所属项目/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
       if (!cat) return null
       cat.querySelector('.tp-dim-head')?.click()
       return [...cat.querySelectorAll('.tp-tag-name')].map(e => e.innerText)
     })()
   `)
   await wait(300)
-  say('b3 project tags', JSON.stringify(catTags))
+  say('b3 category tags', JSON.stringify(catTags))
 
-  // 14.3 点项目维度标签「集团通用」→ 应进入文件视图并筛出该项目的素材
-  //（回归：修复前负数 id 直接查 tags 表，永远筛出 0 条）
+  // 14.3 点类别标签「海报」→ 应进入文件视图并过滤（负数 id 兼容由 accept [20] 兜底）
   const clicked = await js(`
     (() => {
       const dims = [...document.querySelectorAll('.tag-panel .tp-dim')]
-      const cat = dims.find(d => /所属项目/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
-      const t = [...(cat?.querySelectorAll('.tp-tag') || [])].find(x => x.innerText.includes('集团通用'))
+      const cat = dims.find(d => /类别/.test(d.querySelector('.tp-dim-label')?.innerText || ''))
+      const t = [...(cat?.querySelectorAll('.tp-tag') || [])].find(x => x.innerText.includes('海报'))
       if (!t) return null
       t.click()
       return t.innerText

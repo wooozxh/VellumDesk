@@ -5,7 +5,6 @@ import type { DimensionGroup, TagWithCount } from '../types'
  * 第 3 批 C-02：标签管理弹窗（增 / 改名 / 改色 / 删）。
  *
  * 约定：
- * - 项目维度不在这里维护（走左栏「所属项目」），只读展示
  * - 同名同维度不允许；跨维度允许同名
  * - 删标签前先查使用量，被 N 条素材用着就明确提示，确认才删（素材本身不动）
  */
@@ -24,12 +23,10 @@ export function TagManagerModal({
   toast: (text: string, kind?: 'ok' | 'err' | 'info') => void
 }): React.JSX.Element {
   const editableDims = useMemo(
-    () => dimensions.filter((d) => d.key !== 'project' && d.editable),
+    () => dimensions.filter((d) => d.editable),
     [dimensions]
   )
-  const [dimKey, setDimKey] = useState<string>(
-    focusDimension && focusDimension !== 'project' ? focusDimension : (editableDims[0]?.key ?? '')
-  )
+  const [dimKey, setDimKey] = useState<string>(focusDimension ?? editableDims[0]?.key ?? '')
   const dim = dimensions.find((d) => d.key === dimKey) ?? editableDims[0]
 
   const [newName, setNewName] = useState('')

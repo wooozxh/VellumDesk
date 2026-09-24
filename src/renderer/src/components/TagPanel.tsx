@@ -8,8 +8,9 @@ import type { DimensionGroup } from '../types'
  * - 每个维度可折叠；已勾选的维度自动展开并在标题上显示已选数量
  * - 同维度内多选 = 「或」（点了海报 + 折页，两类都出来）
  * - 跨维度 = 「并且」（海报 且 抖音 → 只出既贴海报又贴抖音的）
- * - 单选维度（项目 / 状态）点新标签自动替换旧的
+ * - 单选维度（状态）点新标签自动替换旧的
  * - 顶部一行汇总「已选 N 个」，一键清除
+ * - 项目归属不在这里（走左栏项目面板）；时间用物料固有字段，都不做成标签
  *
  * 组件只负责勾选与回显，筛选发生在界面层（交给 listAssets 的 tagIds）。
  */
@@ -114,7 +115,7 @@ export function TagPanel({
                     </button>
                   )
                 })}
-                {dim.editable && dim.key !== 'project' && (
+                {dim.editable && (
                   <button className="tp-add" onClick={() => onManage(dim.key)}>
                     ＋ 管理
                   </button>

@@ -220,7 +220,7 @@ function migrate(d: Database.Database): void {
     d.prepare('UPDATE packs SET project_id = ? WHERE project_id IS NULL').run(defaultProject.id)
   }
 
-  // ---- 迁移 5：首次使用（空库）→ 落预制标签（项目维度不落，走 projects 表映射）----
+  // ---- 迁移 5：首次使用（空库）→ 落预制标签 ----
   const tagCount = (d.prepare('SELECT COUNT(*) AS c FROM tags').get() as { c: number }).c
   if (tagCount === 0) {
     const insTag = d.prepare(
@@ -228,8 +228,6 @@ function migrate(d: Database.Database): void {
        VALUES (?, ?, ?, ?, ?)`
     )
     for (const dim of TAG_DIMENSIONS) {
-      if (dim.key === 'project') continue // 项目维度复用 projects 表
-      if (dim.key === 'time') continue // 时间维度由文件修改时间自动生成
       dim.presets.forEach((name, i) => {
         insTag.run(dim.key, name, dim.colors[i % dim.colors.length], i, now)
       })
@@ -239,15 +237,13 @@ function migrate(d: Database.Database): void {
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义
 
-export type DimensionKey = 'project' | 'category' | 'channel' | 'status' | 'time'
+export type DimensionKey = 'category' | 'channel' | 'status'
 
 export interface DimensionDef {
   key: DimensionKey
   label: string
   /** 该维度下一条素材能贴几个标签：'single' 单选 / 'multi' 多选 */
   mode: 'single' | 'multi'
-  /** 标签来源：'projects' 表示实时映射 projects 表，'tags' 表示存 tags 表 */
-  source: 'projects' | 'tags'
   /** 是否允许用户自行增删标签 */
   editable: boolean
   /** 预制标签（空库初始化用） */
@@ -271,23 +267,16 @@ export const PROJECT_COLORS = [
   '#6b7280' // 灰
 ] as const
 
-/** 5 个标签维度（需求文档 5.2 节：项目 / 类别 / 渠道 / 状态 / 时间） */
+/**
+ * 标签维度（需求文档 5.2 节定为 5 个，2026-09-24 用户拍板砍成 3 个）：
+ * - 砍「所属项目」：与左栏项目面板重复，项目归属走 packs.project_id
+ * - 砍「时间」：物料固有字段（信息行已显示），不值得单独出标签
+ */
 export const TAG_DIMENSIONS: readonly DimensionDef[] = [
-  {
-    key: 'project',
-    label: '所属项目',
-    mode: 'single',
-    source: 'projects',
-    editable: true, // 走左栏项目面板维护
-    presets: [],
-    colors: [...PROJECT_COLORS],
-    hint: '一条素材同一时刻只属于一个项目'
-  },
   {
     key: 'category',
     label: '物料类别',
     mode: 'multi',
-    source: 'tags',
     editable: true,
     presets: [
       '海报', '折页', '详情长图', '短视频', '宣传片',
@@ -300,7 +289,6 @@ export const TAG_DIMENSIONS: readonly DimensionDef[] = [
     key: 'channel',
     label: '使用渠道',
     mode: 'multi',
-    source: 'tags',
     editable: true,
     presets: ['公众号', '朋友圈', '视频号', '抖音', '线下门店', '官网'],
     colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5'],
@@ -310,21 +298,10 @@ export const TAG_DIMENSIONS: readonly DimensionDef[] = [
     key: 'status',
     label: '状态',
     mode: 'single',
-    source: 'tags',
     editable: true,
     presets: ['草稿', '待审核', '已交付', '已归档'],
     colors: ['#6b7280', '#e8a33d', '#3fb950', '#8fa83d'],
     hint: '一条素材同一时刻只处于一种状态'
-  },
-  {
-    key: 'time',
-    label: '时间',
-    mode: 'multi',
-    source: 'tags',
-    editable: true,
-    presets: [], // 由文件修改时间自动生成（2026 / 2026-09）
-    colors: ['#4f8cff', '#2bb5b5', '#a884ff'],
-    hint: '入库时按文件修改时间自动贴年月标签'
   }
 ] as const
 

@@ -2,8 +2,9 @@ import { getDb, getDimension, TAG_DIMENSIONS, type TagRow } from './db'
 
 /**
  * 第 3 批：标签业务（M2 标签与分类）。
- * 项目维度不存 tags 表 —— 实时映射 projects 表，避免同一件事两处维护导致不一致。
- * 项目的「tag id」用负数编码（-projectId），与 tags 表正数 id 区分。
+ * 2026-09-24 用户拍板：维度只留 类别 / 渠道 / 状态 三个 ——
+ * 项目归属走左栏项目面板（packs.project_id），时间用物料固有字段，都不再做成标签。
+ * （历史说明：项目维度曾用负数 id 映射 projects 表，listAssets 至今保留负数 id 兼容。）
  */
 
 export interface TagWithCount extends TagRow {
@@ -19,48 +20,12 @@ export interface DimensionGroup {
   tags: TagWithCount[]
 }
 
-/** 列出 5 个维度及其标签（带「被多少条素材使用」计数） */
+/** 列出所有维度及其标签（带「被多少条素材使用」计数） */
 export function listTagDimensions(): DimensionGroup[] {
   const db = getDb()
   const out: DimensionGroup[] = []
 
   for (const dim of TAG_DIMENSIONS) {
-    if (dim.source === 'projects') {
-      const rows = db
-        .prepare(
-          `SELECT p.id, p.name, p.color, p.sort_order,
-                  (SELECT COUNT(*) FROM assets a JOIN packs k ON k.id = a.pack_id
-                    WHERE k.project_id = p.id) AS assetCount
-             FROM projects p
-            WHERE p.archived = 0
-            ORDER BY p.sort_order ASC, p.id ASC`
-        )
-        .all() as Array<{
-        id: number
-        name: string
-        color: string
-        sort_order: number
-        assetCount: number
-      }>
-      out.push({
-        key: dim.key,
-        label: dim.label,
-        mode: dim.mode,
-        editable: dim.editable,
-        hint: dim.hint,
-        tags: rows.map((r) => ({
-          id: -r.id, // 负数 = 项目维度标记
-          dimension: dim.key,
-          name: r.name,
-          color: r.color,
-          sort_order: r.sort_order,
-          created_at: '',
-          assetCount: r.assetCount
-        }))
-      })
-      continue
-    }
-
     const rows = db
       .prepare(
         `SELECT t.*, (SELECT COUNT(*) FROM asset_tags at WHERE at.tag_id = t.id) AS assetCount
@@ -90,7 +55,6 @@ export function createTag(input: {
   const db = getDb()
   const dim = getDimension(input.dimension)
   if (!dim) return { ok: false, error: '维度不存在：' + input.dimension }
-  if (dim.source === 'projects') return { ok: false, error: '项目请在左栏「所属项目」里新建' }
   const name = (input.name ?? '').trim()
   if (!name) return { ok: false, error: '标签名不能为空' }
 
@@ -266,7 +230,7 @@ export function tagsOfAssets(assetIds: number[]): Record<number, TagRow[]> {
 }
 
 /**
- * C-07 标签自动建议：按文件名 / 相对路径匹配已有标签与项目名。
+ * C-07 标签自动建议：按文件名 / 相对路径匹配已有标签。
  * 只做推荐，绝不自动贴 —— 往用户文件上乱贴标签比不贴更糟。
  */
 export function suggestTagsForAssets(assetIds: number[]): Record<number, number[]> {
@@ -277,10 +241,6 @@ export function suggestTagsForAssets(assetIds: number[]): Record<number, number[
   const allTags = db
     .prepare('SELECT id, dimension, name FROM tags ORDER BY dimension, sort_order')
     .all() as Array<{ id: number; dimension: string; name: string }>
-  const projects = db.prepare('SELECT id, name FROM projects WHERE archived = 0').all() as Array<{
-    id: number
-    name: string
-  }>
 
   const rows = db
     .prepare(
@@ -296,10 +256,6 @@ export function suggestTagsForAssets(assetIds: number[]): Record<number, number[
       const n = t.name.toLowerCase().trim()
       if (n.length < 2) continue // 单字标签太容易误命中
       if (hay.includes(n)) hits.push(t.id)
-    }
-    for (const p of projects) {
-      const n = p.name.toLowerCase().trim()
-      if (n.length >= 2 && hay.includes(n)) hits.push(-p.id)
     }
     out[r.id] = hits
   }

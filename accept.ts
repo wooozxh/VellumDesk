@@ -992,25 +992,18 @@ async function main(): Promise<void> {
   ok(pdfAgain === 0, `PDF 页数第二次运行处理 0 个（幂等）：实际 ${pdfAgain}`)
 
   // ============ 第 3 批 C-01：标签维度与预制标签 ============
-  log('\n[16] 第 3 批 C-01：5 个标签维度 + 预制标签')
+  log('\n[16] 第 3 批 C-01：3 个标签维度 + 预制标签')
 
   const dims = listTagDimensions()
-  ok(dims.length === 5, `维度数 = ${dims.length}（应为 5：项目/类别/渠道/状态/时间）`)
+  ok(dims.length === 3, `维度数 = ${dims.length}（应为 3：类别/渠道/状态；项目/时间已砍）`)
   ok(
-    dims.map((d) => d.key).join(',') === 'project,category,channel,status,time',
+    dims.map((d) => d.key).join(',') === 'category,channel,status',
     `维度顺序：${dims.map((d) => d.key).join(',')}`
   )
-  const projectDim = dims.find((d) => d.key === 'project')!
   const categoryDim = dims.find((d) => d.key === 'category')!
   const statusDim = dims.find((d) => d.key === 'status')!
-  ok(projectDim.mode === 'single', `项目维度为单选（mode=${projectDim.mode}）`)
   ok(categoryDim.mode === 'multi', `类别维度为多选（mode=${categoryDim.mode}）`)
   ok(statusDim.mode === 'single', `状态维度为单选（mode=${statusDim.mode}）`)
-  ok(projectDim.tags.length > 0, `项目维度标签数 = ${projectDim.tags.length}（实时映射 projects 表）`)
-  ok(
-    projectDim.tags.every((t) => t.id < 0),
-    '项目维度 id 全为负数（-projectId 编码，不与 tags 表正数 id 冲突）'
-  )
   ok(categoryDim.tags.length >= 9, `类别预制标签 ${categoryDim.tags.length} 个（≥9）`)
   ok(categoryDim.tags.some((t) => t.name === '海报'), '类别含预制「海报」')
   ok(categoryDim.tags.some((t) => t.name === '详情长图'), '类别含预制「详情长图」')
@@ -1019,6 +1012,10 @@ async function main(): Promise<void> {
   ok(channelDim.tags.some((t) => t.name === '视频号'), '渠道含预制「视频号」')
   ok(statusDim.tags.length >= 4, `状态预制标签 ${statusDim.tags.length} 个（≥4）`)
   ok(statusDim.tags.some((t) => t.name === '待审核'), '状态含预制「待审核」')
+  ok(
+    dims.every((d) => d.tags.every((t) => t.id > 0)),
+    '标签 id 全为正数（项目维度已砍，不再有负数映射标签）'
+  )
   ok(
     dims.every((d) => d.tags.every((t) => typeof t.name === 'string' && typeof t.id === 'number')),
     '每个标签都有 name / id 字段'
@@ -1040,9 +1037,6 @@ async function main(): Promise<void> {
 
   const empty = createTag({ dimension: 'category', name: '   ' })
   ok(!empty.ok, `空名被拒：${empty.error}`)
-
-  const projCreate = createTag({ dimension: 'project', name: '不该能建项目' })
-  ok(!projCreate.ok, `项目维度不允许从标签入口新建：${projCreate.error}`)
 
   const badDim = createTag({ dimension: 'nope', name: 'x' })
   ok(!badDim.ok, `不存在的维度被拒：${badDim.error}`)
@@ -1154,8 +1148,9 @@ async function main(): Promise<void> {
     '筛出的正是 A 组（同维度旧标签被覆盖后不串味）'
   )
 
-  // ---- 项目维度（负数 id）：点项目标签 = 筛该项目包下的素材 ----
-  // 回归：上线首日用户实点「集团通用」筛出 0 条的 bug —— 负数 id 没换算成 packs.project_id
+  // ---- 项目维度负数 id 兼容：listAssets 把 -projectId 换算成 packs.project_id 过滤 ----
+  // 背景：项目维度标签已砍（2026-09-24），界面不再传负数 id，但该能力保留作防御
+  // （回归：上线首日用户实点「集团通用」筛出 0 条的 bug —— 负数 id 没换算成 project_id）
   // 注意：[10] 段的删项目测试会把前面的项目删掉，这里取「当前还活着且有包」的项目
   const liveProj = getDb()
     .prepare(

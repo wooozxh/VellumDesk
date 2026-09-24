@@ -465,7 +465,7 @@ export default function App(): React.JSX.Element {
             onClick={() => setProjectFilter('全部')}
           >
             <span>全部</span>
-            <span className="n">{packs.length}</span>
+            <span className="n">{packs.length} 包</span>
           </button>
 
           {projects.map((p, pi) => {
@@ -489,7 +489,7 @@ export default function App(): React.JSX.Element {
                     <i className="cdot" style={{ background: p.color }} />
                     <span className="pname">{p.name}</span>
                   </span>
-                  <span className="n">{p.packCount}</span>
+                  <span className="n">{p.packCount} 包</span>
                 </button>
 
                 {hovering && (
@@ -550,7 +550,7 @@ export default function App(): React.JSX.Element {
               title="没有指定项目的包"
             >
               <span>未指定项目</span>
-              <span className="n">{noProjectCount}</span>
+              <span className="n">{noProjectCount} 包</span>
             </button>
           )}
 
