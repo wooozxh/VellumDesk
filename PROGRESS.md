@@ -6,37 +6,47 @@
 
 ## 当前状态
 
-- 阶段：**环境搭建**（第 1 步 / 共 3 步）
-- 完成度：约 10%
+- 阶段：**环境搭建 ✅ 验收通过**（2026-09-24 窗口弹出成功）
+- 完成度：环境阶段 100%；MVP 功能 0%
 
 ## 已完成
 
-- [x] 2026-09-23　需求文档定稿（工作区根目录：`素材管家-需求文档.docx`）
-- [x] 2026-09-23　技术选型确定（见 `DECISIONS.md`）
+- [x] 2026-09-23　需求文档定稿 → `docs/素材管家-需求文档.docx`
+- [x] 2026-09-23　技术选型确定 → 见 `DECISIONS.md`
 - [x] 2026-09-23　本机环境体检完成
+- [x] 2026-09-24　项目目录确定：`D:\proj_media`
+- [x] 2026-09-24　npm 镜像配置完成（淘宝源；缓存已迁至 `D:\npm-cache`）
+- [x] 2026-09-24　Electron 镜像配置完成（用户环境变量 `ELECTRON_MIRROR`）
+- [x] 2026-09-24　脚手架生成：electron-vite + React + TypeScript（`react-ts` 模板）
+- [x] 2026-09-24　三份档案就位、`git init`、首次提交 `4f68199`
+- [x] 2026-09-24　依赖安装完成（667 个包，`package-lock.json` 已生成）
+- [x] 2026-09-24　Electron 二进制就位（`node_modules/electron/dist/electron.exe`，201 MB）
+- [x] 2026-09-24　编译链路验证通过（main / preload / renderer 三段全部构建成功）
+- [x] 2026-09-24　✅ **环境验收通过**：`npm run dev` 窗口弹出成功（Electron 39.8.10 / Chromium 142 / 内置 Node 22.22.1）
 
-## 进行中
+## 待办
 
-- [ ] 配置 npm 镜像（淘宝源）
-- [ ] npm 缓存迁移到 D 盘
-- [ ] 确定项目目录位置
+（无 —— 环境阶段完结）
 
 ## 下一步（下次开工从这里开始）
 
-1. 打开 CMD，执行 4 条 npm 配置命令
-2. 验证 `npm config get registry` 是否输出淘宝源
-3. 确定项目目录 → 建骨架 → `git init`
-4. 生成脚手架：`npm create @quick-start/electron@latest`
-5. `npm install` → `npm run dev`，跑出第一个窗口
+**开新会话，做 MVP 第一个功能：素材入库**
+
+开场白直接用这句：
+
+> 先读 D:\proj_media 里的 PROJECT.md、PROGRESS.md、DECISIONS.md，我们做素材入库功能。
+
+入库功能要做的第一小块：选一个文件夹 → 扫描里面的图片/视频/设计文件 → 存进 SQLite 索引 → 列表页展示出来。
 
 ## 已知问题与风险
 
 | 问题 | 影响 | 状态 |
 |---|---|---|
-| C 盘只剩 34 GB | 依赖和缓存必须放 D 盘 | 待处理 |
-| npm 未配镜像 | 装包慢、易超时 | 待处理 |
 | 本机有两个 Node 版本（系统 v24.21.0 / 内置 v22.22.2） | 排查"这边能跑那边报错"时留意 | 已知 |
+| npm 11 禁止用 `config set` 写非标准配置项 | 曾导致 Electron 镜像配置报错，已改用用户环境变量 | 已解决 |
+| C 盘空间紧张（剩 34 GB） | 已通过 npm 缓存外迁到 D 盘缓解 | 已解决 |
 | FFmpeg 未安装 | 第二步（视频抽帧）前必须补 | 延后处理 |
+| better-sqlite3 是原生模块 | 做数据库功能时需 `npx electron-rebuild` | 延后处理 |
 
 ---
 
@@ -55,6 +65,19 @@
   - `docs/02-开发环境搭建手册.md`
 - **遇到的问题**：无
 - **下一步**：配置 npm 镜像 → 定项目目录 → 建脚手架
+
+### 2026-09-24（第 2 次会话）
+
+- **做了什么**：
+  - 项目目录确定为 `D:\proj_media`
+  - 配好 npm 镜像（淘宝源）与缓存位置（`D:\npm-cache`）
+  - 解决 npm 11 拒绝写入 `electron_mirror` 的报错 —— 改用用户环境变量
+  - 生成 electron-vite + React + TypeScript 脚手架
+  - 安置三份档案与 `docs/`，`git init` 并完成首次提交
+- **改了哪些文件**：脚手架生成的全部文件；新增 `PROJECT.md` / `PROGRESS.md` / `DECISIONS.md` / `docs/`
+- **遇到的问题**：`npm config set electron_mirror` 在 npm 11 下报 `not a valid npm option`
+- **验收结果**：✅ 窗口弹出成功（Electron 39.8.10），环境阶段完结
+- **下一步**：开新会话做 MVP 第一功能 —— 素材入库
 
 ---
 
