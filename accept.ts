@@ -24,6 +24,8 @@ import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
   ensureVideoMetaForAssets,
+  ensurePsdMetaForAssets,
+  extractPsdPreviewJpg,
   setFfmpegDir,
   ffmpegReady
 } from './src/main/thumbs'
@@ -784,6 +786,92 @@ async function main(): Promise<void> {
     const offRet = await ensureVideoMetaForAssets(offRows)
     ok(offRet === 0, `摘掉 FFmpeg 后补齐返回 0（功能降级而非报错）：实际 ${offRet}`)
     setFfmpegDir(projFfDir)
+  }
+
+  // ============ 第 2 批 B-04：PSD 内嵌预览图与元信息 ============
+  log('\n[14] 第 2 批 B-04：PSD 内嵌预览 / 元信息')
+
+  // 真实样本（用户提供）；不在就跳过真实断言，只跑降级断言
+  const PSD_SAMPLE = 'C:\\Users\\30873\\Desktop\\访学证.psd'
+  const hasSample = existsSync(PSD_SAMPLE)
+  log(`  （真实 PSD 样本：${hasSample ? '有 —— 访学证.psd' : '无 —— 跳过真实断言'}）`)
+
+  const psdPack = createPack({ name: 'PSD测试包', workspaceRoot: WS })
+  let sampleCopied = false
+  if (hasSample) {
+    const { copyFileSync } = require('fs') as typeof import('fs')
+    const dst = join(psdPack.folder_path, '01-成品', '访学证.psd')
+    copyFileSync(PSD_SAMPLE, dst)
+    sampleCopied = existsSync(dst)
+  }
+  ok(sampleCopied, '真实 PSD 样本已复制进测试包')
+
+  // 假 PSD（文本冒充）：降级路径任何环境都要过
+  const fakePsdPath = join(psdPack.folder_path, '02-素材', 'fake.psd')
+  writeFileSync(fakePsdPath, '8BPS 这不是真 PSD，只有签名')
+
+  scanAll(WS)
+  const pMetaRows = getDb()
+    .prepare('SELECT id, abs_path, ext, width FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  const pWritten = await ensurePsdMetaForAssets(pMetaRows)
+
+  // 14.1 假 PSD：登记但不崩、无元信息
+  const fakePsdRow = getDb()
+    .prepare('SELECT id, width, color_mode FROM assets WHERE file_name = ?')
+    .get('fake.psd') as { id: number; width: number | null; color_mode: string | null }
+  ok(!!fakePsdRow, '假 PSD 依然被登记进库（不丢弃用户文件）')
+  ok(fakePsdRow?.width === null, '假 PSD 元信息为 null（没崩）')
+
+  if (sampleCopied) {
+    // 14.2 真实样本：文件头尺寸与色彩模式（样本实测：PSD 头宽 827 × 高 1181，竖版 CMYK）
+    const psdRow = getDb()
+      .prepare('SELECT width, height, color_mode FROM assets WHERE file_name = ?')
+      .get('访学证.psd') as { width: number | null; height: number | null; color_mode: string | null } | undefined
+    ok(!!psdRow, 'PSD 已登记进库')
+    ok(pWritten >= 1, `本次补齐 ${pWritten} 个 PSD 的元信息`)
+    ok(psdRow?.width === 827, `画布宽度 ${psdRow?.width}（样本应为 827）`)
+    ok(psdRow?.height === 1181, `画布高度 ${psdRow?.height}（样本应为 1181）`)
+    ok(psdRow?.color_mode === 'CMYK', `色彩模式 ${psdRow?.color_mode}（样本应为 CMYK）`)
+
+    // 14.3 内嵌预览 JPG 可提取且 sharp 能解码
+    const psdAbs = join(psdPack.folder_path, '01-成品', '访学证.psd')
+    const jpg = await extractPsdPreviewJpg(psdAbs)
+    ok(!!jpg && jpg.length > 100, `内嵌预览提取成功（${jpg?.length ?? 0} 字节）`)
+    if (jpg) {
+      const sharp = (await import('sharp')).default
+      const pm = await sharp(jpg).metadata()
+      ok(!!pm.width && !!pm.height, `预览图可解码：${pm.width}×${pm.height} ${pm.format}`)
+    }
+
+    // 14.4 PSD 缩略图落盘
+    const pThumbRows = getDb()
+      .prepare('SELECT id, abs_path, size, ext, thumb_path, modified_at FROM assets WHERE file_name = ?')
+      .all('访学证.psd') as Array<{
+      id: number
+      abs_path: string
+      size: number
+      ext: string
+      thumb_path: string | null
+      modified_at: string
+    }>
+    const pThumbed = await ensureThumbsForAssets(WS, pThumbRows)
+    ok(pThumbed >= 1, `PSD 缩略图生成 ${pThumbed} 张`)
+    const pAfter = getDb()
+      .prepare('SELECT thumb_path FROM assets WHERE file_name = ?')
+      .get('访学证.psd') as { thumb_path: string | null }
+    ok(
+      !!pAfter.thumb_path && pAfter.thumb_path.endsWith('.webp') && existsSync(join(WS, pAfter.thumb_path)),
+      `PSD 缩略图落盘：${pAfter.thumb_path}`
+    )
+
+    // 14.5 幂等
+    const pAgain = await ensurePsdMetaForAssets(
+      getDb()
+        .prepare('SELECT id, abs_path, ext, width FROM assets')
+        .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+    )
+    ok(pAgain === 0, `PSD 元信息第二次运行处理 0 个（幂等）：实际 ${pAgain}`)
   }
 
   // ============ 汇总 ============

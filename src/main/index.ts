@@ -5,7 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
-import { enrichAllImageMeta, enrichAllVideoMeta, setFfmpegDir } from './thumbs'
+import { enrichAllImageMeta, enrichAllVideoMeta, enrichAllPsdMeta, setFfmpegDir } from './thumbs'
 
 /**
  * B-02：定位随软件打包的 FFmpeg（resources/ffmpeg/ffmpeg.exe + ffprobe.exe）。
@@ -71,13 +71,16 @@ app.whenReady().then(() => {
 
     const root = getWorkspaceRoot(app.getPath('userData'))
     initWorkspace(root)
-    // B-01/B-02：后台补一次图片尺寸 / 色彩模式 + 视频时长 / 编码，
+    // B-01/B-02/B-04：后台补一次图片尺寸 / 色彩模式 + 视频时长 / 编码 + PSD 尺寸，
     // 让界面一打开就有信息（不阻塞窗口显示）
     void enrichAllImageMeta().catch((e) =>
       console.error('[meta] 图片元信息补齐失败：', e)
     )
     void enrichAllVideoMeta().catch((e) =>
       console.error('[meta] 视频元信息补齐失败：', e)
+    )
+    void enrichAllPsdMeta().catch((e) =>
+      console.error('[meta] PSD 元信息补齐失败：', e)
     )
   } catch (e) {
     console.error('[workspace] 初始化失败：', e)

@@ -85,6 +85,21 @@ app.whenReady().then(async () => {
   }
   say('ffmpeg video samples', ffmpegOk)
 
+  // B-04：把用户的真实 PSD 样本复制进演示包（有才复制）
+  let psdOk = false
+  try {
+    const PSD_SAMPLE = 'C:/Users/30873/Desktop/访学证.psd'
+    if (require('fs').existsSync(PSD_SAMPLE)) {
+      const pDir = join(root, '元信息演示包', '03-工程')
+      mkdirSync(pDir, { recursive: true })
+      require('fs').copyFileSync(PSD_SAMPLE, join(pDir, '访学证.psd'))
+      psdOk = true
+    }
+  } catch (e) {
+    errs.push('复制 PSD 样本失败：' + e.message)
+  }
+  say('psd sample copied', psdOk)
+
   scanAll(root)
   registerIpc()
 
@@ -522,6 +537,33 @@ app.whenReady().then(async () => {
   `)
   say('video thumbs', JSON.stringify(videoThumbs))
   shot('shot-b2-video.png', (await win.webContents.capturePage()).toPNG())
+
+  // ── 12. B-04 PSD 行：信息行应有画布尺寸 + 色彩模式，缩略图应是内嵌预览 ──
+  const psdRows2 = (metaDump || []).filter((s) => /\.psd|\.psb/i.test(s))
+  say('psd rows found', psdRows2.length)
+  say('psd meta lines', JSON.stringify(psdRows2))
+  if (psdRows2.length) {
+    say(
+      'psd has size',
+      psdRows2.every((s) => /827×1181/.test(s))
+    )
+    say(
+      'psd has mode',
+      psdRows2.every((s) => /CMYK/.test(s))
+    )
+  }
+  const psdThumbs = await js(`
+    (() => {
+      const rows = Array.from(document.querySelectorAll('.file-row')).filter(r => /\\.psd|\\.psb/i.test(r.querySelector('.fn')?.innerText || ''))
+      return rows.map(r => ({
+        name: r.querySelector('.fn')?.innerText,
+        hasImg: !!r.querySelector('.pic img'),
+        hasPlaceholder: !!r.querySelector('.pic .ext')
+      }))
+    })()
+  `)
+  say('psd thumbs', JSON.stringify(psdThumbs))
+  shot('shot-b2-psd.png', (await win.webContents.capturePage()).toPNG())
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))

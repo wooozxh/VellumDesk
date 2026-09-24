@@ -25,6 +25,7 @@ import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
   ensureVideoMetaForAssets,
+  ensurePsdMetaForAssets,
   readAsDataUrl,
   isImage
 } from './thumbs'
@@ -145,7 +146,13 @@ export function registerIpc(): void {
       .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
     const videoMetas = await ensureVideoMetaForAssets(videoRows)
 
-    return { ...result, thumbs, metas, videoMetas }
+    // B-04：补 PSD 画布尺寸 / 色彩模式（只处理还没有 width 的 psd/psb）
+    const psdRows = db
+      .prepare('SELECT id, abs_path, ext, width FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+    const psdMetas = await ensurePsdMetaForAssets(psdRows)
+
+    return { ...result, thumbs, metas, videoMetas, psdMetas }
   })
   // ---------- A-06 包视图 ----------
   ipcMain.handle('view:packs', () => {

@@ -15,6 +15,8 @@ const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 
 const VIDEO_EXTS = new Set([
   'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv', 'ts', '3gp'
 ])
+// PSD / PSB（大型文档格式）：不解析图层，读文件头元信息 + 内嵌合成预览图
+const PSD_EXTS = new Set(['psd', 'psb'])
 const THUMB_SIZE = 320
 
 export function isImage(ext: string): boolean {
@@ -23,6 +25,10 @@ export function isImage(ext: string): boolean {
 
 export function isVideo(ext: string): boolean {
   return VIDEO_EXTS.has(ext.replace(/^\./, '').toLowerCase())
+}
+
+export function isPsd(ext: string): boolean {
+  return PSD_EXTS.has(ext.replace(/^\./, '').toLowerCase())
 }
 
 // ---------------------------------------------------------------- FFmpeg 定位（随软件打包）
@@ -140,7 +146,7 @@ export async function ensureThumb(
   }
 }
 
-/** 批量生成缩略图，只处理尚无缩略图记录的行；图片走 sharp，视频走 FFmpeg 抽帧 */
+/** 批量生成缩略图；图片走 sharp，视频走 FFmpeg 抽帧，PSD 走内嵌预览图 */
 export async function ensureThumbsForAssets(
   workspaceRoot: string,
   rows: Array<{ id: number; abs_path: string; size: number; ext: string; thumb_path: string | null; modified_at: string }>,
@@ -149,14 +155,18 @@ export async function ensureThumbsForAssets(
   const db = getDb()
   const upd = db.prepare('UPDATE assets SET thumb_path = ? WHERE id = ?')
 
-  const pending = rows.filter((r) => !r.thumb_path && (isImage(r.ext) || isVideo(r.ext)))
+  const pending = rows.filter(
+    (r) => !r.thumb_path && (isImage(r.ext) || isVideo(r.ext) || isPsd(r.ext))
+  )
   let done = 0
   for (const r of pending) {
     try {
       const mtimeMs = new Date(r.modified_at).getTime()
       const rel = isVideo(r.ext)
         ? await ensureVideoThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
-        : await ensureThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
+        : isPsd(r.ext)
+          ? await ensurePsdThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
+          : await ensureThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
       if (rel) {
         upd.run(rel, r.id)
         done += 1
@@ -354,6 +364,217 @@ export async function enrichAllVideoMeta(): Promise<number> {
     .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
     .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
   return ensureVideoMetaForAssets(rows)
+}
+
+// ---------------------------------------------------------------- B-04 PSD（内嵌预览图 + 文件头元信息）
+
+/**
+ * PSD 规范（Adobe Photoshop File Formats Specification）：
+ * - 文件头 26 字节：签名 8BPS、版本（1=PSD 2=PSB）、…、行数=高(14)、列数=宽(18)、位深(22)、色彩模式(24)
+ * - 头后是「颜色模式数据段」（4 字节长度 + 数据）→「图像资源段」（4 字节长度 + N 个 8BIM 块）
+ * - 资源块：签名 8BIM(4) + id(2) + 名称（1 字节长度 + Pascal 串 + 补齐偶数）+ 数据长度(4) + 数据（补齐偶数）
+ * - id 1036 = 合成缩略图（PS4+，新）；id 1033 = 老版缩略图。数据前 28 字节是缩略图头，
+ *   其后是标准 JPEG（Photoshop 保存时自动生成的合成预览，CMYK 文档里也是转好的 RGB JPEG）
+ */
+
+/** PSD 文件头色彩模式代码 → 可读文本 */
+function psdColorMode(code: number): string | null {
+  switch (code) {
+    case 0: return '位图'
+    case 1: return '灰度'
+    case 2: return '索引'
+    case 3: return 'RGB'
+    case 4: return 'CMYK'
+    case 7: return '多通道'
+    case 8: return '双色调'
+    case 9: return 'Lab'
+    default: return null
+  }
+}
+
+export interface PsdMeta {
+  width: number | null
+  height: number | null
+  colorMode: string | null
+}
+
+/**
+ * B-04：读 PSD 文件头（只读 26 字节），拿画布尺寸与色彩模式。
+ * 头部布局：签名(4) 版本(2) 保留(6) 通道(2) 高(4) 宽(4) 位深(2) 色彩模式(2)。
+ * 带合理性校验（版本/通道/位深/尺寸），文本冒充的假文件直接拒。
+ * 失败返回全 null —— 绝不阻断入库。
+ */
+export async function readPsdMeta(absPath: string): Promise<PsdMeta> {
+  const empty: PsdMeta = { width: null, height: null, colorMode: null }
+  try {
+    const fs = await import('fs')
+    const head = Buffer.alloc(26)
+    const fd = fs.openSync(absPath, 'r')
+    try {
+      fs.readSync(fd, head, 0, 26, 0)
+    } finally {
+      fs.closeSync(fd)
+    }
+    if (head.slice(0, 4).toString('ascii') !== '8BPS') return empty
+    const version = head.readUInt16BE(4)
+    if (version !== 1 && version !== 2) return empty
+    const channels = head.readUInt16BE(12)
+    const height = head.readUInt32BE(14)
+    const width = head.readUInt32BE(18)
+    const depth = head.readUInt16BE(22)
+    const mode = head.readUInt16BE(24)
+    // 合理性：通道 1-56；位深 1/8/16/32；尺寸 1-300000（PSB 上限 30 万像素）
+    if (channels < 1 || channels > 56) return empty
+    if (depth !== 1 && depth !== 8 && depth !== 16 && depth !== 32) return empty
+    if (width < 1 || width > 300000 || height < 1 || height > 300000) return empty
+    return {
+      width,
+      height,
+      colorMode: psdColorMode(mode)
+    }
+  } catch {
+    return empty
+  }
+}
+
+/**
+ * B-04：从图像资源段提取内嵌合成预览 JPG。
+ * 优先 id 1036（新），回退 1033（老）。失败返回 null —— 绝不阻断入库。
+ */
+export async function extractPsdPreviewJpg(absPath: string): Promise<Buffer | null> {
+  try {
+    const fs = await import('fs')
+    const fd = fs.openSync(absPath, 'r')
+    const readAt = (buf: Buffer, pos: number): number => fs.readSync(fd, buf, 0, buf.length, pos)
+
+    try {
+      // 头 26 字节 + 校验签名
+      const head = Buffer.alloc(26)
+      readAt(head, 0)
+      if (head.slice(0, 4).toString('ascii') !== '8BPS') return null
+
+      // 颜色模式数据段
+      const lenBuf = Buffer.alloc(4)
+      readAt(lenBuf, 26)
+      let off = 30 + lenBuf.readUInt32BE(0)
+
+      // 图像资源段
+      readAt(lenBuf, off)
+      const irLen = lenBuf.readUInt32BE(0)
+      off += 4
+      const end = off + irLen
+
+      let preview1036: Buffer | null = null
+      let preview1033: Buffer | null = null
+
+      while (off + 12 <= end) {
+        const sig = Buffer.alloc(4)
+        readAt(sig, off)
+        if (sig.toString('ascii') !== '8BIM') break
+
+        const idHead = Buffer.alloc(2)
+        readAt(idHead, off + 4)
+        const id = idHead.readUInt16BE(0)
+
+        const nameLenBuf = Buffer.alloc(1)
+        readAt(nameLenBuf, off + 6)
+        // 名称字段：1 字节长度 + 内容 + 补齐到偶数（长度字段本身算 1 字节，PS 规范里存储长度= nlen+1 再补偶）
+        const nameFieldLen = 1 + nameLenBuf[0] + ((1 + nameLenBuf[0]) % 2)
+
+        const szBuf = Buffer.alloc(4)
+        readAt(szBuf, off + 6 + nameFieldLen)
+        const dsize = szBuf.readUInt32BE(0)
+        const dataOff = off + 6 + nameFieldLen + 4
+
+        if (dsize > 28 && (id === 1036 || id === 1033)) {
+          const data = Buffer.alloc(Math.min(dsize, end - dataOff))
+          readAt(data, dataOff)
+          // 缩略图头 28 字节后应紧跟 JPEG。注意：实测 PS 写的 compression 字段并不总是 1，
+          // 不可信 —— 只认数据区的 JPEG 签名（ffd8ff），签名不对就放弃该块
+          if (data.slice(28, 31).toString('hex') === 'ffd8ff') {
+            const jpg = data.slice(28)
+            // 以 JPEG 结束标记截断，防止尾部脏数据
+            const eoi = jpg.lastIndexOf(Buffer.from([0xff, 0xd9]))
+            const clean = eoi > 0 ? jpg.slice(0, eoi + 2) : jpg
+            if (id === 1036) preview1036 = clean
+            else preview1033 = clean
+          }
+        }
+
+        off = dataOff + dsize + (dsize % 2)
+        if (preview1036) break // 拿到新版就够了
+      }
+
+      return preview1036 ?? preview1033
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * B-04：PSD 缩略图 = 内嵌预览 JPG → sharp 转 320 宽 webp。
+ * 预览图很小（典型 160px 级），withoutEnlargement 保证不放大糊化。
+ */
+async function ensurePsdThumb(
+  workspaceRoot: string,
+  absPath: string,
+  size: number,
+  mtimeMs: number
+): Promise<string | null> {
+  const thumbsDir = join(workspaceRoot, '_thumbs')
+  mkdirSync(thumbsDir, { recursive: true })
+
+  const key = thumbKey(absPath, size, mtimeMs)
+  const fileName = `${key}.webp`
+  const full = join(thumbsDir, fileName)
+
+  if (existsSync(full)) return join('_thumbs', fileName)
+
+  try {
+    const jpg = await extractPsdPreviewJpg(absPath)
+    if (!jpg) return null
+    const sharp = (await import('sharp')).default
+    await sharp(jpg)
+      .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 82 })
+      .toFile(full)
+    return join('_thumbs', fileName)
+  } catch {
+    return null
+  }
+}
+
+/** 批量补 PSD 元信息（只处理缺 width 的 psd/psb 行） */
+export async function ensurePsdMetaForAssets(
+  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+): Promise<number> {
+  const db = getDb()
+  const upd = db.prepare('UPDATE assets SET width = ?, height = ?, color_mode = ? WHERE id = ?')
+
+  const pending = rows.filter((r) => r.width === null && isPsd(r.ext))
+  let done = 0
+  for (const r of pending) {
+    const meta = await readPsdMeta(r.abs_path)
+    if (meta.width !== null || meta.height !== null) {
+      upd.run(meta.width, meta.height, meta.colorMode, r.id)
+      done += 1
+    }
+  }
+  return done
+}
+
+/**
+ * 便捷入口：把库里所有还没补元信息的 PSD 补一遍（启动时调）。
+ */
+export async function enrichAllPsdMeta(): Promise<number> {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id, abs_path, ext, width FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  return ensurePsdMetaForAssets(rows)
 }
 
 // ---------------------------------------------------------------- B-02 视频缩略图（ffmpeg 抽帧）
