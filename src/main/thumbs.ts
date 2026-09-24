@@ -17,6 +17,8 @@ const VIDEO_EXTS = new Set([
 ])
 // PSD / PSB（大型文档格式）：不解析图层，读文件头元信息 + 内嵌合成预览图
 const PSD_EXTS = new Set(['psd', 'psb'])
+// PDF：pdfjs-dist 渲染第 1 页做缩略图（Apache-2.0，无许可风险）
+const PDF_EXTS = new Set(['pdf'])
 const THUMB_SIZE = 320
 
 export function isImage(ext: string): boolean {
@@ -29,6 +31,10 @@ export function isVideo(ext: string): boolean {
 
 export function isPsd(ext: string): boolean {
   return PSD_EXTS.has(ext.replace(/^\./, '').toLowerCase())
+}
+
+export function isPdf(ext: string): boolean {
+  return PDF_EXTS.has(ext.replace(/^\./, '').toLowerCase())
 }
 
 // ---------------------------------------------------------------- FFmpeg 定位（随软件打包）
@@ -146,7 +152,7 @@ export async function ensureThumb(
   }
 }
 
-/** 批量生成缩略图；图片走 sharp，视频走 FFmpeg 抽帧，PSD 走内嵌预览图 */
+/** 批量生成缩略图；图片走 sharp，视频走 FFmpeg 抽帧，PSD 走内嵌预览图，PDF 走 pdfjs 渲染 */
 export async function ensureThumbsForAssets(
   workspaceRoot: string,
   rows: Array<{ id: number; abs_path: string; size: number; ext: string; thumb_path: string | null; modified_at: string }>,
@@ -156,7 +162,9 @@ export async function ensureThumbsForAssets(
   const upd = db.prepare('UPDATE assets SET thumb_path = ? WHERE id = ?')
 
   const pending = rows.filter(
-    (r) => !r.thumb_path && (isImage(r.ext) || isVideo(r.ext) || isPsd(r.ext))
+    (r) =>
+      !r.thumb_path &&
+      (isImage(r.ext) || isVideo(r.ext) || isPsd(r.ext) || isPdf(r.ext))
   )
   let done = 0
   for (const r of pending) {
@@ -166,7 +174,9 @@ export async function ensureThumbsForAssets(
         ? await ensureVideoThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
         : isPsd(r.ext)
           ? await ensurePsdThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
-          : await ensureThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
+          : isPdf(r.ext)
+            ? await ensurePdfThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
+            : await ensureThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
       if (rel) {
         upd.run(rel, r.id)
         done += 1
@@ -575,6 +585,135 @@ export async function enrichAllPsdMeta(): Promise<number> {
     .prepare('SELECT id, abs_path, ext, width FROM assets')
     .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
   return ensurePsdMetaForAssets(rows)
+}
+
+// ---------------------------------------------------------------- B-03 PDF（pdfjs 渲染首页 + 页数）
+
+/**
+ * PDF 缩略图：pdfjs-dist（Apache-2.0）渲染第 1 页 → @napi-rs/canvas（MIT）画布 → sharp 转 webp。
+ * 选型说明：首选的 mupdf 是 AGPL-3.0（强传染，分发需开源或买商业授权），换 pdfjs。
+ * 页数存进 probe_info（JSON {"pages":N}）；页面尺寸是 pt 单位，不写 width/height 以免误导。
+ * 失败返回 null —— 绝不阻断入库。
+ */
+async function ensurePdfThumb(
+  workspaceRoot: string,
+  absPath: string,
+  size: number,
+  mtimeMs: number
+): Promise<string | null> {
+  const thumbsDir = join(workspaceRoot, '_thumbs')
+  mkdirSync(thumbsDir, { recursive: true })
+
+  const key = thumbKey(absPath, size, mtimeMs)
+  const fileName = `${key}.webp`
+  const full = join(thumbsDir, fileName)
+
+  if (existsSync(full)) return join('_thumbs', fileName)
+
+  try {
+    const png = await renderPdfFirstPage(absPath, THUMB_SIZE)
+    if (!png) return null
+    const sharp = (await import('sharp')).default
+    await sharp(png)
+      .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 82 })
+      .toFile(full)
+    return join('_thumbs', fileName)
+  } catch {
+    return null
+  }
+}
+
+/** 渲染 PDF 第 1 页为 PNG Buffer（宽约 targetW，画布最长边封顶 1600 防超大页） */
+async function renderPdfFirstPage(absPath: string, targetW: number): Promise<Buffer | null> {
+  const fs = await import('fs')
+  const data = new Uint8Array(fs.readFileSync(absPath))
+  // legacy build：Node 环境无 DOM，用同步 fake worker 渲染
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useSystemFonts: false,
+    disableFontFace: true
+  })
+
+  try {
+    const doc = await loadingTask.promise
+    const page = await doc.getPage(1)
+    const base = page.getViewport({ scale: 1 })
+    const scale = Math.min(targetW / base.width, 1600 / Math.max(base.width, base.height))
+    const vp = page.getViewport({ scale })
+    const { createCanvas } = await import('@napi-rs/canvas')
+    const canvas = createCanvas(Math.max(1, Math.ceil(vp.width)), Math.max(1, Math.ceil(vp.height)))
+    const ctx = canvas.getContext('2d')
+    // 白底：透明页在深色界面里会看不清
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // @napi-rs/canvas 的类型与 DOM Canvas 不完全一致（结构兼容，渲染够用），断言绕过
+    await page.render({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      canvasContext: ctx as unknown as CanvasRenderingContext2D,
+      viewport: vp
+    }).promise
+    return canvas.toBuffer('image/png')
+  } finally {
+    try {
+      void loadingTask.destroy()
+    } catch {
+      /* 已销毁就算了 */
+    }
+  }
+}
+
+/** 批量补 PDF 页数（probe_info = {"pages":N}，只处理还没有 probe_info 的 pdf 行） */
+export async function ensurePdfMetaForAssets(
+  rows: Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+): Promise<number> {
+  const db = getDb()
+  const upd = db.prepare('UPDATE assets SET probe_info = ? WHERE id = ?')
+
+  const pending = rows.filter((r) => r.probe_info === null && isPdf(r.ext))
+  let done = 0
+  for (const r of pending) {
+    try {
+      const fs = await import('fs')
+      const data = new Uint8Array(fs.readFileSync(r.abs_path))
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+      const loadingTask = pdfjs.getDocument({
+        data,
+        useSystemFonts: false,
+        disableFontFace: true
+      })
+      let pages = 0
+      try {
+        const doc = await loadingTask.promise
+        pages = doc.numPages
+      } finally {
+        try {
+          void loadingTask.destroy()
+        } catch {
+          /* 忽略 */
+        }
+      }
+      if (pages > 0) {
+        upd.run(JSON.stringify({ pages }), r.id)
+        done += 1
+      }
+    } catch {
+      // 单个失败不影响整批
+    }
+  }
+  return done
+}
+
+/**
+ * 便捷入口：把库里所有还没补页数的 PDF 补一遍（启动时调）。
+ */
+export async function enrichAllPdfMeta(): Promise<number> {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id, abs_path, ext, probe_info FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+  return ensurePdfMetaForAssets(rows)
 }
 
 // ---------------------------------------------------------------- B-02 视频缩略图（ffmpeg 抽帧）

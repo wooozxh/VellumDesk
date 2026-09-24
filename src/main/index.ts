@@ -5,7 +5,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
-import { enrichAllImageMeta, enrichAllVideoMeta, enrichAllPsdMeta, setFfmpegDir } from './thumbs'
+import {
+  enrichAllImageMeta,
+  enrichAllVideoMeta,
+  enrichAllPsdMeta,
+  enrichAllPdfMeta,
+  setFfmpegDir
+} from './thumbs'
 
 /**
  * B-02：定位随软件打包的 FFmpeg（resources/ffmpeg/ffmpeg.exe + ffprobe.exe）。
@@ -81,6 +87,9 @@ app.whenReady().then(() => {
     )
     void enrichAllPsdMeta().catch((e) =>
       console.error('[meta] PSD 元信息补齐失败：', e)
+    )
+    void enrichAllPdfMeta().catch((e) =>
+      console.error('[meta] PDF 页数补齐失败：', e)
     )
   } catch (e) {
     console.error('[workspace] 初始化失败：', e)

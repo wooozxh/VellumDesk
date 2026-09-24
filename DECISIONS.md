@@ -180,4 +180,15 @@
 - **假文件防御**：文件头四重合理性校验（版本 1/2、通道 1-56、位深 1/8/16/32、尺寸 ≤30 万像素），文本冒充的假 PSD 直接拒
 - **放弃**：引入 psd.js / ag-psd 等解析库（依赖重、原型用不上图层信息）；完整渲染 PSD 图层（复杂度高、CMYK 转换麻烦）；163px 小预览放大到 320（会糊，withoutEnlargement 保住原始清晰度）
 
+## 2026-09-24　PDF 渲染弃 mupdf（AGPL）用 pdfjs-dist（Apache-2.0）；页数进 probe_info
+
+- **决定**：
+  1. PDF 缩略图用 **pdfjs-dist（Apache-2.0）+ @napi-rs/canvas（MIT）**，不用 mupdf；打包含 `asarUnpack` 两者
+  2. PDF 元信息只存**页数**（probe_info JSON {"pages":N}），**不写 width/height**（页面 595×842 是 pt 印刷单位，当像素显示会误导）
+  3. 渲染白底、画布最长边封顶 1600、legacy build（Node 无 DOM 走 fake worker）
+- **原因（许可惊魂记）**：首选 mupdf 已装好、渲染验证都快做完了，核查 LICENSE 发现 **AGPL-3.0**——这款软件要给公司同事分发，AGPL 的传染义务意味着"要么整体开源、要么买 Artifex 商业授权（数万/年）"。功能再好也不能埋这颗雷，卸载换 pdfjs。**铁律：npm 装包前先看 license 字段**
+- **信息行显示**：`演示文档.pdf → 3 页 · 937 B · 时间`（FileRow 解析 probe_info 的 pages 字段）
+- **已知代价**：安装包净增约 40 MB（pdfjs-dist 35MB + canvas 原生二进制）；渲染比 mupdf 略慢（原型无感）；部分扫描版/未内嵌字体的 CJK PDF 可能缺字（cMap 后续按需补）
+- **放弃**：mupdf（AGPL 不可商用分发）；FFmpeg 解 PDF（其 build 不含 pdf 解码器）；把 pt 尺寸写进 width/height（单位误导）；sharp 生成 PDF 反向用（sharp 只出不进）
+
 ---

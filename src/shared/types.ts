@@ -49,6 +49,8 @@ export interface AssetItem {
   color_mode: string | null
   duration_ms: number | null
   video_codec: string | null
+  /** 精简 JSON：视频 {"fps","acodec","bitrate"} / PDF {"pages"} */
+  probe_info: string | null
   created_at: string
   modified_at: string
   thumb?: string | null

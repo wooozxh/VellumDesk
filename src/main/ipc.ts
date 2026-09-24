@@ -26,6 +26,7 @@ import {
   ensureImageMetaForAssets,
   ensureVideoMetaForAssets,
   ensurePsdMetaForAssets,
+  ensurePdfMetaForAssets,
   readAsDataUrl,
   isImage
 } from './thumbs'
@@ -152,7 +153,13 @@ export function registerIpc(): void {
       .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
     const psdMetas = await ensurePsdMetaForAssets(psdRows)
 
-    return { ...result, thumbs, metas, videoMetas, psdMetas }
+    // B-03：补 PDF 页数（只处理还没有 probe_info 的 pdf）
+    const pdfRows = db
+      .prepare('SELECT id, abs_path, ext, probe_info FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+    const pdfMetas = await ensurePdfMetaForAssets(pdfRows)
+
+    return { ...result, thumbs, metas, videoMetas, psdMetas, pdfMetas }
   })
   // ---------- A-06 包视图 ----------
   ipcMain.handle('view:packs', () => {

@@ -23,7 +23,9 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@napi-rs/canvas": "^1.0.9",
     "better-sqlite3": "^13.0.3",
+    "pdfjs-dist": "^6.3.289",
     "sharp": "^0.35.4"
   },
   "devDependencies": {
@@ -61,6 +63,10 @@
         "from": "resources/ffmpeg",
         "to": "ffmpeg"
       }
+    ],
+    "asarUnpack": [
+      "**/node_modules/@napi-rs/canvas/**",
+      "**/node_modules/pdfjs-dist/**"
     ],
     "win": {
       "target": "nsis"

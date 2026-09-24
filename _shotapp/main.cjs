@@ -100,6 +100,40 @@ app.whenReady().then(async () => {
   }
   say('psd sample copied', psdOk)
 
+  // B-03：造一个 3 页演示 PDF（手工最小 PDF，图形按页变灰度）
+  try {
+    const pdfDir = join(root, '元信息演示包', '03-工程')
+    mkdirSync(pdfDir, { recursive: true })
+    const pages = 3
+    const kids = Array.from({ length: pages }, (_, i) => `${3 + i * 2} 0 R`).join(' ')
+    const objs = []
+    const count = pages * 2 + 2
+    for (let i = 0; i < pages; i++) {
+      const shade = (0.2 + i * 0.15).toFixed(2)
+      const content = `q ${shade} ${shade} 1 rg 0 0 595 842 re f Q`
+      objs[4 + i * 2] = `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+      objs[3 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${4 + i * 2} 0 R /Resources << >> >>`
+    }
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>'
+    objs[2] = `<< /Type /Pages /Kids [${kids}] /Count ${pages} >>`
+    let pdf = '%PDF-1.4\n'
+    const offs = []
+    for (let i = 1; i <= count; i++) {
+      if (!objs[i]) continue
+      offs[i] = Buffer.byteLength(pdf, 'latin1')
+      pdf += `${i} 0 obj\n${objs[i]}\nendobj\n`
+    }
+    const xref = Buffer.byteLength(pdf, 'latin1')
+    pdf += `xref\n0 ${count + 1}\n0000000000 65535 f \n`
+    for (let i = 1; i <= count; i++) {
+      pdf += offs[i] ? `${String(offs[i]).padStart(10, '0')} 00000 n \n` : `0000000000 00000 f \n`
+    }
+    pdf += `trailer\n<< /Size ${count + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+    writeFileSync(join(pdfDir, '演示文档-3页.pdf'), Buffer.from(pdf, 'latin1'))
+  } catch (e) {
+    errs.push('造演示 PDF 失败：' + e.message)
+  }
+
   scanAll(root)
   registerIpc()
 
@@ -564,6 +598,29 @@ app.whenReady().then(async () => {
   `)
   say('psd thumbs', JSON.stringify(psdThumbs))
   shot('shot-b2-psd.png', (await win.webContents.capturePage()).toPNG())
+
+  // ── 13. B-03 PDF 行：信息行应有页数，缩略图应是渲染的首页 ──
+  const pdfRows2 = (metaDump || []).filter((s) => /\.pdf/i.test(s))
+  say('pdf rows found', pdfRows2.length)
+  say('pdf meta lines', JSON.stringify(pdfRows2))
+  if (pdfRows2.length) {
+    say(
+      'pdf has pages',
+      pdfRows2.every((s) => /3 页/.test(s))
+    )
+  }
+  const pdfThumbs = await js(`
+    (() => {
+      const rows = Array.from(document.querySelectorAll('.file-row')).filter(r => /\\.pdf/i.test(r.querySelector('.fn')?.innerText || ''))
+      return rows.map(r => ({
+        name: r.querySelector('.fn')?.innerText,
+        hasImg: !!r.querySelector('.pic img'),
+        hasPlaceholder: !!r.querySelector('.pic .ext')
+      }))
+    })()
+  `)
+  say('pdf thumbs', JSON.stringify(pdfThumbs))
+  shot('shot-b2-pdf.png', (await win.webContents.capturePage()).toPNG())
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))

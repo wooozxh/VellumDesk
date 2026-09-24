@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**MVP 第 2 批「缩略图与媒体信息」—— 步骤 1（图片）+ 2（视频）+ 4（PSD）完成 ✅，剩步骤 3（PDF）**
-- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 3/4（图片元信息 + 视频全链路 + PSD 全链路）；MVP 整体约 38%
+- 阶段：**MVP 第 2 批「缩略图与媒体信息」全部完成 ✅（图片 / 视频 / PSD / PDF 四类媒体）—— 待用户上手验收**
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；**第 2 批 4/4**；MVP 整体约 42%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 已完成
@@ -32,11 +32,12 @@
 - [x] 2026-09-24　✅ **第 2 批步骤 1（图片元信息）完成**：DB 6 新列 + sharp 采集尺寸/色彩 + 列表直显，101 项断言全过 + 截图验证尺寸正确（提交 `0ebae98`）
 - [x] 2026-09-24　✅ **第 2 批步骤 2（FFmpeg + 视频）完成**：ffmpeg.exe/ffprobe.exe 随包就位（LGPL 版）+ ffprobe 读时长/编码/尺寸/帧率 + ffmpeg 抽帧做视频缩略图 + 无 FFmpeg 时功能降级，**114 项断言全过** + 截图壳验证视频行信息与真缩略图（提交 `6fdf9d0`）
 - [x] 2026-09-24　✅ **第 2 批步骤 4（PSD）提前完成**（用户提供真实样本 访学证.psd）：解析图像资源段取内嵌合成预览 + 文件头读画布尺寸/色彩模式，**127 项断言全过** + 截图壳验证 PSD 行显示预览图与 827×1181 · CMYK
+- [x] 2026-09-24　✅ **第 2 批步骤 3（PDF）完成，第 2 批收官**：pdfjs-dist 渲染首页 + 页数入 probe_info，**137 项断言全过** + 截图壳验证 PDF 行（3 页 · 首页缩略图）。四类媒体全链路：图片 sharp / 视频 FFmpeg / PSD 内嵌预览 / PDF pdfjs
 
 ## 待办
 
-- [ ] **第 2 批步骤 3：PDF 首页缩略图**（选型 `pdfjs-dist`+canvas 或 `mupdf`）
-- [ ] 用户上手验收：第 1 批 + 项目管理 + 排序 + 左栏宽度 + 图片/视频/PSD
+- [ ] **用户上手验收**：第 1 批入库主线 + 项目管理 + 排序 + 左栏宽度 + 四类媒体（图片尺寸色彩 / 视频时长编码抽帧 / PSD 预览 CMYK / PDF 页数渲染）
+- [ ] 第 3 批方向（等用户定）：标签体系 / M6 版本 / 打包交付（electron-builder 出安装包）
 
 ## 下一步（下次开工从这里开始）
 
@@ -230,6 +231,22 @@
   - **假 PSD 误读**：'8BPS 这不是真 PSD' 开头恰好能过签名，头部尺寸读到文本字节 → 加版本/通道/位深/尺寸四重合理性校验拦截
 - **验收结果**：✅ 127 项断言全过 + `npm run build` 成功 + 截图壳 PSD 行验证（预览图/信息行/零报错）
 - **下一步**：第 2 批步骤 3 —— PDF 首页缩略图（第 2 批最后一块）
+
+### 2026-09-24（第 6 次会话续 3）—— 第 2 批步骤 3（PDF），第 2 批收官
+
+- **做了什么**：
+  - **选型一波三折**：最初倾向 mupdf（渲染质量高、单包 14MB）→ 用户拍板 mupdf 后**核查许可证发现是 AGPL-3.0**（强传染：分发需整体开源或买 Artifex 商业授权）→ 再次请示用户 → **换 pdfjs-dist（Apache-2.0）+ @napi-rs/canvas（MIT）**。教训：**npm 装包前必须先看 license 字段**，功能再好许可不对就不能进代码
+  - **thumbs.ts 加 PDF 支持**：`ensurePdfThumb()`（pdfjs legacy build 渲染第 1 页 → @napi-rs/canvas 画布白底 → sharp 转 webp 320 宽，画布最长边封顶 1600 防超大页）；`ensurePdfMetaForAssets()`（页数 → probe_info JSON {"pages":N}；**页面是 pt 单位，不写 width/height 免误导**）；`enrichAllPdfMeta()` 启动补齐
+  - **界面**：AssetItem 加 probe_info；FileRow 信息行显示「N 页」
+  - **打包配置**：package.json `asarUnpack` @napi-rs/canvas 与 pdfjs-dist（原生 .node 二进制与 wasm 不能在 asar 里加载）
+  - **验收**：accept.ts [15] 段（手工 makePdf 造 3 页 PDF）→ **137 项全过**（页数 {"pages":3}、缩略图落盘 ≤320 宽、假 PDF 降级、幂等）
+  - **截图壳**：造 3 页演示 PDF → PDF 行显示 `3 页 · 937 B` + pdfjs 渲染的首页缩略图，四类媒体同屏（图片/视频/PSD/PDF），控制台零报错
+- **遇到的问题**：
+  - pdfjs v6 类型变化三连：`isEvalSupported` 参数已移除；`RenderParameters` 新增必填 `canvas`；文档清理用 `loadingTask.destroy()`（doc.destroy 不存在）—— 查 types/src/display/api.d.ts 核对
+  - @napi-rs/canvas 的 ctx/canvas 类型与 DOM 不完全一致（缺 drawFocusIfNeeded 等 316 项）→ `as unknown as` 断言绕过（结构兼容渲染够用）
+  - pdfjs-dist 读损坏/非 PDF 文件会打印 "Indexing all PDF objects" 警告（正常，走的降级恢复路径）
+- **验收结果**：✅ 137 项断言全过 + typecheck 0 错误 + `npm run build` 成功 + 截图壳四类媒体同屏验证
+- **下一步**：**第 2 批完结**。用户上手验收 → 第 3 批方向（标签 / M6 版本 / 打包交付）
 
 ---
 

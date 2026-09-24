@@ -31,8 +31,19 @@ function fmtTime(iso: string): string {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
 }
 
+/** probe_info JSON 里的页数（PDF），读不出返回 null */
+function pdfPages(probeInfo: string | null): number | null {
+  if (!probeInfo) return null
+  try {
+    const j = JSON.parse(probeInfo) as { pages?: number }
+    return typeof j.pages === 'number' && j.pages > 0 ? j.pages : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * B-01 / B-05：媒体信息行 —— 尺寸 · 色彩/编码 · 时长 · 体积 · 时间。
+ * B-01 / B-05：媒体信息行 —— 尺寸 · 色彩/编码 · 时长 · 页数 · 体积 · 时间。
  * 只把「有值」的段拼进去，没有的段不留空档。
  */
 export function buildMetaLine(item: AssetItem): string {
@@ -42,6 +53,8 @@ export function buildMetaLine(item: AssetItem): string {
   const dur = fmtDuration(item.duration_ms)
   if (dur) parts.push(dur)
   if (item.video_codec) parts.push(item.video_codec)
+  const pages = pdfPages(item.probe_info ?? null)
+  if (pages) parts.push(`${pages} 页`)
   parts.push(fmtSize(item.size))
   const t = fmtTime(item.modified_at)
   if (t) parts.push(t)

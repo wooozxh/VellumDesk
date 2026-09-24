@@ -25,6 +25,7 @@ import {
   ensureImageMetaForAssets,
   ensureVideoMetaForAssets,
   ensurePsdMetaForAssets,
+  ensurePdfMetaForAssets,
   extractPsdPreviewJpg,
   setFfmpegDir,
   ffmpegReady
@@ -120,6 +121,40 @@ function makePng(path: string, w = 8, h = 8, rgb: [number, number, number] = [80
     chunk('IEND', Buffer.alloc(0))
   ])
   writeFileSync(path, png)
+}
+
+/** 手工造最小合法 PDF（不引库）：pages 页，每页画一个灰度随页数变化的矩形 */
+function makePdf(path: string, pages = 1): void {
+  const kids = Array.from({ length: pages }, (_, i) => `${3 + i * 2} 0 R`).join(' ')
+  const objs: string[] = []
+  const count = pages * 2 + 2
+  for (let i = 0; i < pages; i++) {
+    const contentObj = 4 + i * 2
+    const pageObj = 3 + i * 2
+    const shade = (0.2 + (i % 5) * 0.15).toFixed(2)
+    const content = `q ${shade} ${shade} 1 rg 0 0 595 842 re f Q`
+    objs[contentObj] =
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+    objs[pageObj] =
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentObj} 0 R /Resources << >> >>`
+  }
+  objs[1] = '<< /Type /Catalog /Pages 2 0 R >>'
+  objs[2] = `<< /Type /Pages /Kids [${kids}] /Count ${pages} >>`
+
+  let pdf = '%PDF-1.4\n'
+  const offs: number[] = []
+  for (let i = 1; i <= count; i++) {
+    if (!objs[i]) continue
+    offs[i] = Buffer.byteLength(pdf, 'latin1')
+    pdf += `${i} 0 obj\n${objs[i]}\nendobj\n`
+  }
+  const xref = Buffer.byteLength(pdf, 'latin1')
+  pdf += `xref\n0 ${count + 1}\n0000000000 65535 f \n`
+  for (let i = 1; i <= count; i++) {
+    pdf += (offs[i] ?? 0) !== 0 ? `${String(offs[i]).padStart(10, '0')} 00000 n \n` : `0000000000 00000 f \n`
+  }
+  pdf += `trailer\n<< /Size ${count + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  writeFileSync(path, Buffer.from(pdf, 'latin1'))
 }
 
 async function main(): Promise<void> {
@@ -873,6 +908,76 @@ async function main(): Promise<void> {
     )
     ok(pAgain === 0, `PSD 元信息第二次运行处理 0 个（幂等）：实际 ${pAgain}`)
   }
+
+  // ============ 第 2 批 B-03：PDF 首页缩略图与页数 ============
+  log('\n[15] 第 2 批 B-03：PDF 渲染 / 页数')
+
+  const pdfPack = createPack({ name: 'PDF测试包', workspaceRoot: WS })
+  // 造一个 3 页 PDF
+  const pdfPath = join(pdfPack.folder_path, '01-成品', '三页文档.pdf')
+  makePdf(pdfPath, 3)
+  ok(existsSync(pdfPath), `测试 PDF 已生成（3 页）`)
+
+  // 假 PDF（文本冒充）走降级路径
+  const fakePdfPath = join(pdfPack.folder_path, '02-素材', 'fake.pdf')
+  writeFileSync(fakePdfPath, '%PDF-1.4 这不是真 PDF')
+
+  scanAll(WS)
+  const pdfRows = getDb()
+    .prepare('SELECT id, abs_path, ext, probe_info FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+  const pdfWritten = await ensurePdfMetaForAssets(pdfRows)
+
+  const pdfRow = getDb()
+    .prepare('SELECT probe_info FROM assets WHERE file_name = ?')
+    .get('三页文档.pdf') as { probe_info: string | null } | undefined
+  ok(!!pdfRow, 'PDF 已登记进库')
+  ok(pdfWritten >= 1, `本次补齐 ${pdfWritten} 个 PDF 的页数`)
+  ok(
+    !!pdfRow?.probe_info && pdfRow.probe_info.includes('"pages":3'),
+    `页数正确（probe_info = ${pdfRow?.probe_info}）`
+  )
+
+  // 假 PDF：登记但不崩、无页数
+  const fakePdfRow = getDb()
+    .prepare('SELECT id, probe_info FROM assets WHERE file_name = ?')
+    .get('fake.pdf') as { id: number; probe_info: string | null }
+  ok(!!fakePdfRow, '假 PDF 依然被登记进库（不丢弃用户文件）')
+  ok(fakePdfRow?.probe_info === null, '假 PDF 页数为 null（没崩）')
+
+  // PDF 缩略图落盘
+  const pdfThumbRows = getDb()
+    .prepare('SELECT id, abs_path, size, ext, thumb_path, modified_at FROM assets WHERE file_name = ?')
+    .all('三页文档.pdf') as Array<{
+    id: number
+    abs_path: string
+    size: number
+    ext: string
+    thumb_path: string | null
+    modified_at: string
+  }>
+  const pdfThumbed = await ensureThumbsForAssets(WS, pdfThumbRows)
+  ok(pdfThumbed >= 1, `PDF 缩略图生成 ${pdfThumbed} 张`)
+  const pdfAfter = getDb()
+    .prepare('SELECT thumb_path FROM assets WHERE file_name = ?')
+    .get('三页文档.pdf') as { thumb_path: string | null }
+  ok(
+    !!pdfAfter.thumb_path && pdfAfter.thumb_path.endsWith('.webp') && existsSync(join(WS, pdfAfter.thumb_path)),
+    `PDF 缩略图落盘：${pdfAfter.thumb_path}`
+  )
+  if (pdfAfter.thumb_path) {
+    const sharp = (await import('sharp')).default
+    const tm = await sharp(join(WS, pdfAfter.thumb_path)).metadata()
+    ok(!!tm.width && tm.width <= 320, `缩略图宽 ${tm.width}（≤320）`)
+  }
+
+  // 幂等
+  const pdfAgain = await ensurePdfMetaForAssets(
+    getDb()
+      .prepare('SELECT id, abs_path, ext, probe_info FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+  )
+  ok(pdfAgain === 0, `PDF 页数第二次运行处理 0 个（幂等）：实际 ${pdfAgain}`)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))
