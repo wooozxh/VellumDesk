@@ -14,3 +14,4 @@ accept.cjs
 _shotapp/_userdata
 _shotapp/probe.cjs
 electron.vite.config.*.mjs
+*.tsbuildinfo
