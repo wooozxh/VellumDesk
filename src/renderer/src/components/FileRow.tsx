@@ -13,6 +13,41 @@ export function fmtSize(bytes: number): string {
   return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)} ${units[i]}`
 }
 
+/** 毫秒 → 00:01:23 / 03:45（不足 1 小时省略时） */
+export function fmtDuration(ms: number | null): string | null {
+  if (!ms || ms <= 0) return null
+  const total = Math.round(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  return h > 0 ? `${p2(h)}:${p2(m)}:${p2(s)}` : `${p2(m)}:${p2(s)}`
+}
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+}
+
+/**
+ * B-01 / B-05：媒体信息行 —— 尺寸 · 色彩/编码 · 时长 · 体积 · 时间。
+ * 只把「有值」的段拼进去，没有的段不留空档。
+ */
+export function buildMetaLine(item: AssetItem): string {
+  const parts: string[] = []
+  if (item.width && item.height) parts.push(`${item.width}×${item.height}`)
+  if (item.color_mode) parts.push(item.color_mode)
+  const dur = fmtDuration(item.duration_ms)
+  if (dur) parts.push(dur)
+  if (item.video_codec) parts.push(item.video_codec)
+  parts.push(fmtSize(item.size))
+  const t = fmtTime(item.modified_at)
+  if (t) parts.push(t)
+  return parts.join(' · ')
+}
+
 function FileThumb({ item }: { item: AssetItem }): React.JSX.Element {
   if (item.thumb) return <img src={item.thumb} alt={item.file_name} />
   return <div className="ext">{item.ext || '文件'}</div>
@@ -35,6 +70,7 @@ export function FileRow({
   onReveal: () => void
 }): React.JSX.Element {
   const cls = useMemo(() => `file-row${selected ? ' sel' : ''}`, [selected])
+  const metaLine = useMemo(() => buildMetaLine(item), [item])
 
   return (
     <div className={cls} onDoubleClick={onOpen}>
@@ -54,12 +90,13 @@ export function FileRow({
         <div className="fn" onClick={onOpen} title="双击/单击打开文件">
           {item.file_name}
         </div>
-        <div className="fp" title={item.rel_path}>
-          {item.rel_path}
+        <div className="fp" title={metaLine}>
+          <span className="meta">{metaLine}</span>
+          <span className="path-sep">·</span>
+          <span className="rpath">{item.rel_path}</span>
         </div>
       </div>
       {item.role && <span className={`role ${item.role}`}>{item.role}</span>}
-      <span className="sz">{fmtSize(item.size)}</span>
       <div className="act">
         <button className="icon-btn" title="打开文件" onClick={onOpen}>
           ↗

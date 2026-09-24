@@ -678,9 +678,34 @@ body:has(.side-resizer.dragging) {
 .file-row .fp {
   font-size: 11px;
   color: var(--text-3);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* 媒体信息行：尺寸 · 色彩 · 时长 · 编码 · 体积 · 时间 ｜ 路径 */
+.file-row .fp .meta {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.file-row .fp .path-sep {
+  margin: 0 5px;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.file-row .fp .rpath {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 路径是可牺牲的那段：窗口窄时先截它 */
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .file-row .sz {

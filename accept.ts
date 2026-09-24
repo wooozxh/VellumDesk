@@ -20,7 +20,7 @@ import {
   SUB_FOLDERS,
   UNASSIGNED_ROLE
 } from './src/main/workspace'
-import { ensureThumbsForAssets } from './src/main/thumbs'
+import { ensureThumbsForAssets, ensureImageMetaForAssets } from './src/main/thumbs'
 import { getDb, closeDb } from './src/main/db'
 
 /** 每次跑用一个全新的工作区目录，避免上一次的残留污染结果 */
@@ -510,6 +510,127 @@ async function main(): Promise<void> {
     (p) => p.project_id === null || legacyProjects.some((x) => x.id === p.project_id)
   )
   ok(allPacksHaveOwner, '所有包的 project_id 都能对应到一个真实项目（无悬空引用）')
+
+  // ============ 第 2 批 B-01：图片尺寸与色彩模式 ============
+  log('\n[12] 第 2 批 B-01：图片尺寸 / 色彩模式采集')
+
+  // 12.1 迁移：6 个新列齐备
+  const cols = (getDb().prepare('PRAGMA table_info(assets)').all() as Array<{ name: string }>).map(
+    (c) => c.name
+  )
+  const needCols = ['width', 'height', 'color_mode', 'duration_ms', 'video_codec', 'probe_info']
+  for (const c of needCols) {
+    ok(cols.includes(c), `assets 表已有列 ${c}`)
+  }
+
+  // 12.2 造一张已知尺寸的图，扫描后元信息应一致
+  const knownW = 137
+  const knownH = 89
+  const metaPack = createPack({ name: '元信息测试包', workspaceRoot: WS })
+  const metaImg = join(metaPack.folder_path, '01-成品', 'KnownSize.png')
+  makePng(metaImg, knownW, knownH, [10, 200, 90])
+
+  scanAll(WS)
+  const metaRows = getDb()
+    .prepare('SELECT id, abs_path, ext, width FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  const written = await ensureImageMetaForAssets(metaRows)
+
+  const got = getDb()
+    .prepare('SELECT width, height, color_mode FROM assets WHERE file_name = ?')
+    .get('KnownSize.png') as { width: number; height: number; color_mode: string } | undefined
+  ok(!!got, '已知尺寸图已登记进库')
+  ok(written >= 1, `本次补齐了 ${written} 个图片的元信息`)
+  ok(got?.width === knownW, `宽度正确：${got?.width}（造的是 ${knownW}）`)
+  ok(got?.height === knownH, `高度正确：${got?.height}（造的是 ${knownH}）`)
+  ok(
+    got?.color_mode === 'RGB' || got?.color_mode === 'RGBA',
+    `色彩模式识别为 ${got?.color_mode}（造的是 24 位真彩 PNG → 应为 RGB）`
+  )
+
+  // 12.3 再次跑不应重复处理（幂等）
+  const again = await ensureImageMetaForAssets(
+    getDb().prepare('SELECT id, abs_path, ext, width FROM assets').all() as Array<{
+      id: number
+      abs_path: string
+      ext: string
+      width: number | null
+    }>
+  )
+  ok(again === 0, `第二次运行处理 0 个（幂等，不重复算）：实际 ${again}`)
+
+  // 12.4 降级：损坏的图片不阻断入库，元信息为 null
+  const brokenPath = join(metaPack.folder_path, '02-素材', 'Broken.png')
+  writeFileSync(brokenPath, Buffer.from('这不是一张真 PNG'))
+  scanAll(WS)
+  const brokenRow = getDb()
+    .prepare('SELECT id, width, height FROM assets WHERE file_name = ?')
+    .get('Broken.png') as { id: number; width: number | null; height: number | null } | undefined
+  ok(!!brokenRow, '损坏文件依然被登记进库（不丢弃用户文件）')
+  ok(brokenRow?.width === null, '损坏文件的 width 为 null（读不出但没崩）')
+  const stillCount = (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  ok(stillCount > 0, `坏文件未影响其他记录（库里共 ${stillCount} 条）`)
+
+  // 12.5 非图片文件不该被赋元信息
+  const txtPath = join(metaPack.folder_path, '03-工程', 'readme.txt')
+  writeFileSync(txtPath, 'hello')
+  scanAll(WS)
+  await ensureImageMetaForAssets(
+    getDb().prepare('SELECT id, abs_path, ext, width FROM assets').all() as Array<{
+      id: number
+      abs_path: string
+      ext: string
+      width: number | null
+    }>
+  )
+  const txtRow = getDb()
+    .prepare('SELECT width, color_mode FROM assets WHERE file_name = ?')
+    .get('readme.txt') as { width: number | null; color_mode: string | null } | undefined
+  ok(txtRow?.width === null && txtRow?.color_mode === null, 'txt 文件不被赋图片元信息')
+
+  // 12.6 老库迁移：手工造一个没有新列的 assets 表，重开后应自动补齐
+  const legacyWs = `D:\\_accept_ws\\legacy_${RUN_ID}`
+  mkdirSync(join(legacyWs, '_system'), { recursive: true })
+  {
+    const Database = require('better-sqlite3') as typeof import('better-sqlite3')
+    const raw = new Database(join(legacyWs, '_system', 'media.db'))
+    raw.exec(`
+      CREATE TABLE packs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        project_id INTEGER, category TEXT NOT NULL DEFAULT '未分类',
+        folder_path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL DEFAULT '#4f8cff', note TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL);
+      CREATE TABLE assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, pack_id INTEGER, role TEXT NOT NULL DEFAULT '未归属',
+        file_name TEXT NOT NULL, ext TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0,
+        abs_path TEXT NOT NULL UNIQUE, rel_path TEXT NOT NULL DEFAULT '', thumb_path TEXT,
+        created_at TEXT NOT NULL, modified_at TEXT NOT NULL, scanned_at TEXT NOT NULL);
+      INSERT INTO assets (pack_id, role, file_name, ext, size, abs_path, rel_path, created_at, modified_at, scanned_at)
+        VALUES (NULL, '未归属', '老记录.png', 'png', 100, '${legacyWs.replace(/\\/g, '\\\\')}\\\\老记录.png', '老记录.png', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    `)
+    raw.close()
+  }
+  closeDb()
+  initWorkspace(legacyWs)
+  const legacyCols = (
+    getDb().prepare('PRAGMA table_info(assets)').all() as Array<{ name: string }>
+  ).map((c) => c.name)
+  ok(
+    needCols.every((c) => legacyCols.includes(c)),
+    '老库（无新列）打开后自动补齐 6 个新列'
+  )
+  const legacyKept = getDb()
+    .prepare('SELECT COUNT(*) AS c FROM assets')
+    .get() as { c: number }
+  ok(legacyKept.c === 1, `老库已有记录未丢失（${legacyKept.c} 条）`)
+  closeDb()
+
+  // 回到主工作区继续
+  initWorkspace(WS)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

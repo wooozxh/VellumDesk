@@ -86,6 +86,78 @@ export async function ensureThumbsForAssets(
   return done
 }
 
+// ---------------------------------------------------------------- B-01 图片尺寸与色彩模式
+
+export interface ImageMeta {
+  width: number | null
+  height: number | null
+  colorMode: string | null
+}
+
+/** sharp 的 space → 中文可读色彩模式 */
+function readableColorMode(space: string | undefined, channels: number | undefined): string | null {
+  if (!space) return null
+  const s = space.toLowerCase()
+  if (s.includes('cmyk')) return 'CMYK'
+  if (s.includes('srgb')) return channels === 4 ? 'RGBA' : 'RGB'
+  if (s.includes('rgb')) return channels === 4 ? 'RGBA' : 'RGB'
+  if (s.includes('b-w') || s.includes('bw') || s.includes('grey') || s.includes('gray')) return '灰度'
+  if (s.includes('scrgb')) return 'RGB'
+  if (s.includes('lab')) return 'Lab'
+  if (s.includes('cmyk')) return 'CMYK'
+  return space
+}
+
+/**
+ * B-01：读图片的尺寸与色彩模式。
+ * 失败返回全 null —— 绝不阻断入库。
+ */
+export async function readImageMeta(absPath: string): Promise<ImageMeta> {
+  const empty: ImageMeta = { width: null, height: null, colorMode: null }
+  try {
+    const sharp = (await import('sharp')).default
+    const m = await sharp(absPath, { failOn: 'none' }).metadata()
+    return {
+      width: m.width ?? null,
+      height: m.height ?? null,
+      colorMode: readableColorMode(m.space, m.channels)
+    }
+  } catch {
+    return empty
+  }
+}
+
+/** 批量补图片元信息（只处理缺 width 的图片行） */
+export async function ensureImageMetaForAssets(
+  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+): Promise<number> {
+  const db = getDb()
+  const upd = db.prepare('UPDATE assets SET width = ?, height = ?, color_mode = ? WHERE id = ?')
+
+  const pending = rows.filter((r) => r.width === null && isImage(r.ext))
+  let done = 0
+  for (const r of pending) {
+    const meta = await readImageMeta(r.abs_path)
+    if (meta.width !== null || meta.height !== null) {
+      upd.run(meta.width, meta.height, meta.colorMode, r.id)
+      done += 1
+    }
+  }
+  return done
+}
+
+/**
+ * 便捷入口：直接把库里所有还没补元信息的图片补一遍。
+ * 启动时调一次，保证界面上就有尺寸 —— 不必等用户手动点「刷新扫描」。
+ */
+export async function enrichAllImageMeta(): Promise<number> {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id, abs_path, ext, width FROM assets')
+    .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  return ensureImageMetaForAssets(rows)
+}
+
 /** 给渲染进程用的：读一张图片为 dataURL（用于包卡片封面，避免自定义协议） */
 export function readAsDataUrl(absPath: string): string | null {
   try {

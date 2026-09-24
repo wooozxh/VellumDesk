@@ -43,6 +43,12 @@ export interface AssetItem {
   abs_path: string
   rel_path: string
   thumb_path: string | null
+  // ---- 第 2 批新增：媒体元信息 ----
+  width: number | null
+  height: number | null
+  color_mode: string | null
+  duration_ms: number | null
+  video_codec: string | null
   created_at: string
   modified_at: string
   thumb?: string | null

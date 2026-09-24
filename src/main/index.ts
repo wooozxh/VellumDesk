@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
+import { enrichAllImageMeta } from './thumbs'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -49,6 +50,10 @@ app.whenReady().then(() => {
   try {
     const root = getWorkspaceRoot(app.getPath('userData'))
     initWorkspace(root)
+    // B-01：后台补一次图片尺寸 / 色彩模式，让界面一打开就有信息（不阻塞窗口显示）
+    void enrichAllImageMeta().catch((e) =>
+      console.error('[meta] 图片元信息补齐失败：', e)
+    )
   } catch (e) {
     console.error('[workspace] 初始化失败：', e)
   }

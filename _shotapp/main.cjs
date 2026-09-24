@@ -8,7 +8,7 @@ app.commandLine.appendSwitch('no-sandbox')
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-software-rasterizer')
 app.commandLine.appendSwitch('in-process-gpu')
-const { writeFileSync } = require('fs')
+const { writeFileSync, mkdirSync } = require('fs')
 const { join } = require('path')
 
 const ROOT = join(__dirname, '..')
@@ -24,13 +24,37 @@ app.whenReady().then(async () => {
   // 用真实 App 的 userData 目录，保证与正式运行时同一份工作区配置
   app.setPath('userData', join(ROOT, '_shotapp/_userdata'))
 
+  const errs = []
   const userData = app.getPath('userData')
   const root = getWorkspaceRoot(userData)
   initWorkspace(root)
+
+  // 给「元信息展示」准备真实素材：已知尺寸的 PNG（文件名直接写死尺寸，便于人工核对）
+  try {
+    const packDir = join(root, '元信息演示包')
+    mkdirSync(join(packDir, '01-成品'), { recursive: true })
+    mkdirSync(join(packDir, '02-素材'), { recursive: true })
+    mkdirSync(join(packDir, '03-工程'), { recursive: true })
+    // 用 sharp 造两张不同尺寸的真图
+    const sharp = require('sharp')
+    await sharp({
+      create: { width: 1920, height: 1080, channels: 3, background: { r: 79, g: 140, b: 255 } }
+    })
+      .png()
+      .toFile(join(packDir, '01-成品', '横版海报-1920x1080.png'))
+    await sharp({
+      create: { width: 800, height: 1200, channels: 4, background: { r: 63, g: 185, b: 80, alpha: 1 } }
+    })
+      .png()
+      .toFile(join(packDir, '02-素材', '竖版素材-800x1200.png'))
+    writeFileSync(join(packDir, '03-工程', '说明.txt'), '第 2 批元信息展示用', 'utf-8')
+  } catch (e) {
+    errs.push('准备素材失败：' + e.message)
+  }
+
   scanAll(root)
   registerIpc()
 
-  const errs = []
   const win = new BrowserWindow({
     width: 1360,
     height: 880,
@@ -390,6 +414,53 @@ app.whenReady().then(async () => {
   say('order after down', JSON.stringify(orderBack))
   say('reversible', JSON.stringify(orderBack) === JSON.stringify(orderBefore))
   shot('shot-sort-3-after-down.png', (await win.webContents.capturePage()).toPNG())
+
+  // ── 10. 第 2 批：文件列表的媒体信息行 ──────────────
+  await js(`document.querySelector('.modal .close')?.click()`)
+  await js(`[...document.querySelectorAll('.modal .btn')].find(x => /取消/.test(x.textContent))?.click()`)
+  await wait(400)
+
+  // 先点一次「刷新扫描」，走完整 IPC 链路触发元信息采集（与用户操作一致）
+  const refreshed = await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.btn')].find(x => x.textContent.includes('刷新扫描'))
+      if (!b) return false
+      b.click(); return true
+    })()
+  `)
+  await wait(3000)
+  say('clicked refresh scan', refreshed)
+
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.tabs button')].find(x => x.textContent.includes('文件视图'))
+      b?.click()
+    })()
+  `)
+  await wait(1400)
+  say('meta line count', await js(`document.querySelectorAll('.file-row .fp .meta').length`))
+  const metaDump = await js(`
+    [...document.querySelectorAll('.file-row')].map(r => {
+      const fn = r.querySelector('.fn')?.innerText || ''
+      const meta = r.querySelector('.fp .meta')?.innerText || ''
+      return fn + '  →  ' + meta
+    })
+  `)
+  say('meta lines', JSON.stringify(metaDump))
+  shot('shot-b2-meta.png', (await win.webContents.capturePage()).toPNG())
+
+  // 逐条核对：文件名里写死的尺寸应与界面显示的一致
+  const checks = (metaDump || []).map((s) => {
+    const m = s.match(/^(.+?)\s+→\s+(.+)$/)
+    if (!m) return { ok: false, s }
+    const hint = m[1].match(/(\d+)x(\d+)/)
+    if (!hint) return { ok: true, s, note: '无尺寸提示，跳过' }
+    const expect = hint[1] + '×' + hint[2]
+    return { ok: m[2].includes(expect), s, expect }
+  })
+  const sized = checks.filter((c) => c.expect)
+  say('size cross-check', sized.map((c) => (c.ok ? 'OK' : 'MISMATCH') + ' ' + c.expect).join(' | ') || '(无带尺寸的文件名)')
+  say('all sizes match', sized.length > 0 && sized.every((c) => c.ok))
 
   console.log('\n===UI-CHECK===')
   console.log(log.join('\n'))

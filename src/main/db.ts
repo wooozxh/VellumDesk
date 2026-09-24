@@ -40,6 +40,13 @@ export interface AssetRow {
   abs_path: string
   rel_path: string
   thumb_path: string | null
+  // ---- 第 2 批新增：媒体元信息（不建新表，属性跟着文件走）----
+  width: number | null
+  height: number | null
+  color_mode: string | null
+  duration_ms: number | null
+  video_codec: string | null
+  probe_info: string | null
   created_at: string
   modified_at: string
   scanned_at: string
@@ -140,6 +147,23 @@ function migrate(d: Database.Database): void {
          SET project_id = (SELECT p.id FROM projects p WHERE p.name = packs.project)
        WHERE project_id IS NULL AND project IS NOT NULL AND project <> ''
     `)
+  }
+
+  // ---- 迁移 4：assets 表加媒体元信息列（第 2 批）----
+  // 逐列判断，缺哪个补哪个 —— 保证老库能平滑升级
+  const assetCols = d.prepare('PRAGMA table_info(assets)').all() as Array<{ name: string }>
+  const hasAssetCol = (n: string): boolean => assetCols.some((c) => c.name === n)
+
+  const newAssetCols: Array<[string, string]> = [
+    ['width', 'INTEGER'],
+    ['height', 'INTEGER'],
+    ['color_mode', 'TEXT'],
+    ['duration_ms', 'INTEGER'],
+    ['video_codec', 'TEXT'],
+    ['probe_info', 'TEXT']
+  ]
+  for (const [col, type] of newAssetCols) {
+    if (!hasAssetCol(col)) d.exec(`ALTER TABLE assets ADD COLUMN ${col} ${type}`)
   }
 
   // ---- 迁移 3：首次使用（空库）→ 落三个预制项目 ----

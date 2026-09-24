@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**MVP 第 1 批「素材入库」+ 项目管理增强 —— 代码完成，验收通过 ✅（待用户上手验收）**
-- 完成度：环境阶段 100%；MVP 第 1 批 100%（代码+自动验收）；项目管理增强 100%；MVP 整体约 27%
+- 阶段：**MVP 第 2 批「缩略图与媒体信息」—— 步骤 1（图片元信息）完成 ✅，步骤 2（FFmpeg+视频）待开工**
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 1/4（图片元信息）；MVP 整体约 31%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 已完成
@@ -28,18 +28,26 @@
 - [x] 2026-09-24　✅ **第 1 批代码完成**：A-01 ~ A-11 全部落地（详见下方会话日志）
 - [x] 2026-09-24　✅ **第 1 批自动验收通过**：`node accept.cjs` 45 项断言全过；真实窗口截图验证界面正常、控制台零报错
 - [x] 2026-09-24　✅ **项目管理增强完成**（用户中途插入需求）：项目可自建/编辑/真删，11 项新增断言并入回归（共 71 项全过）+ 老库迁移实测通过 + 界面截图验证通过
+- [x] 2026-09-24　✅ **排序 + 左栏宽度完成**：项目上下箭头排序（83 项断言）；左栏默认 220px + 拖拽 170~420px 存 localStorage（提交 `c860100` / `20346ce` / `c050a0d`）
+- [x] 2026-09-24　✅ **第 2 批步骤 1（图片元信息）完成**：DB 6 新列 + sharp 采集尺寸/色彩 + 列表直显，101 项断言全过 + 截图验证尺寸正确（详见第 6 次会话日志）
 
 ## 待办
 
-- [ ] **用户上手验收第 1 批**：双击/命令行跑起来，按方案 5.3 节主线实际操作一遍（建包 → 丢文件 → 刷新 → 归位 → 认领）
-- [ ] 第 2 批：视频缩略图（先装 FFmpeg）、PDF/PSD 缩略图、图片尺寸色彩、视频媒体信息
+- [ ] **第 2 批步骤 2：FFmpeg + 视频缩略图/视频信息**（用户已拍板：FFmpeg 随软件打包，下载 LGPL static build → `resources/` → electron-builder `extraResources`）
+- [ ] 第 2 批步骤 3：PDF 首页缩略图（选型 `pdfjs-dist`+canvas 或 `mupdf`）
+- [ ] 第 2 批步骤 4：PSD 内嵌预览图（**用户会提供 PSD 样本**）
+- [ ] 用户上手验收：第 1 批 + 项目管理 + 排序 + 左栏宽度 + 图片元信息
 
 ## 下一步（下次开工从这里开始）
 
-**用户上手验收通过后，开新会话做第 2 批（缩略图与媒体信息）。**
+**第 2 批步骤 2：FFmpeg + 视频。**
 
-- 回归测试：`node accept.cjs` 前先 `./node_modules/.bin/esbuild accept.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:sharp --outfile=accept.cjs`
-- 第 2 批动工前记得先装 FFmpeg
+1. 下载 FFmpeg LGPL static build（gyan.dev 或 BtbN），放 `resources/ffmpeg/`（`ffmpeg.exe` + `ffprobe.exe`）
+2. `package.json` electron-builder 配 `extraResources`；主进程按 `app.isPackaged` 解析运行时路径
+3. `thumbs.ts` 加视频抽帧（ffmpeg `-ss 1 -vframes 1`）+ `ffprobe -show_streams` 读时长/编码 → 写 `duration_ms`/`video_codec`/`probe_info`
+4. 扫描/启动补齐双路径对齐图片元信息的写法
+5. 验收断言 + 截图壳验证（造 mp4 样本：ffmpeg 本身就能生成 testsrc）
+6. PSD 样本等用户提供后做步骤 4
 
 ## 已知问题与风险
 
@@ -154,6 +162,34 @@
   - 其余坑均已在第 4 次会话记录过（沙箱 ELECTRON_RUN_AS_NODE / GPU / 删除护栏），本次直接沿用绕行方案
 - **验收结果**：✅ 71 项断言全过 + 老库迁移实测通过（包归属不丢）+ `npm run build` 成功 + 界面截图全流程验证通过（控制台零报错）。**待用户上手验收**
 - **下一步**：用户上手验收 → 第 2 批（视频/PDF/PSD 缩略图，先装 FFmpeg）
+
+### 2026-09-24（第 6 次会话）—— 第 2 批开工：排序收尾 + 左栏宽度 + 图片元信息
+
+- **做了什么**：
+  - **项目排序**（用户中途需求）：左栏上下箭头微调显示顺序，纯显示不影响默认归属；`moveProject` 相邻交换 sort_order，边界静默，老库全 0 自动固化（提交 `c860100`）
+  - **左栏宽度**（用户反馈太窄）：默认 168→220px + 右缘拖拽条 170~420px 存 localStorage，双击复位；悬浮按钮组改「让位」（文字右缩 96px）不压字；用 `sendInputEvent` 真实鼠标事件验证 CSS hover 几何（提交 `20346ce`）
+  - **第 2 批方案定稿** → `docs/04-MVP缩略图与媒体信息方案.md`（B-01~B-05）；用户三处拍板：**FFmpeg 随软件打包** / **PSD 做（用户给样本）** / **信息列表直显**
+  - **第 2 批步骤 1（图片元信息）完成**：
+    - `db.ts` 迁移 4：assets 补 6 列（`width/height/color_mode/duration_ms/video_codec/probe_info`），逐列 `PRAGMA table_info` 判断，幂等
+    - `thumbs.ts` 加 `readImageMeta()`（sharp metadata → 尺寸 + 可读色彩模式 RGB/RGBA/灰度/CMYK），损坏文件降级 null；`enrichAllImageMeta()` 全库补齐 + `ensureImageMetaForAssets()` 定点补齐；txt 等非图片不赋值
+    - 双补齐路径：启动时后台 `void enrichAllImageMeta()` + `scan:refresh` 返回前补齐
+    - `FileRow.tsx` 信息行重构：`尺寸 × 色彩 · 时长 · 编码 · 体积 · 时间`（`buildMetaLine()`），体积从行末挪进 meta 行
+    - `accept.ts` 扩到 **101 项断言全过**（6 列存在 / 已知尺寸 137×89 正确 / RGB / 幂等二次 0 个 / 损坏文件降级 / txt 不赋值 / 老库自动补列数据不丢）
+    - 截图壳验证：造 `横版海报-1920x1080.png` / `竖版素材-800x1200.png` 样本 → 点界面「刷新扫描」走完整 IPC → 信息行抓到 `800×1200 · RGBA · 22 KB` / `1920×1080 · RGB · 31 KB`，**尺寸交叉核对 OK，控制台零报错**
+- **改了哪些文件**：
+  - `docs/04-MVP缩略图与媒体信息方案.md`（新增）
+  - `src/main/db.ts`（迁移 4 + AssetRow 6 字段）、`src/main/thumbs.ts`（readImageMeta/enrich 系）、`src/main/index.ts`（启动补齐）、`src/main/ipc.ts`（scan:refresh 补齐）
+  - `src/shared/types.ts`（AssetItem 5 字段）、`src/renderer/src/components/FileRow.tsx`（buildMetaLine）、`src/renderer/src/assets/main.css`（.fp flex 化）
+  - `accept.ts`（[12] 段 18 项断言）、`_shotapp/main.cjs`（步骤 9 排序 + 步骤 10 信息行）、`_shotapp/side.cjs`（新增，宽度专项）
+  - `.gitignore`（shot 产物 / tsbuildinfo 等）
+  - 归档更新：`PROGRESS.md` / `DECISIONS.md`
+- **遇到的问题**：
+  - **截图壳 require `out/test/thumbs.cjs` 报「数据库尚未初始化」**：独立打包的 thumbs 包持有自己的 db 单例，与 workspace.cjs 不是同一个 → 修复：截图壳不直接调函数，改点界面「刷新扫描」按钮走完整 IPC（与真实用户操作一致）
+  - `hover geometry overlap` 假阴性：JS 派发 mouseover 不触发 CSS `:hover` 伪类 → 必须用 `webContents.sendInputEvent` 真实鼠标事件
+  - 注入脚本 `Unexpected token '...'`：JS ASI 坑（上行函数调用 + 下行 `[...arr]` 展开）→ `Array.from()` 中转
+  - TS6133：ipc.ts 误 import 未使用的 `readImageMeta` → 移除
+- **验收结果**：✅ 101 项断言全过 + `npm run build` 成功 + 截图壳全流程验证（排序换位/信息行尺寸/控制台零报错）
+- **下一步**：第 2 批步骤 2 —— FFmpeg 随包 + 视频缩略图/信息
 
 ---
 

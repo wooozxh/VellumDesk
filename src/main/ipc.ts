@@ -21,7 +21,12 @@ import {
   SUB_FOLDERS,
   type SubFolder
 } from './workspace'
-import { ensureThumbsForAssets, readAsDataUrl, isImage } from './thumbs'
+import {
+  ensureThumbsForAssets,
+  ensureImageMetaForAssets,
+  readAsDataUrl,
+  isImage
+} from './thumbs'
 import { PROJECT_COLORS, CATEGORIES } from './db'
 
 /**
@@ -126,7 +131,14 @@ export function registerIpc(): void {
     }>
 
     const thumbs = await ensureThumbsForAssets(root, rows)
-    return { ...result, thumbs }
+
+    // B-01：补图片尺寸 / 色彩模式（只处理还没有 width 的图片）
+    const metaRows = db
+      .prepare('SELECT id, abs_path, ext, width FROM assets')
+      .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+    const metas = await ensureImageMetaForAssets(metaRows)
+
+    return { ...result, thumbs, metas }
   })
   // ---------- A-06 包视图 ----------
   ipcMain.handle('view:packs', () => {
