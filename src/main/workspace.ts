@@ -1,4 +1,5 @@
-import { join, basename, extname, relative, sep } from 'path'
+import Database from 'better-sqlite3'
+import { join, basename, dirname, extname, relative, sep } from 'path'
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +12,7 @@ import {
   unlinkSync
 } from 'fs'
 import {
+  closeDb,
   getDb,
   openDb,
   pickColor,
@@ -57,6 +59,31 @@ export interface WorkspaceState {
   note: string
 }
 
+/** 列表里的一个工作区（方案 07 第 7 节） */
+export interface WorkspaceEntry {
+  id: string
+  /** 显示名，默认取文件夹名 */
+  name: string
+  root: string
+  addedAt: string
+  lastOpenedAt: string
+}
+
+/**
+ * 配置文件结构 v2。
+ *
+ * 末尾的 `workspaceRoot` 是**刻意双写**，不是冗余（方案 07 第 7.2 节）：
+ * 1. 第 4 批的验收断言直接读这个字段；
+ * 2. 用户装回旧版软件时，旧版只认这个字段 —— 读不到会走「首次启动」逻辑
+ *    凭空择址出一个空工作区，让用户以为数据丢了。
+ */
+export interface WorkspaceConfig {
+  version: 2
+  activeId: string
+  workspaces: WorkspaceEntry[]
+  workspaceRoot: string
+}
+
 /** 系统「文档」目录的兜底推导 —— 不依赖 electron，验收脚本可直接调用 */
 function fallbackDocumentsDir(): string {
   const home = process.env.USERPROFILE || process.env.HOME || ''
@@ -82,17 +109,131 @@ export function isUsableWorkspace(root: string): boolean {
   }
 }
 
-function readConfiguredRoot(cfgPath: string): string | null {
-  if (!existsSync(cfgPath)) return null
-  try {
-    const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'))
-    if (cfg && typeof cfg.workspaceRoot === 'string' && cfg.workspaceRoot.trim()) {
-      return cfg.workspaceRoot
-    }
-  } catch {
-    // 配置坏了当作「没有配置」处理
+// ---------------------------------------------------------------- 配置 v2
+
+/** 工作区默认显示名：取文件夹名 */
+export function workspaceNameOf(root: string): string {
+  const b = basename(root.replace(/[\\/]+$/, ''))
+  return b || root
+}
+
+/**
+ * 由 root 推导一个**确定性** id。
+ *
+ * 确定性是必须的：老配置升级到 v2 时我们不立刻回写文件，
+ * 如果每次读取都生成新 id，界面按 id 切换就会失效。
+ */
+export function workspaceIdOf(root: string, taken: string[] = []): string {
+  let h = 0
+  const s = root.toLowerCase()
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  const base = 'ws_' + (h >>> 0).toString(36)
+  let id = base
+  let i = 2
+  while (taken.includes(id)) {
+    id = `${base}-${i}`
+    i += 1
   }
+  return id
+}
+
+function cfgPath(appDataDir: string): string {
+  return join(appDataDir, 'workspace.json')
+}
+
+/**
+ * 读配置。老格式（只有 workspaceRoot）在**内存里**升级成 v2，不立刻回写 ——
+ * 只在下次正常写配置的时机（首次择址 / 切换 / 添加）一并落盘，
+ * 避免「只读一次操作就改了用户文件」。
+ */
+export function readWorkspaceConfig(appDataDir: string): WorkspaceConfig | null {
+  const p = cfgPath(appDataDir)
+  if (!existsSync(p)) return null
+
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(p, 'utf-8'))
+  } catch {
+    return null // 配置坏了当作「没有配置」处理（与旧行为一致）
+  }
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+
+  // ---- v2 ----
+  if (Array.isArray(r.workspaces) && r.workspaces.length) {
+    const list: WorkspaceEntry[] = []
+    for (const item of r.workspaces as Array<Record<string, unknown>>) {
+      if (!item || typeof item.root !== 'string' || !item.root.trim()) continue
+      const root = item.root
+      list.push({
+        id:
+          typeof item.id === 'string' && item.id
+            ? item.id
+            : workspaceIdOf(root, list.map((x) => x.id)),
+        name:
+          typeof item.name === 'string' && item.name.trim()
+            ? item.name.trim()
+            : workspaceNameOf(root),
+        root,
+        addedAt: typeof item.addedAt === 'string' ? item.addedAt : new Date().toISOString(),
+        lastOpenedAt: typeof item.lastOpenedAt === 'string' ? item.lastOpenedAt : ''
+      })
+    }
+    if (!list.length) return null
+    const activeId = list.some((w) => w.id === r.activeId) ? (r.activeId as string) : list[0].id
+    return {
+      version: 2,
+      activeId,
+      workspaces: list,
+      workspaceRoot: list.find((w) => w.id === activeId)!.root
+    }
+  }
+
+  // ---- 老格式：{ workspaceRoot: "X" } ----
+  if (typeof r.workspaceRoot === 'string' && r.workspaceRoot.trim()) {
+    const root = r.workspaceRoot
+    const now = new Date().toISOString()
+    const e: WorkspaceEntry = {
+      id: workspaceIdOf(root),
+      name: workspaceNameOf(root),
+      root,
+      addedAt: now,
+      lastOpenedAt: now
+    }
+    return { version: 2, activeId: e.id, workspaces: [e], workspaceRoot: root }
+  }
+
   return null
+}
+
+/** 写配置（末尾双写 workspaceRoot 兼容字段） */
+export function writeWorkspaceConfig(appDataDir: string, cfg: WorkspaceConfig): void {
+  mkdirSync(appDataDir, { recursive: true })
+  const active = cfg.workspaces.find((w) => w.id === cfg.activeId) || cfg.workspaces[0]
+  const out: WorkspaceConfig = {
+    version: 2,
+    activeId: active.id,
+    workspaces: cfg.workspaces,
+    workspaceRoot: active.root
+  }
+  writeFileSync(cfgPath(appDataDir), JSON.stringify(out, null, 2), 'utf-8')
+}
+
+/** 工作区列表（供界面与验收使用） */
+export function listWorkspaces(appDataDir: string): {
+  workspaces: WorkspaceEntry[]
+  activeId: string
+} {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return { workspaces: [], activeId: '' }
+  return { workspaces: cfg.workspaces, activeId: cfg.activeId }
+}
+
+/** 当前活动工作区（配置缺失时返回 null） */
+export function getActiveWorkspaceEntry(appDataDir: string): WorkspaceEntry | null {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return null
+  return cfg.workspaces.find((w) => w.id === cfg.activeId) || cfg.workspaces[0] || null
 }
 
 /**
@@ -108,13 +249,13 @@ export function resolveWorkspace(
   documentsDir?: string,
   preferredRoot: string = DEFAULT_WORKSPACE
 ): WorkspaceState {
-  const cfgPath = join(appDataDir, 'workspace.json')
-  const configured = readConfiguredRoot(cfgPath)
+  const cfg = readWorkspaceConfig(appDataDir)
 
-  if (configured) {
-    if (isUsableWorkspace(configured)) return { root: configured, ok: true, note: '' }
+  if (cfg) {
+    const active = cfg.workspaces.find((w) => w.id === cfg.activeId) || cfg.workspaces[0]
+    if (isUsableWorkspace(active.root)) return { root: active.root, ok: true, note: '' }
     return {
-      root: configured,
+      root: active.root,
       ok: false,
       note: '该位置当前不可用（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）'
     }
@@ -163,13 +304,40 @@ export function getWorkspaceRoot(appDataDir: string, documentsDir?: string): str
   return getWorkspaceState(appDataDir, documentsDir).root
 }
 
+/**
+ * 写「当前工作区的根」：把它设为活动工作区。
+ *
+ * 语义与第 1 批保持一致（老的调用点全部继续可用）：
+ * - 该路径已在列表里 → 只是切过去
+ * - 不在列表里 → 作为新的一项加进来再切过去
+ */
 export function saveWorkspaceRoot(appDataDir: string, workspaceRoot: string): void {
-  mkdirSync(appDataDir, { recursive: true })
-  writeFileSync(
-    join(appDataDir, 'workspace.json'),
-    JSON.stringify({ workspaceRoot }, null, 2),
-    'utf-8'
-  )
+  const cfg = readWorkspaceConfig(appDataDir)
+  const now = new Date().toISOString()
+  const list = cfg ? cfg.workspaces.slice() : []
+
+  const idx = list.findIndex((w) => w.root.toLowerCase() === workspaceRoot.toLowerCase())
+  let entry: WorkspaceEntry
+  if (idx >= 0) {
+    entry = { ...list[idx], lastOpenedAt: now }
+    list[idx] = entry
+  } else {
+    entry = {
+      id: workspaceIdOf(workspaceRoot, list.map((w) => w.id)),
+      name: workspaceNameOf(workspaceRoot),
+      root: workspaceRoot,
+      addedAt: now,
+      lastOpenedAt: now
+    }
+    list.push(entry)
+  }
+
+  writeWorkspaceConfig(appDataDir, {
+    version: 2,
+    activeId: entry.id,
+    workspaces: list,
+    workspaceRoot: entry.root
+  })
 }
 
 /** A-02：工作区首次初始化 —— 建根目录、_thumbs、_system、数据库 */
@@ -844,4 +1012,515 @@ export function countUnassigned(): number {
     .prepare('SELECT COUNT(*) AS c FROM assets WHERE role = ?')
     .get(UNASSIGNED_ROLE) as { c: number }
   return r.c
+}
+
+// ================================================================ 第 5 批 E-01：工作区管理与迁移
+// 对应方案：docs/07-工作区管理方案.md
+
+/** 两个路径是否在同一个卷上 */
+export function isSameVolume(a: string, b: string): boolean {
+  try {
+    // 用 dev（卷标识）而不是比盘符 —— 能正确处理挂载点、目录联接
+    return statSync(a).dev === statSync(b).dev
+  } catch {
+    return false
+  }
+}
+
+/** 相对路径归一化：统一分隔符、去掉开头分隔符 */
+function normalizeRel(rel: string): string {
+  return rel.replace(/[\\/]+/g, sep).replace(/^[\\/]+/, '')
+}
+
+/** 去掉尾部分隔符 */
+function trimSlash(p: string): string {
+  return p.replace(/[\\/]+$/, '')
+}
+
+export interface OldRootProbe {
+  ok: boolean
+  /** 反推出的旧工作区根；null = 库是空的，没什么可重写 */
+  oldRoot: string | null
+  error?: string
+}
+
+/**
+ * 从一个已打开的库连接反推工作区旧根。
+ *
+ * 库里没有字段记录「工作区根」，但每条素材都存了 rel_path，
+ * 而 abs_path 一定以它结尾 → 剪掉尾巴剩下的就是根。
+ *
+ * 【安全阀】所有样本必须推出同一个根。出现多个不同值说明库里有跨根数据，
+ * 宁可报错让用户确认，也绝不猜着改。
+ */
+function detectOldRootFrom(conn: Database.Database): OldRootProbe {
+  let rows: Array<{ abs_path: string; rel_path: string }> = []
+  try {
+    rows = conn
+      .prepare("SELECT abs_path, rel_path FROM assets WHERE rel_path IS NOT NULL AND rel_path <> ''")
+      .all() as Array<{ abs_path: string; rel_path: string }>
+  } catch {
+    return { ok: true, oldRoot: null } // 表还不存在 → 当成空库
+  }
+
+  const roots = new Set<string>()
+  let skipped = 0
+  for (const r of rows) {
+    const abs = r.abs_path || ''
+    const rel = r.rel_path || ''
+    if (!abs.toLowerCase().endsWith(rel.toLowerCase())) {
+      skipped += 1 // 脏数据：abs_path 不以 rel_path 结尾
+      continue
+    }
+    const head = trimSlash(abs.slice(0, abs.length - rel.length))
+    if (head) roots.add(head)
+  }
+
+  if (roots.size === 1) return { ok: true, oldRoot: [...roots][0] }
+  if (roots.size > 1) {
+    return {
+      ok: false,
+      oldRoot: null,
+      error: `库里的素材路径指向 ${roots.size} 个不同位置，数据异常，已拒绝自动改动`
+    }
+  }
+
+  // 一条都推不出来、但库里明明有记录 → 库不自洽（rel_path 与 abs_path 对不上）。
+  // 这种情况继续往下走去猜根，会拿脏 rel_path 重建出一批错误路径，宁可报错。
+  if (skipped > 0) {
+    return {
+      ok: false,
+      oldRoot: null,
+      error: `库里有 ${skipped}/${rows.length} 条记录的路径自相矛盾，已拒绝自动改动`
+    }
+  }
+
+  // 一条素材都没有 → 退而用包目录反推（包都直接建在工作区根下）
+  let packs: Array<{ folder_path: string }> = []
+  try {
+    packs = conn.prepare('SELECT folder_path FROM packs').all() as Array<{ folder_path: string }>
+  } catch {
+    return { ok: true, oldRoot: null }
+  }
+
+  const proots = new Set<string>()
+  for (const p of packs) {
+    const d = trimSlash(dirname(p.folder_path || ''))
+    if (d && d !== '.' && d !== sep) proots.add(d)
+  }
+  if (proots.size === 0) return { ok: true, oldRoot: null } // 空库
+  if (proots.size > 1) {
+    return {
+      ok: false,
+      oldRoot: null,
+      error: `包目录分布在 ${proots.size} 个不同位置，数据异常，已拒绝自动改动`
+    }
+  }
+  return { ok: true, oldRoot: [...proots][0] }
+}
+
+/** 反推当前（已打开）库的工作区旧根 */
+export function detectOldRoot(): OldRootProbe {
+  return detectOldRootFrom(getDb())
+}
+
+/**
+ * 把库文件备份到 `_system/backup/`。
+ *
+ * **调用前必须先 closeDb()** —— 库还开着时复制文件不保证一致快照。
+ * `_system` 下划线开头，扫描会自动跳过，不会跑到用户眼皮底下。
+ */
+export function backupDb(workspaceRoot: string): string | null {
+  const sysDir = join(workspaceRoot, '_system')
+  const src = join(sysDir, 'media.db')
+  if (!existsSync(src)) return null
+
+  const bkDir = join(sysDir, 'backup')
+  mkdirSync(bkDir, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const dst = join(bkDir, `media.db.${stamp}.bak`)
+  copyFileSync(src, dst)
+  for (const ext of ['-wal', '-shm']) {
+    if (existsSync(src + ext)) copyFileSync(src + ext, dst + ext)
+  }
+  return dst
+}
+
+export interface RewriteResult {
+  ok: boolean
+  oldRoot: string
+  newRoot: string
+  /** 重写后库里的素材条数 */
+  assets: number
+  packs: number
+  /** 自检落空数（文件实际不存在） */
+  missing: number
+  missingList: string[]
+  backupPath: string | null
+  error?: string
+}
+
+/**
+ * 把库里所有绝对路径的前缀从 oldRoot 换成 newRoot（需求文档 M8-05）。
+ *
+ * **为什么必须重写而不能「重新扫描」**：
+ * `abs_path` 是 UNIQUE 键，重扫会把新路径当新文件 INSERT → asset.id 变化
+ * → `asset_tags` 标签关联变孤儿；`packs` 还会因 folder_path 对不上而重复登记一份。
+ * 重写保住 id，标签与包归属一条不丢。
+ *
+ * 调用前提：newRoot 下的库已存在（搬家后 / 用户自己复制过来后）。
+ */
+export function rewritePaths(newRoot: string, oldRootHint?: string): RewriteResult {
+  const base: RewriteResult = {
+    ok: false,
+    oldRoot: oldRootHint ?? '',
+    newRoot,
+    assets: 0,
+    packs: 0,
+    missing: 0,
+    missingList: [],
+    backupPath: null
+  }
+
+  const conn = openDb(newRoot)
+  const probe = detectOldRootFrom(conn)
+  if (!probe.ok) return { ...base, error: probe.error }
+
+  const oldRoot = oldRootHint ?? probe.oldRoot
+  if (!oldRoot) return { ...base, ok: true, oldRoot: '' } // 空库，没路径要改
+  if (oldRoot.toLowerCase() === trimSlash(newRoot).toLowerCase()) {
+    return { ...base, ok: true, oldRoot } // 已在正确位置，幂等跳过
+  }
+
+  // ---- 先把目标值全算出来，再进事务（避免中途出现半成品状态）----
+  interface PlanRow {
+    id: number
+    next: string
+  }
+
+  const assetRows = conn
+    .prepare('SELECT id, abs_path, rel_path FROM assets')
+    .all() as Array<{ id: number; abs_path: string; rel_path: string }>
+  const planA: PlanRow[] = assetRows.map((a) => {
+    let rel = (a.rel_path ?? '').trim()
+    if (rel) rel = normalizeRel(rel)
+    else if ((a.abs_path ?? '').toLowerCase().startsWith(oldRoot.toLowerCase())) {
+      rel = normalizeRel(a.abs_path.slice(oldRoot.length))
+    }
+    // 推不出来的保持原值不动（宁可留着让人看见，也不猜）
+    return { id: a.id, next: rel ? join(newRoot, rel) : a.abs_path }
+  })
+
+  const packRows = conn
+    .prepare('SELECT id, folder_path FROM packs')
+    .all() as Array<{ id: number; folder_path: string }>
+  const planP: PlanRow[] = packRows.map((p) => {
+    const raw = p.folder_path ?? ''
+    let rel = ''
+    if (raw.toLowerCase().startsWith(oldRoot.toLowerCase())) {
+      rel = normalizeRel(raw.slice(oldRoot.length))
+    } else {
+      rel = normalizeRel(basename(raw)) // 推不出来就退回包名（包都直接建在根下）
+    }
+    return { id: p.id, next: rel ? join(newRoot, rel) : raw }
+  })
+
+  // ---- 备份（关库 → 复制文件，保证快照一致）----
+  closeDb()
+  let backupPath: string | null = null
+  try {
+    backupPath = backupDb(newRoot)
+  } catch (e) {
+    openDb(newRoot) // 把库开回去，别让调用方拿到死连接
+    return { ...base, oldRoot, error: `备份失败，已中止重写：${(e as Error).message}` }
+  }
+
+  const d = openDb(newRoot)
+  try {
+    const tx = d.transaction(() => {
+      // 两步走：先落不可能碰撞的临时值，再写目标值。
+      // 单一 UPDATE 在「库里已是混合状态」时会中途撞 UNIQUE 约束。
+      d.prepare("UPDATE assets SET abs_path = '#migrating#' || id").run()
+      d.prepare("UPDATE packs  SET folder_path = '#migrating#' || id").run()
+
+      const ua = d.prepare('UPDATE assets SET abs_path = ? WHERE id = ?')
+      for (const x of planA) ua.run(x.next, x.id)
+      const up = d.prepare('UPDATE packs SET folder_path = ? WHERE id = ?')
+      for (const x of planP) up.run(x.next, x.id)
+    })
+    tx()
+  } catch (e) {
+    return {
+      ...base,
+      oldRoot,
+      backupPath,
+      error: `重写失败（库已回滚，备份在 ${backupPath}）：${(e as Error).message}`
+    }
+  }
+
+  // ---- 自检：逐个核对文件是否真的在（只报告，绝不删记录）----
+  const after = d.prepare('SELECT abs_path FROM assets').all() as Array<{ abs_path: string }>
+  const missingList: string[] = []
+  for (const r of after) {
+    if (!existsSync(r.abs_path)) missingList.push(r.abs_path)
+  }
+  const assetCount = (d.prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  const packCount = (d.prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+
+  return {
+    ok: true,
+    oldRoot,
+    newRoot: trimSlash(newRoot),
+    assets: assetCount,
+    packs: packCount,
+    missing: missingList.length,
+    missingList: missingList.slice(0, 50),
+    backupPath
+  }
+}
+
+// ---------------------------------------------------------------- 目录体检
+
+export type DirKind = 'empty' | 'own' | 'foreign' | 'broken'
+
+export interface DirInspection {
+  kind: DirKind
+  root: string
+  oldRoot?: string
+  error?: string
+}
+
+/**
+ * 看一眼这个目录是什么情况 —— **只读，不改任何东西，也不动全局数据库连接**。
+ *
+ * - empty  ：没有库 → 当新工作区用
+ * - own    ：有库且路径自洽 → 直接登记
+ * - foreign：有库但记录指向别处（搬过来的）→ 问用户要不要改写路径
+ * - broken ：有库但路径自相矛盾 → 拒绝自动处理
+ */
+export function inspectWorkspaceDir(root: string): DirInspection {
+  const norm = trimSlash(root)
+  const dbFile = join(norm, '_system', 'media.db')
+  if (!existsSync(dbFile)) return { kind: 'empty', root: norm }
+
+  let conn: Database.Database | null = null
+  try {
+    // 独立的临时连接：不干扰正在用的那个库。
+    // 刻意不用 readonly —— WAL 模式下只读打开需要能创建 -shm 文件，
+    // 否则会直接打不开，把「刚复制过来、还没生成 -shm」的库误判成坏的。
+    conn = new Database(dbFile, { fileMustExist: true })
+    const probe = detectOldRootFrom(conn)
+    if (!probe.ok) return { kind: 'broken', root: norm, error: probe.error }
+    if (!probe.oldRoot) return { kind: 'own', root: norm }
+    if (probe.oldRoot.toLowerCase() === norm.toLowerCase()) {
+      return { kind: 'own', root: norm, oldRoot: probe.oldRoot }
+    }
+    return { kind: 'foreign', root: norm, oldRoot: probe.oldRoot }
+  } catch (e) {
+    return { kind: 'broken', root: norm, error: `读库失败：${(e as Error).message}` }
+  } finally {
+    try {
+      conn?.close()
+    } catch {
+      /* 关不掉也不影响 */
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 工作区增删切
+
+export interface AddWorkspaceResult {
+  ok: boolean
+  /** 需要用户确认（目录里是一个搬过来的库） */
+  needsConfirm?: boolean
+  oldRoot?: string
+  migrated?: RewriteResult
+  entry?: WorkspaceEntry
+  error?: string
+}
+
+/**
+ * 把一个目录登记成工作区并切过去。
+ *
+ * 切换四步顺序不可换（这是 BUG-1 的修法）：
+ *   closeDb() → 写 activeId → resetWorkspaceState() → initWorkspace(新根)
+ */
+export function addWorkspace(
+  appDataDir: string,
+  root: string,
+  opts: { rewrite?: boolean } = {}
+): AddWorkspaceResult {
+  const norm = trimSlash(root)
+
+  if (!isUsableWorkspace(norm)) {
+    return { ok: false, error: '这个位置不能写入，请换一个目录' }
+  }
+
+  const info = inspectWorkspaceDir(norm)
+
+  if (info.kind === 'broken') {
+    return { ok: false, error: info.error || '这个目录里的素材库看起来有问题，已中止' }
+  }
+
+  if (info.kind === 'foreign' && !opts.rewrite) {
+    // 交给上层弹确认框，这里什么都不改
+    return { ok: false, needsConfirm: true, oldRoot: info.oldRoot }
+  }
+
+  closeDb()
+  resetWorkspaceState()
+  saveWorkspaceRoot(appDataDir, norm)
+
+  let migrated: RewriteResult | undefined
+  if (info.kind === 'foreign') {
+    const r = rewritePaths(norm, info.oldRoot)
+    if (!r.ok) return { ok: false, error: r.error || '改写库里的路径失败' }
+    migrated = r
+  } else {
+    initWorkspace(norm)
+  }
+
+  return { ok: true, migrated, entry: getActiveWorkspaceEntry(appDataDir) ?? undefined }
+}
+
+/** 按 id 切换工作区 */
+export function switchWorkspace(
+  appDataDir: string,
+  id: string
+): { ok: boolean; root?: string; name?: string; error?: string } {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+
+  const target = cfg.workspaces.find((w) => w.id === id)
+  if (!target) return { ok: false, error: '工作区不存在' }
+
+  if (!isUsableWorkspace(target.root)) {
+    return {
+      ok: false,
+      error: `「${target.name}」当前位置连不上（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）`
+    }
+  }
+
+  closeDb()
+  const list = cfg.workspaces.map((w) =>
+    w.id === id ? { ...w, lastOpenedAt: new Date().toISOString() } : w
+  )
+  writeWorkspaceConfig(appDataDir, { ...cfg, activeId: id, workspaces: list })
+  resetWorkspaceState()
+  initWorkspace(target.root)
+
+  return { ok: true, root: target.root, name: target.name }
+}
+
+/**
+ * 从列表里去掉一个工作区。
+ *
+ * **只删配置里的一条记录，磁盘上一个字节都不动。**
+ * 移除的是当前活动工作区时，顺手切到剩下的第一个。
+ */
+export function removeWorkspace(
+  appDataDir: string,
+  id: string
+): { ok: boolean; switchedTo?: string; error?: string } {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+
+  const rest = cfg.workspaces.filter((w) => w.id !== id)
+  if (rest.length === cfg.workspaces.length) return { ok: false, error: '工作区不存在' }
+  if (rest.length === 0) return { ok: false, error: '至少要保留一个工作区' }
+
+  if (cfg.activeId !== id) {
+    writeWorkspaceConfig(appDataDir, { ...cfg, workspaces: rest })
+    return { ok: true }
+  }
+
+  closeDb()
+  resetWorkspaceState()
+  writeWorkspaceConfig(appDataDir, { ...cfg, activeId: rest[0].id, workspaces: rest })
+  initWorkspace(rest[0].root)
+  return { ok: true, switchedTo: rest[0].root }
+}
+
+// ---------------------------------------------------------------- 同盘搬移
+
+export interface MigrateResult {
+  ok: boolean
+  crossDisk?: boolean
+  from?: string
+  to?: string
+  /** 重写的素材条数 */
+  rewritten?: number
+  /** 自检落空数 */
+  missing?: number
+  backupPath?: string | null
+  error?: string
+}
+
+/**
+ * 同盘搬移（B2）：把当前工作区文件夹整体搬到一个新位置。
+ *
+ * 同盘用 `renameSync` —— 文件系统层面改个名字，**不看文件大小，几百 GB 也是瞬间**。
+ * 跨盘会抛 EXDEV，这里明确拒绝：软件不自研跨盘复制（方案 07 第 10 节）。
+ */
+export function migrateWorkspaceSameDisk(
+  appDataDir: string,
+  targetParentDir: string
+): MigrateResult {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+
+  const active = cfg.workspaces.find((w) => w.id === cfg.activeId) || cfg.workspaces[0]
+  const from = trimSlash(active.root)
+  const parent = trimSlash(targetParentDir)
+  const to = join(parent, basename(from))
+
+  if (!existsSync(from)) return { ok: false, from, to, error: '当前工作区目录不存在' }
+  if (!existsSync(parent)) return { ok: false, from, to, error: '目标位置不存在' }
+  if (to.toLowerCase().startsWith(from.toLowerCase() + sep)) {
+    return { ok: false, from, to, error: '不能把工作区搬到它自己里面' }
+  }
+  if (existsSync(to)) {
+    return {
+      ok: false,
+      from,
+      to,
+      error: `目标位置已经有一个「${basename(from)}」了，换个位置或先改名`
+    }
+  }
+  if (!isSameVolume(from, parent)) {
+    return { ok: false, crossDisk: true, from, to }
+  }
+
+  // 关库 → rename（原子操作：失败即什么都没变）
+  closeDb()
+  try {
+    renameSync(from, to)
+  } catch (e) {
+    resetWorkspaceState()
+    initWorkspace(from) // 把库开回原处，不留下半死状态
+    return { ok: false, from, to, error: `搬移失败：${(e as Error).message}` }
+  }
+
+  const list = cfg.workspaces.map((w) =>
+    w.id === active.id
+      ? { ...w, root: to, name: workspaceNameOf(to), lastOpenedAt: new Date().toISOString() }
+      : w
+  )
+  writeWorkspaceConfig(appDataDir, { ...cfg, activeId: active.id, workspaces: list })
+  resetWorkspaceState()
+
+  // 库里的绝对路径还是旧根 → 重写
+  const r = rewritePaths(to, from)
+  if (!r.ok) {
+    return { ok: false, from, to, error: r.error || '文件夹搬好了，但库里的路径没改成，请看备份' }
+  }
+
+  return {
+    ok: true,
+    from,
+    to,
+    rewritten: r.assets,
+    missing: r.missing,
+    backupPath: r.backupPath
+  }
 }

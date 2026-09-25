@@ -13,9 +13,12 @@ import {
   getWorkspaceRoot,
   getWorkspaceState,
   resetWorkspaceState,
-  isUsableWorkspace,
   initWorkspace,
-  saveWorkspaceRoot,
+  listWorkspaces,
+  addWorkspace,
+  switchWorkspace,
+  removeWorkspace,
+  migrateWorkspaceSameDisk,
   listProjectsWithCount,
   createProject,
   updateProject,
@@ -65,11 +68,15 @@ export function registerIpc(): void {
     // refresh 用于「插上移动硬盘后重试」：丢掉缓存重新探测一次
     if (opts?.refresh) resetWorkspaceState()
     const st = getWorkspaceState(appData, documentsDir)
+    const ws = listWorkspaces(appData)
     const base = {
       workspaceRoot: st.root,
       workspaceOk: st.ok,
       workspaceNote: st.note,
       appVersion: app.getVersion(),
+      // 工作区列表即使当前位置连不上也要照常返回 —— 界面得让用户能切到别的库去
+      workspaces: ws.workspaces,
+      activeId: ws.activeId,
       projectColors: [...PROJECT_COLORS],
       categories: [...CATEGORIES],
       subFolders: [...SUB_FOLDERS]
@@ -121,21 +128,85 @@ export function registerIpc(): void {
     return moveProject(args.id, args.direction)
   })
 
-  ipcMain.handle('ws:setRoot', (_e, root: string) => {
-    if (!root || !isUsableWorkspace(root)) {
-      return { ok: false, workspaceRoot: root, error: '这个位置不能写入，请换一个目录' }
+  /**
+   * 添加 / 切换工作区的公共流程：先给目录做体检，
+   * 若里面是一个「搬过来的库」就把话说清楚再让用户点头。
+   */
+  async function addWorkspaceFlow(
+    root: string,
+    forceRewrite = false
+  ): Promise<{
+    ok: boolean
+    canceled?: boolean
+    needsConfirm?: boolean
+    oldRoot?: string
+    rewritten?: number
+    missing?: number
+    backupPath?: string | null
+    workspaceRoot?: string
+    error?: string
+  }> {
+    const first = addWorkspace(appData, root, { rewrite: forceRewrite })
+
+    if (first.ok) {
+      return {
+        ok: true,
+        workspaceRoot: first.entry?.root ?? root,
+        rewritten: first.migrated?.assets,
+        missing: first.migrated?.missing,
+        backupPath: first.migrated?.backupPath ?? null
+      }
     }
-    saveWorkspaceRoot(appData, root)
-    resetWorkspaceState()
-    initWorkspace(root)
-    return { ok: true, workspaceRoot: root }
+    if (!first.needsConfirm) {
+      return { ok: false, error: first.error }
+    }
+
+    const box = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['改成现在的位置', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+      title: '这个目录里有一个搬过来的素材库',
+      message: '库里的记录还指向原来的位置',
+      detail:
+        `记录指向：${first.oldRoot}\n` +
+        `要改成：${root}\n\n` +
+        '点「改成现在的位置」后，软件会先把数据库备份一份，再把记录里的路径改过来。' +
+        '磁盘上的素材文件一个都不会动。'
+    })
+    if (box.response !== 0) return { ok: false, canceled: true }
+
+    const second = addWorkspace(appData, root, { rewrite: true })
+    if (!second.ok) return { ok: false, error: second.error || '改写库里的路径失败' }
+    return {
+      ok: true,
+      workspaceRoot: second.entry?.root ?? root,
+      rewritten: second.migrated?.assets,
+      missing: second.migrated?.missing,
+      backupPath: second.migrated?.backupPath ?? null
+    }
+  }
+
+  /**
+   * 把某个绝对路径设为当前工作区（第 1 批就有的老接口，无界面调用，保留兼容）。
+   *
+   * 第 5 批起统一走 addWorkspace，它按四步执行：
+   *   closeDb() → 写 activeId → resetWorkspaceState() → initWorkspace(新根)
+   * 老版本这里漏了关数据库（closeDb 全项目从未被调用），切换后进程内仍读写旧库 —— 已修。
+   */
+  ipcMain.handle('ws:setRoot', (_e, root: string) => {
+    if (!root) return { ok: false, workspaceRoot: root, error: '路径不能为空' }
+    const r = addWorkspace(appData, root, { rewrite: true })
+    if (!r.ok) return { ok: false, workspaceRoot: root, error: r.error || '切换失败' }
+    return { ok: true, workspaceRoot: r.entry?.root ?? root }
   })
 
   /**
    * 「更改位置」：弹系统选目录对话框，选中后切过去。
-   * 如果选中的是一个已经有素材的旧工作区目录，原来的包 / 标签 / 登记信息会直接读出来
+   * 选到一个已经有素材的旧工作区目录时，原来的包 / 标签 / 登记信息会直接读出来
    * （媒体库就存在该目录的 `_system/media.db` 里）——
-   * 这就是需求文档第 365 条说的「换电脑或换盘后指过去即恢复，无需重新登记」。
+   * 这就是需求文档 M8-05「换电脑或换盘后指过去即恢复，无需重新登记」。
    */
   ipcMain.handle('ws:pickRoot', async () => {
     const r = await dialog.showOpenDialog({
@@ -144,14 +215,67 @@ export function registerIpc(): void {
       properties: ['openDirectory', 'createDirectory']
     })
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
-    const picked = r.filePaths[0]
-    if (!isUsableWorkspace(picked)) {
-      return { ok: false, error: '这个位置不能写入，换一个试试（别选只读盘或系统目录）' }
+    return addWorkspaceFlow(r.filePaths[0])
+  })
+
+  // ---------------- 第 5 批：工作区管理与迁移（方案 07）----------------
+  ipcMain.handle('ws:list', () => listWorkspaces(appData))
+
+  ipcMain.handle('ws:add', async (_e, opts?: { root?: string; rewrite?: boolean }) => {
+    let root = opts?.root
+    if (!root) {
+      const r = await dialog.showOpenDialog({
+        title: '添加素材工作区 —— 选一个文件夹',
+        buttonLabel: '用这个文件夹',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+      root = r.filePaths[0]
     }
-    saveWorkspaceRoot(appData, picked)
-    resetWorkspaceState()
-    initWorkspace(picked)
-    return { ok: true, workspaceRoot: picked }
+    return addWorkspaceFlow(root, opts?.rewrite === true)
+  })
+
+  ipcMain.handle('ws:switch', (_e, id: string) => {
+    const r = switchWorkspace(appData, id)
+    return r.ok
+      ? { ok: true, workspaceRoot: r.root, name: r.name }
+      : { ok: false, error: r.error }
+  })
+
+  // 只删配置里的一条记录，磁盘上一个字节都不动
+  ipcMain.handle('ws:remove', (_e, id: string) => removeWorkspace(appData, id))
+
+  ipcMain.handle('ws:move', async (_e, opts?: { targetParentDir?: string }) => {
+    let parent = opts?.targetParentDir
+    if (!parent) {
+      const r = await dialog.showOpenDialog({
+        title: '把工作区搬到哪个磁盘 / 文件夹',
+        buttonLabel: '搬到这里',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+      parent = r.filePaths[0]
+    }
+
+    const res = migrateWorkspaceSameDisk(appData, parent)
+
+    if (!res.ok && res.crossDisk) {
+      // 跨盘不做软件内复制（方案 07 第 10 节）：给出能照着做的引导
+      await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['知道了'],
+        noLink: true,
+        title: '目标在另一个磁盘',
+        message: '软件不搬跨盘',
+        detail:
+          '跨盘搬几百 GB 要很久，中途断了还容易出问题，所以这一步交给更可靠的工具做。\n\n' +
+          `1. 用资源管理器把整个「${basename(res.from || '')}」文件夹复制到新盘（先别删原来那份）\n` +
+          '2. 回到软件，点「＋ 添加工作区」，选新盘里那个文件夹\n' +
+          '3. 软件会自动把库里的路径改成新位置\n\n' +
+          '确认新位置没问题之后，再删原来那份。'
+      })
+    }
+    return res
   })
 
   ipcMain.handle('ws:openRoot', async () => {

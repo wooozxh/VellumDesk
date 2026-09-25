@@ -2,8 +2,17 @@
  * 第 1 批验收脚本 —— 按 docs/03-MVP入库功能方案.md 5.3 节主线，用真实文件跑一遍。
  * 调用的是 main 侧同一套业务函数（workspace.ts / db.ts），验证逻辑与界面一致。
  */
-import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, readFileSync } from 'fs'
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  readFileSync,
+  copyFileSync
+} from 'fs'
 import { join } from 'path'
+import { tmpdir } from 'os'
 import {
   initWorkspace,
   createPack,
@@ -27,7 +36,17 @@ import {
   resetWorkspaceState,
   saveWorkspaceRoot,
   DEFAULT_WORKSPACE,
-  FALLBACK_FOLDER_NAME
+  FALLBACK_FOLDER_NAME,
+  // 第 5 批：工作区管理与迁移
+  readWorkspaceConfig,
+  listWorkspaces,
+  inspectWorkspaceDir,
+  addWorkspace,
+  switchWorkspace,
+  removeWorkspace,
+  rewritePaths,
+  migrateWorkspaceSameDisk,
+  isSameVolume
 } from './src/main/workspace'
 import {
   ensureThumbsForAssets,
@@ -1344,6 +1363,266 @@ async function main(): Promise<void> {
   ok(b.win?.executableName === 'MediaButler', '主程序 exe 用 ASCII 名（中文名留给快捷方式）')
   ok(b.nsis?.perMachine === false, '免管理员权限安装（perMachine=false）')
   ok(b.directories?.output === 'release', '出包产物落在 release/，与 out/ 编译产物分开')
+
+  // ============ 第 5 批 E-01：工作区管理与迁移（方案 07） ============
+  log('\n[23] 第 5 批 E-01：多工作区 + 路径重写 + 同盘搬移')
+
+  const w5Root = join('D:\\_accept_ws', `wstest5_${RUN_ID}`)
+  const w5App = join(w5Root, 'appdata')
+  const w5A = join(w5Root, 'wsA')
+  const w5Copy = join(w5Root, 'wsCopy')
+  const w5MoveTo = join(w5Root, 'moved')
+  const w5AppOld = join(w5Root, 'appdata_old')
+  mkdirSync(w5App, { recursive: true })
+  mkdirSync(w5MoveTo, { recursive: true })
+  mkdirSync(w5AppOld, { recursive: true })
+
+  /** 递归复制目录（造「搬过来的库」用） */
+  function w5CopyDir(src: string, dst: string): void {
+    mkdirSync(dst, { recursive: true })
+    for (const name of readdirSync(src)) {
+      const s = join(src, name)
+      const d = join(dst, name)
+      if (statSync(s).isDirectory()) w5CopyDir(s, d)
+      else copyFileSync(s, d)
+    }
+  }
+
+  /** 数一个目录下的文件总数 */
+  function w5CountFiles(dir: string): number {
+    if (!existsSync(dir)) return 0
+    let n = 0
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) n += w5CountFiles(p)
+      else n += 1
+    }
+    return n
+  }
+
+  // (1) 空目录 → 新建工作区
+  const w5Add1 = addWorkspace(w5App, w5A)
+  ok(w5Add1.ok, '空目录 → 添加工作区成功')
+  ok(existsSync(join(w5A, '_thumbs')), '新工作区建好了 _thumbs')
+  ok(
+    existsSync(join(w5A, '_system', 'media.db')),
+    '【BUG-1 修复】新工作区真的建出了 media.db（老版本 openDb 单例会提前返回，根本建不出来）'
+  )
+
+  // (2) 配置结构 v2
+  const w5Cfg1 = readWorkspaceConfig(w5App)
+  ok(!!w5Cfg1 && w5Cfg1.version === 2, '配置文件是 v2 结构')
+  ok(!!w5Cfg1 && w5Cfg1.workspaces.length === 1, '列表里有 1 个工作区')
+  ok(!!w5Cfg1 && w5Cfg1.activeId === w5Cfg1.workspaces[0].id, 'activeId 指向它')
+  ok(!!w5Cfg1 && !!w5Cfg1.workspaces[0].id, '每个工作区都有 id')
+  const w5RawCfg1 = JSON.parse(readFileSync(join(w5App, 'workspace.json'), 'utf-8'))
+  ok(
+    w5RawCfg1.workspaceRoot === w5A,
+    '【兼容双写】配置里同时写了 workspaceRoot 老字段（旧版软件才读得到，不会凭空择址）'
+  )
+  ok(
+    Array.isArray(w5RawCfg1.workspaces) && w5RawCfg1.workspaces.length === 1,
+    '配置文件里落了 workspaces 数组'
+  )
+
+  // (3) 老配置自动升级 + 不改用户文件 + id 确定性
+  const w5OldCfgPath = join(w5AppOld, 'workspace.json')
+  const w5OldCfgRaw = JSON.stringify({ workspaceRoot: w5A })
+  writeFileSync(w5OldCfgPath, w5OldCfgRaw, 'utf-8')
+  const w5CfgOld = readWorkspaceConfig(w5AppOld)
+  ok(!!w5CfgOld && w5CfgOld.version === 2, '老格式 { workspaceRoot } 读时自动升级成 v2')
+  ok(!!w5CfgOld && w5CfgOld.workspaces[0].root === w5A, '升级后工作区路径不丢')
+  ok(readFileSync(w5OldCfgPath, 'utf-8') === w5OldCfgRaw, '【只读不写】升级只在内存里，没动用户文件')
+  const w5IdFirst = readWorkspaceConfig(w5AppOld)!.workspaces[0].id
+  const w5IdSecond = readWorkspaceConfig(w5AppOld)!.workspaces[0].id
+  ok(
+    w5IdFirst === w5IdSecond,
+    '升级出来的 id 是确定性的（同一 root 每次读都一样，界面按 id 切换才有效）'
+  )
+
+  // (4) 在 w5A 里造真实内容：一个包 + 两个文件 + 一个标签关联
+  const w5Pack = createPack({ name: '迁移测试包', workspaceRoot: w5A })
+  writeFileSync(join(w5Pack.folder_path, '01-成品', 'a.txt'), 'hello', 'utf-8')
+  writeFileSync(join(w5Pack.folder_path, '02-素材', 'b.txt'), 'world', 'utf-8')
+  scanAll(w5A)
+  const w5Assets = (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  const w5Packs = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+  const w5First = getDb().prepare('SELECT id FROM assets ORDER BY id LIMIT 1').get() as { id: number }
+  const w5Tag = createTag({ dimension: 'category', name: `迁移标签${RUN_ID}`, color: '#4f8cff' })
+  applyTags({ assetIds: [w5First.id], tagIds: [w5Tag.tag!.id] })
+  const w5Links = (getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags').get() as { c: number }).c
+  ok(
+    w5Assets === 2 && w5Links === 1,
+    `铺垫就绪：${w5Assets} 条素材 / ${w5Links} 条标签关联 / ${w5Packs} 个包`
+  )
+
+  const w5List = listWorkspaces(w5App)
+  ok(w5List.workspaces.length === 1 && w5List.activeId === w5Cfg1!.activeId, 'listWorkspaces 与配置一致')
+
+  // (5) 复制一份 → 造出「搬过来的库」
+  w5CopyDir(w5A, w5Copy)
+  const w5Insp = inspectWorkspaceDir(w5Copy)
+  ok(w5Insp.kind === 'foreign', '复制过来的库 → 体检判定为 foreign（搬过来的）')
+  ok((w5Insp.oldRoot ?? '').toLowerCase() === w5A.toLowerCase(), `反推出的旧根正确：${w5Insp.oldRoot}`)
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === w5Assets,
+    '体检走独立连接，没有打断/污染当前库'
+  )
+
+  // (6) 用户没点头之前，一个字都不改
+  const w5CfgPath = join(w5App, 'workspace.json')
+  const w5CfgBefore = readFileSync(w5CfgPath, 'utf-8')
+  const w5Add2 = addWorkspace(w5App, w5Copy)
+  ok(!w5Add2.ok && w5Add2.needsConfirm === true, '搬过来的库：先返回 needsConfirm，不擅自动手')
+  ok(readFileSync(w5CfgPath, 'utf-8') === w5CfgBefore, '【铁则】未确认前配置文件一个字没改')
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === w5Assets,
+    '【铁则】未确认前当前库也没被动'
+  )
+
+  // (7) 用户确认 → 重写路径（本批核心）
+  const w5Add3 = addWorkspace(w5App, w5Copy, { rewrite: true })
+  ok(w5Add3.ok, `确认后重写成功（${w5Add3.migrated?.oldRoot} → ${w5Add3.migrated?.newRoot}）`)
+  const w5M = w5Add3.migrated!
+  ok(w5M.assets === w5Assets, `重写后素材条数不变（${w5M.assets}）`)
+  const w5RowsA = getDb().prepare('SELECT abs_path FROM assets').all() as Array<{ abs_path: string }>
+  ok(
+    w5RowsA.every((r) => r.abs_path.toLowerCase().startsWith(w5Copy.toLowerCase())),
+    '所有素材路径都改成了新位置'
+  )
+  ok(
+    !w5RowsA.some((r) => r.abs_path.toLowerCase().startsWith(w5A.toLowerCase() + '\\')),
+    '没有一条还指着旧位置'
+  )
+  const w5LinksAfter = (getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags').get() as { c: number }).c
+  ok(w5LinksAfter === w5Links, `【最关键】标签关联条数不变（${w5LinksAfter}）—— 标签一条都没丢`)
+  const w5PacksAfter = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+  ok(w5PacksAfter === w5Packs, `包没有重复登记（还是 ${w5PacksAfter} 个）`)
+  const w5PackRows = getDb().prepare('SELECT folder_path FROM packs').all() as Array<{
+    folder_path: string
+  }>
+  ok(
+    w5PackRows.every((p) => p.folder_path.toLowerCase().startsWith(w5Copy.toLowerCase())),
+    '包的目录路径也改成了新位置'
+  )
+  ok(!!w5M.backupPath && existsSync(w5M.backupPath), `重写前自动备份了：${w5M.backupPath}`)
+  ok(w5M.missing === 0, '重写后自检 0 个文件落空')
+
+  // (8) 幂等：已经在正确位置上再跑一次
+  const w5Idem = rewritePaths(w5Copy, w5Copy)
+  ok(w5Idem.ok && w5Idem.error === undefined, '已经在正确位置时再跑重写：不报错（幂等）')
+
+  // (9) 库里有跨根数据 → 拒绝自动重写（宁可报错也不硬猜）
+  const w5AllRows = getDb()
+    .prepare('SELECT id, abs_path, rel_path FROM assets ORDER BY id')
+    .all() as Array<{ id: number; abs_path: string; rel_path: string }>
+  const w5Bad = w5AllRows[0]
+
+  // 造出「abs_path 仍以 rel_path 结尾、但根在别的盘」的脏数据 —— 这才是真跨根
+  getDb()
+    .prepare('UPDATE assets SET abs_path = ? WHERE id = ?')
+    .run(join('E:\\zzz_other', w5Bad.rel_path), w5Bad.id)
+  const w5InspBad = inspectWorkspaceDir(w5Copy)
+  ok(w5InspBad.kind === 'broken', '库里路径指向两个不同位置 → 判定为异常')
+  ok(!!w5InspBad.error && w5InspBad.error.includes('拒绝'), `如实报错不硬猜：${w5InspBad.error}`)
+
+  // (9b) rel_path 与 abs_path 全对不上 → 同样拒绝（不许拿脏数据重建路径）
+  getDb().prepare("UPDATE assets SET rel_path = 'X:\\wrong\\nowhere.txt'").run()
+  const w5InspDirty = inspectWorkspaceDir(w5Copy)
+  ok(w5InspDirty.kind === 'broken', 'abs_path 与 rel_path 全对不上 → 判定为异常')
+  ok(
+    !!w5InspDirty.error && w5InspDirty.error.includes('自相矛盾'),
+    `对不上的库也拒绝：${w5InspDirty.error}`
+  )
+
+  // 复原两条记录（后面的搬移用例要用干净数据）
+  const w5Restore = getDb().prepare('UPDATE assets SET abs_path = ?, rel_path = ? WHERE id = ?')
+  for (const r of w5AllRows) w5Restore.run(r.abs_path, r.rel_path, r.id)
+  ok(
+    inspectWorkspaceDir(w5Copy).kind === 'own',
+    '脏数据复原后判定恢复为 own —— 说明前两次是数据异常触发，不是逻辑恒判'
+  )
+
+  // (10) 同盘搬移
+  const w5Mv = migrateWorkspaceSameDisk(w5App, w5MoveTo)
+  ok(w5Mv.ok, `同盘搬移成功：${w5Mv.from} → ${w5Mv.to}`)
+  const w5MovedRoot = join(w5MoveTo, 'wsCopy')
+  ok(!existsSync(w5Copy) && existsSync(w5MovedRoot), '目录真的搬走了（原位置不再有副本）')
+  const w5CfgMoved = readWorkspaceConfig(w5App)!
+  ok(
+    w5CfgMoved.workspaces.some((w) => w.root.toLowerCase() === w5MovedRoot.toLowerCase()),
+    '配置里的路径跟着更新了'
+  )
+  const w5RowsMoved = getDb().prepare('SELECT abs_path FROM assets').all() as Array<{
+    abs_path: string
+  }>
+  ok(
+    w5RowsMoved.every((r) => r.abs_path.toLowerCase().startsWith(w5MovedRoot.toLowerCase())),
+    '搬完后库里的路径指向新位置（重写生效）'
+  )
+  ok(!!w5Mv.backupPath && existsSync(w5Mv.backupPath), '搬移同样做了备份')
+
+  // (11) 跨盘 → 明确拒绝，磁盘与配置零改动
+  const w5CParent = join(tmpdir(), `_accept_xdisk_${RUN_ID}`)
+  mkdirSync(w5CParent, { recursive: true })
+  const w5MvCross = migrateWorkspaceSameDisk(w5App, w5CParent)
+  ok(!w5MvCross.ok && w5MvCross.crossDisk === true, '跨盘 → 明确拒绝并标记 crossDisk')
+  ok(existsSync(w5MovedRoot), '【零改动】跨盘被拒后工作区还在原处')
+  ok(w5CfgMoved.activeId === readWorkspaceConfig(w5App)!.activeId, '【零改动】跨盘被拒后配置也没改')
+  hardRm(w5CParent)
+
+  // (12) 目标已存在 → 拒绝，绝不覆盖
+  const w5MvDup = migrateWorkspaceSameDisk(w5App, w5MoveTo)
+  ok(!w5MvDup.ok && !w5MvDup.crossDisk && !!w5MvDup.error, `目标已存在 → 拒绝不覆盖：${w5MvDup.error}`)
+
+  // (13) 同盘判定
+  ok(isSameVolume(w5A, w5MoveTo), '同一磁盘内两个目录 → 判定同卷')
+  ok(!isSameVolume(w5MoveTo, 'C:\\'), 'D 盘与 C 盘 → 判定不同卷')
+
+  // (14) 切换工作区：【BUG-1 的决定性证据】切完必须读到另一个库
+  const w5B = join(w5Root, 'wsB')
+  const w5AddB = addWorkspace(w5App, w5B)
+  ok(w5AddB.ok, '添加第二个（空）工作区')
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === 0,
+    '新建的库确实是空的（说明数据库连接真的换到了新库）'
+  )
+  const w5EntryMoved = readWorkspaceConfig(w5App)!.workspaces.find(
+    (w) => w.root.toLowerCase() === w5MovedRoot.toLowerCase()
+  )
+  ok(!!w5EntryMoved, '能在列表里找到刚搬过去的那个工作区')
+  const w5Sw = switchWorkspace(w5App, w5EntryMoved!.id)
+  ok(w5Sw.ok, `切回有素材的那个工作区（${w5Sw.name}）`)
+  const w5AfterSwitch = (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  ok(
+    w5AfterSwitch === w5Assets,
+    `【BUG-1 决定性证据】切换后读到的是目标库的数据（${w5AfterSwitch} 条，不是 0）`
+  )
+
+  // (15) 移除工作区：只删记录，磁盘一个字节不动
+  const w5EntryB = readWorkspaceConfig(w5App)!.workspaces.find(
+    (w) => w.root.toLowerCase() === w5B.toLowerCase()
+  )
+  ok(!!w5EntryB, '能找到要移除的那个工作区')
+  const w5FilesB = w5CountFiles(w5B)
+  const w5RmB = removeWorkspace(w5App, w5EntryB!.id)
+  ok(w5RmB.ok, '从列表移除一个工作区')
+  ok(
+    readWorkspaceConfig(w5App)!.workspaces.every((w) => w.root.toLowerCase() !== w5B.toLowerCase()),
+    '列表里已经没有它了'
+  )
+  ok(
+    existsSync(w5B) && w5CountFiles(w5B) === w5FilesB,
+    `【铁则】磁盘上的文件夹一点没动（${w5FilesB} 个文件还在）`
+  )
+  const w5Left = readWorkspaceConfig(w5App)!.workspaces
+  ok(w5Left.length >= 1, `列表里还留着 ${w5Left.length} 个工作区`)
+  if (w5Left.length === 1) {
+    const w5RmLast = removeWorkspace(w5App, w5Left[0].id)
+    ok(!w5RmLast.ok, '最后一个工作区不许移除（否则软件无处可去）')
+  }
+
+  hardRm(w5Root)
 
   hardRm(wsTestRoot)
 

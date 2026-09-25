@@ -4,6 +4,7 @@ import type {
   DimensionGroup,
   PackCard as PackCardType,
   ProjectWithCount,
+  WorkspaceEntry,
   WsInfo
 } from './types'
 
@@ -100,6 +101,9 @@ export default function App(): React.JSX.Element {
    * 那几条副作用会一路把 ENOTDIR 抛到控制台 —— 界面已有提示条，这里统一闸住。
    */
   const wsLive = wsReady && info?.workspaceOk === true
+
+  /** 当前活动工作区（多工作区下，提示条和状态栏都要说清是哪一个） */
+  const activeWs = (info?.workspaces ?? []).find((w) => w.id === info?.activeId) ?? null
 
   /** 第 3 批：拉 5 个维度及其标签（带使用计数） */
   const loadTags = useCallback(async (): Promise<DimensionGroup[]> => {
@@ -206,6 +210,109 @@ export default function App(): React.JSX.Element {
       toast(`工作区已切到：${r.workspaceRoot}`, 'ok')
     } catch (e) {
       toast('切换工作区失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  // ---------------- 第 5 批：多工作区（A1）与搬移（B2）----------------
+
+  /**
+   * 切换工作区。
+   * 切的是**另一个库**，所以必须整套重载；筛选状态也一并清掉 ——
+   * 标签 id 是各库独立的，带着上一个库的 id 去查新库只会查出空。
+   */
+  const doSwitchWs = async (id: string): Promise<void> => {
+    try {
+      const r = await window.api.wsSwitch(id)
+      if (!r.ok) {
+        toast(r.error || '切换工作区失败', 'err')
+        return
+      }
+      setSelectedTagIds([])
+      setSelected(new Set())
+      setKeyword('')
+      setUnassignedOnly(false)
+      await reloadAll()
+      toast(`已切到工作区「${r.name ?? ''}」`, 'ok')
+    } catch (e) {
+      toast('切换工作区失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  /** 添加工作区：空文件夹就新建、有库就登记；搬过来的库会先问要不要改路径 */
+  const doAddWs = async (): Promise<void> => {
+    try {
+      const r = await window.api.wsAdd()
+      if (r.canceled) return
+      if (!r.ok) {
+        toast(r.error || '添加工作区失败', 'err')
+        return
+      }
+      setSelectedTagIds([])
+      setSelected(new Set())
+      await reloadAll()
+      if (r.rewritten) {
+        toast(`已切过去，并把 ${r.rewritten} 条记录的位置改好了`, 'ok')
+      } else {
+        toast(`工作区已添加：${r.workspaceRoot}`, 'ok')
+      }
+      if (r.missing && r.missing > 0) {
+        toast(`另有 ${r.missing} 个文件在磁盘上找不到（只影响预览）`, 'info')
+      }
+    } catch (e) {
+      toast('添加工作区失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  /** 从列表移除工作区 —— 只是去掉记录，磁盘上的东西一个都不动 */
+  const doRemoveWs = async (w: WorkspaceEntry): Promise<void> => {
+    const yes = window.confirm(
+      `把工作区「${w.name}」从列表里去掉？\n\n` +
+        `只是从软件列表里去掉，磁盘上的文件夹和素材一个字节都不会动：\n${w.root}\n\n` +
+        `以后想用回来，点「＋ 添加工作区」选它就行。`
+    )
+    if (!yes) return
+    try {
+      const r = await window.api.wsRemove(w.id)
+      if (!r.ok) {
+        toast(r.error || '移除失败', 'err')
+        return
+      }
+      await reloadAll()
+      toast('已从列表移除（磁盘上的文件没动）', 'ok')
+    } catch (e) {
+      toast('移除失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  /** 搬移当前工作区：同盘瞬间完成；跨盘软件不搬，会弹出做法说明 */
+  const doMoveWs = async (): Promise<void> => {
+    const cur = (info?.workspaces ?? []).find((w) => w.id === info?.activeId)
+    if (!cur) return
+
+    const yes = window.confirm(
+      `把工作区「${cur.name}」搬到别的位置？\n\n` +
+        `当前：${cur.root}\n\n` +
+        `下一步让你选一个目标文件夹，软件会把整个工作区搬过去。\n` +
+        `同一个磁盘内是瞬间完成的（不是重新复制）。\n\n` +
+        `搬完后原位置不再保留副本。`
+    )
+    if (!yes) return
+
+    try {
+      const r = await window.api.wsMove()
+      if (r.canceled) return
+      if (!r.ok) {
+        // 跨盘时主进程已经弹出引导说明，这里不重复报错
+        if (!r.crossDisk) toast(r.error || '搬移失败', 'err')
+        return
+      }
+      await reloadAll()
+      toast(`已搬到：${r.to}`, 'ok')
+      if (r.missing && r.missing > 0) {
+        toast(`另有 ${r.missing} 个文件在磁盘上找不到（只影响预览）`, 'info')
+      }
+    } catch (e) {
+      toast('搬移失败：' + (e as Error).message, 'err')
     }
   }
 
@@ -636,15 +743,67 @@ export default function App(): React.JSX.Element {
           <div className="divider" />
 
           <h4>工作区</h4>
-          <button className="item" onClick={() => window.api.wsOpenRoot()} title={info?.workspaceRoot}>
-            <span>📁 打开工作区</span>
-          </button>
-          <div
-            className="path"
-            style={{ padding: '6px 8px 0', wordBreak: 'break-all', fontSize: 10.5 }}
+          {(info?.workspaces ?? []).map((w) => {
+            const isActive = w.id === info?.activeId
+            return (
+              <div
+                key={w.id}
+                className={`wsitem${isActive ? ' on' : ''}`}
+                onClick={() => {
+                  if (!isActive) void doSwitchWs(w.id)
+                }}
+                title={isActive ? w.root : `${w.root}\n点一下切到这个工作区`}
+              >
+                <div className="wrow">
+                  <span className="wname">
+                    {isActive ? '📁' : '🗂'} {w.name}
+                  </span>
+                  {isActive ? (
+                    <span className="wtag">当前</span>
+                  ) : (
+                    <button
+                      className="wx"
+                      title="从列表移除（只去掉记录，磁盘上的文件一个字节都不动）"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void doRemoveWs(w)
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                <div className="wpath">{w.root}</div>
+                {isActive && (
+                  <div className="wacts">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void window.api.wsOpenRoot()
+                      }}
+                    >
+                      打开文件夹
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void doMoveWs()
+                      }}
+                    >
+                      搬移位置
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <button
+            className="item addws"
+            onClick={() => void doAddWs()}
+            title="选一个文件夹作为工作区：空的就新建，有素材库的直接接进来"
           >
-            {info?.workspaceRoot}
-          </div>
+            <span>＋ 添加工作区</span>
+          </button>
         </div>
 
         {/* 左栏宽度拖拽条：按住左右拖，双击复位 */}
@@ -660,7 +819,9 @@ export default function App(): React.JSX.Element {
             <div className="wsbanner">
               <span className="ico">⚠</span>
               <div className="txt">
-                <div className="t">素材工作区连不上，里面的东西一件没动</div>
+                <div className="t">
+                  工作区「{activeWs?.name ?? '未知'}」连不上，里面的东西一件没动
+                </div>
                 <div className="s">
                   {info.workspaceRoot}
                   {info.workspaceNote ? ` —— ${info.workspaceNote}` : ''}
@@ -835,7 +996,10 @@ export default function App(): React.JSX.Element {
             <span style={{ marginLeft: 'auto' }}>
               当前：{currentProjectLabel}
               <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
-              工作区 <span className="path">{info?.workspaceRoot}</span>
+              工作区{' '}
+              <span className="path">
+                {activeWs ? `${activeWs.name}（${activeWs.root}）` : info?.workspaceRoot}
+              </span>
               <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
               <span title="软件版本号（出处：package.json 的 version）">
                 v{info?.appVersion ?? '—'}

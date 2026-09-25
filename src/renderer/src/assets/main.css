@@ -1654,3 +1654,120 @@ body:has(.side-resizer.dragging) {
   flex: 0 0 auto;
 }
 
+/* ============================================================
+   第 5 批：左栏工作区列表（多工作区 + 搬移入口）
+   ============================================================ */
+
+.wsitem {
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.wsitem:hover {
+  background: var(--bg-hover);
+}
+
+.wsitem.on {
+  background: var(--accent-soft);
+  cursor: default;
+}
+
+.wsitem .wrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.wsitem .wname {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsitem.on .wname {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wsitem .wtag {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  line-height: 1.5;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+
+.wsitem .wx {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  border-radius: 4px;
+  color: var(--text-3);
+  opacity: 0;
+  transition: all 0.12s;
+}
+
+.wsitem:hover .wx {
+  opacity: 1;
+}
+
+.wsitem .wx:hover {
+  color: var(--danger);
+  background: rgba(240, 96, 63, 0.14);
+}
+
+.wsitem .wpath {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+.wsitem.on .wpath {
+  color: var(--text-2);
+}
+
+.wsitem .wacts {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.wsitem .wacts button {
+  flex: 1 1 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  color: var(--text-2);
+  background: var(--bg-mute);
+  border: 1px solid var(--line);
+  transition: all 0.12s;
+}
+
+.wsitem .wacts button:hover {
+  color: var(--text);
+  border-color: var(--accent-line);
+}
+
+.side .item.addws {
+  justify-content: flex-start;
+  margin-top: 4px;
+  color: var(--text-3);
+  border: 1px dashed var(--line);
+}
+
+.side .item.addws:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+

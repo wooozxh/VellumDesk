@@ -3,7 +3,7 @@
 本地素材管理桌面软件。统一管理公司的设计物料、图片、视频素材，**所有素材存在本地**，不上云。
 
 - 项目档案：`PROJECT.md`（定位与协作铁律）/ `PROGRESS.md`（进度台账）/ `DECISIONS.md`（历史决策）
-- 方案文档：`docs/01` ~ `docs/06`（每批功能的定稿方案，改需求先改文档）
+- 方案文档：`docs/01` ~ `docs/07`（每批功能的定稿方案，改需求先改文档）
 - 需求文档：`docs/素材管家-需求文档.docx`（唯一权威）
 
 ## 技术栈
@@ -41,23 +41,31 @@ npm run build:win
 ## 验收
 
 ```bash
-npm run build                                   # 先编译
+npm run build                                   # 先编译（注意：会清掉 out/test/，之后要补打）
 npx esbuild accept.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/accept.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-node out/test/accept.cjs                        # 218 项断言，结果写 accept-result.txt
+npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
+  --outfile=out/test/ipc.cjs --external:electron --external:better-sqlite3 \
+  --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
+node out/test/accept.cjs                        # 275 项断言，结果写 accept-result.txt
 
 node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
+node _shotapp/run-verify4.cjs wslist            # 界面验证：左栏工作区列表（第 5 批）
 ```
 
-注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打**，否则跑的是旧代码。
+注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打**（accept.cjs 和 ipc.cjs 两个都要），否则跑的是旧代码。
 
 ## 素材工作区
 
-素材统一放在 `D:\素材工作区`（与代码目录分开，整个文件夹拷走即带走全部素材）。
+默认 `D:\素材工作区`（与代码目录分开，整个文件夹拷走即带走全部素材）。
 首次启动若该位置不可用（没 D 盘 / 无写权限），自动落到「文档\素材工作区」；
 已配置的位置连不上时，**软件绝不偷偷换位置**，只在界面顶部提示并给出「重试 / 更改位置」。
+
+**多工作区（第 5 批）**：左栏可添加多个工作区并随时切换，解决"盘满了换盘新开一个库"。
+- 换盘搬家：同一个盘内用「搬移位置」瞬间完成；跨盘请用资源管理器复制整个文件夹后「＋ 添加工作区」指过去，软件会自动改写库里的路径（改前自动备份到 `_system/backup/`）
+- 工作区配置在 `%APPDATA%/素材管家/workspace.json`，v2 结构；末尾的 `workspaceRoot` 字段是刻意双写（兼容旧版软件），**别删**
 
 ## 已知环境坑（踩过别再踩）
 

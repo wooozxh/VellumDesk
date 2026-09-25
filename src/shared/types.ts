@@ -66,11 +66,55 @@ export interface WsInfo {
   workspaceNote: string
   /** 软件版本号，唯一出处是 package.json 的 version */
   appVersion: string
+  /** 第 5 批：全部工作区（左栏工作区面板用） */
+  workspaces: WorkspaceEntry[]
+  /** 第 5 批：当前活动工作区 id */
+  activeId: string
   projects: ProjectWithCount[]
   projectColors: string[]
   categories: string[]
   subFolders: string[]
   unassigned: number
+}
+
+// ==================== 第 5 批：工作区管理（E-01） ====================
+
+export interface WorkspaceEntry {
+  id: string
+  /** 显示名，默认取文件夹名 */
+  name: string
+  root: string
+  addedAt: string
+  lastOpenedAt: string
+}
+
+export interface AddWorkspaceResult {
+  ok: boolean
+  canceled?: boolean
+  /** 目录里是一个搬过来的库，需要用户确认是否改写路径 */
+  needsConfirm?: boolean
+  /** 需要确认时：库里记录的旧位置 */
+  oldRoot?: string
+  /** 改写后库里的素材条数 */
+  rewritten?: number
+  /** 自检落空数（文件实际不存在） */
+  missing?: number
+  backupPath?: string | null
+  workspaceRoot?: string
+  error?: string
+}
+
+export interface MigrateWorkspaceResult {
+  ok: boolean
+  canceled?: boolean
+  /** 目标在不同磁盘：软件不做跨盘复制，给引导文案 */
+  crossDisk?: boolean
+  from?: string
+  to?: string
+  rewritten?: number
+  missing?: number
+  backupPath?: string | null
+  error?: string
 }
 
 export interface PacksView {
@@ -155,6 +199,24 @@ export interface Api {
     error?: string
   }>
   wsOpenRoot: () => Promise<{ ok: boolean; error?: string }>
+
+  // ---------------- 第 5 批：工作区管理 ----------------
+  /** 工作区列表（含当前活动 id） */
+  wsList: () => Promise<{ workspaces: WorkspaceEntry[]; activeId: string }>
+  /**
+   * 添加工作区。不传 root 时弹系统选目录对话框。
+   * 若选中的目录里是一个搬过来的库，返回 needsConfirm=true（此时不做任何改动）；
+   * 用户确认后带 rewrite:true 再调一次。
+   */
+  wsAdd: (opts?: { root?: string; rewrite?: boolean }) => Promise<AddWorkspaceResult>
+  /** 按 id 切换工作区 */
+  wsSwitch: (
+    id: string
+  ) => Promise<{ ok: boolean; workspaceRoot?: string; name?: string; error?: string }>
+  /** 从列表移除工作区（只删配置记录，磁盘一个字节都不动） */
+  wsRemove: (id: string) => Promise<{ ok: boolean; switchedTo?: string; error?: string }>
+  /** 同盘搬移当前工作区。不传 targetParentDir 时弹系统选目录对话框 */
+  wsMove: (opts?: { targetParentDir?: string }) => Promise<MigrateWorkspaceResult>
 
   // 项目维护
   listProjects: () => Promise<ProjectWithCount[]>

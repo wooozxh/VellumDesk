@@ -12,6 +12,13 @@ const api = {
   wsPickRoot: () => ipcRenderer.invoke('ws:pickRoot'),
   wsOpenRoot: () => ipcRenderer.invoke('ws:openRoot'),
 
+  // 第 5 批：工作区管理与迁移
+  wsList: () => ipcRenderer.invoke('ws:list'),
+  wsAdd: (opts?: { root?: string; rewrite?: boolean }) => ipcRenderer.invoke('ws:add', opts),
+  wsSwitch: (id: string) => ipcRenderer.invoke('ws:switch', id),
+  wsRemove: (id: string) => ipcRenderer.invoke('ws:remove', id),
+  wsMove: (opts?: { targetParentDir?: string }) => ipcRenderer.invoke('ws:move', opts),
+
   // 项目维护
   listProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (input: { name: string; color?: string; note?: string }) =>
