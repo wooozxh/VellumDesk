@@ -41,21 +41,26 @@ npm run build:win
 ## 验收
 
 ```bash
-npm run build                                   # 先编译（注意：会清掉 out/test/，之后要补打）
+npm run typecheck                               # 类型检查（node + web）
+
 npx esbuild accept.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/accept.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
 npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/ipc.cjs --external:electron --external:better-sqlite3 \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-node out/test/accept.cjs                        # 275 项断言，结果写 accept-result.txt
+npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
+  --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
+  --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
+node out/test/accept.cjs                        # 344 项断言，结果写 accept-result.txt
 
 node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
 node _shotapp/run-verify4.cjs wslist            # 界面验证：左栏工作区列表（第 5 批）
+node _shotapp/run-verify4.cjs threelevel        # 界面验证：三级结构迁移提示条（第 6 批）
 ```
 
-注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打**（accept.cjs 和 ipc.cjs 两个都要），否则跑的是旧代码。
+注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打三个**（accept.cjs / ipc.cjs / workspace.cjs——截图壳和三级结构场景都依赖 workspace.cjs），否则跑的是旧代码。截图壳的场景工作区在 `D:\_accept_ws\shot*`，与真实工作区完全隔离。
 
 ## 素材工作区
 
@@ -66,6 +71,12 @@ node _shotapp/run-verify4.cjs wslist            # 界面验证：左栏工作区
 **多工作区（第 5 批）**：左栏可添加多个工作区并随时切换，解决"盘满了换盘新开一个库"。
 - 换盘搬家：同一个盘内用「搬移位置」瞬间完成；跨盘请用资源管理器复制整个文件夹后「＋ 添加工作区」指过去，软件会自动改写库里的路径（改前自动备份到 `_system/backup/`）
 - 工作区配置在 `%APPDATA%/素材管家/workspace.json`，v2 结构；末尾的 `workspaceRoot` 字段是刻意双写（兼容旧版软件），**别删**
+
+**三级目录结构（第 6 批）**：软件与磁盘一一对应 —— 工作区根 → 项目文件夹 → 包文件夹 → 三组（01-成品/02-素材/03-工程）。
+- 老库首次打开自动迁移：包搬进各自的项目文件夹，**文件只改名位置、一个不少**，界面弹一次提示条
+- 根目录下直接躺着的包 → 软件里归「待归类」，手动选项目归位（不自动塞）
+- `_已解绑的项目` / `_回收站` / `_system` / `_thumbs` 以下划线开头，扫描永远跳过
+- 方案全文见 `docs/08-目录结构升级方案.md`
 
 ## 已知环境坑（踩过别再踩）
 

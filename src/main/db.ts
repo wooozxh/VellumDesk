@@ -17,6 +17,15 @@ export interface ProjectRow {
   note: string
   sort_order: number
   archived: number // 0/1
+  /**
+   * 项目在工作区磁盘上对应的文件夹名（第 6 批：三级目录结构）。
+   *
+   * 为什么不靠 `name` 现算：项目改名要连带改文件夹，必须知道**旧文件夹名**。
+   * 有包时能从 packs.folder_path 反推，但**空项目无从反推** ——
+   * 而"新建工作区预设几个项目"天然会产生空项目文件夹。
+   * 值的唯一生成者是 workspace.ts 的 ensureFolderNames()。
+   */
+  folder_name: string
   created_at: string
 }
 
@@ -88,6 +97,24 @@ export function closeDb(): void {
   }
 }
 
+/** 读软件自己的元信息（没有则返回 null） */
+export function getMeta(key: string): string | null {
+  const r = getDb().prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined
+  return r ? r.value : null
+}
+
+/** 写软件自己的元信息 */
+export function setMeta(key: string, value: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(key, value)
+}
+
 /** 建表 + 迁移。每次启动都跑，必须幂等 */
 function migrate(d: Database.Database): void {
   // ---- 基础表 ----
@@ -99,7 +126,15 @@ function migrate(d: Database.Database): void {
       note         TEXT    NOT NULL DEFAULT '',
       sort_order   INTEGER NOT NULL DEFAULT 0,
       archived     INTEGER NOT NULL DEFAULT 0,
+      folder_name  TEXT    NOT NULL DEFAULT '',
       created_at   TEXT    NOT NULL
+    );
+
+    -- 软件自己的元信息（第 6 批）：目前只放目录布局版本 layout_version。
+    -- 放在工作区自己的库里而不是全局配置里 —— 多工作区各有各的结构状态。
+    CREATE TABLE IF NOT EXISTS meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS packs (
@@ -197,6 +232,18 @@ function migrate(d: Database.Database): void {
     if (!hasAssetCol(col)) d.exec(`ALTER TABLE assets ADD COLUMN ${col} ${type}`)
   }
 
+  // ---- 迁移 6：projects 加 folder_name（第 6 批：三级目录结构）----
+  // 只加列 + 索引；**值由 workspace.ts 的 ensureFolderNames() 回填**（单一来源）。
+  // 回填前全是空串，被 WHERE 排除，所以索引能安全建立。
+  const projCols = d.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
+  if (!projCols.some((c) => c.name === 'folder_name')) {
+    d.exec("ALTER TABLE projects ADD COLUMN folder_name TEXT NOT NULL DEFAULT ''")
+  }
+  d.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_folder
+      ON projects(folder_name) WHERE folder_name <> ''
+  `)
+
   // ---- 迁移 3：首次使用（空库）→ 落三个预制项目 ----
   const projectCount = (d.prepare('SELECT COUNT(*) AS c FROM projects').get() as { c: number }).c
   if (projectCount === 0) {
@@ -212,13 +259,14 @@ function migrate(d: Database.Database): void {
     seed.forEach((s, i) => ins.run(s.name, s.color, s.note, i, now))
   }
 
-  // ---- 兜底：还有 project_id 为空的包，塞进「集团通用」----
-  const defaultProject = d
-    .prepare("SELECT id FROM projects WHERE name = '集团通用'")
-    .get() as { id: number } | undefined
-  if (defaultProject) {
-    d.prepare('UPDATE packs SET project_id = ? WHERE project_id IS NULL').run(defaultProject.id)
-  }
+  // ---- 第 6 批起：**故意不再**给 project_id 为空的包兜底塞进「集团通用」 ----
+  //
+  // 老实现这里有一段 `UPDATE packs SET project_id = <集团通用> WHERE project_id IS NULL`，
+  // 每次启动都跑。三级目录结构落地后这成了个坑：根目录下的游离包（scanAll 明确写成
+  // project_id = null，界面归「待归类」等用户手动选项目）会被启动时悄悄认领走，
+  // 「待归类」这个入口永远空着 —— 用户明明没选过项目，包却自己有了归属。
+  //
+  // NULL 现在是**合法状态**（docs/08 §2），只由 createPack 在用户真的选了项目时才赋值。
 
   // ---- 迁移 5：首次使用（空库）→ 落预制标签 ----
   const tagCount = (d.prepare('SELECT COUNT(*) AS c FROM tags').get() as { c: number }).c

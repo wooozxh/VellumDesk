@@ -24,6 +24,8 @@ import {
   updateProject,
   removeProject,
   moveProject,
+  readLayoutNotice,
+  ackLayoutNotice,
   SUB_FOLDERS,
   type SubFolder
 } from './workspace'
@@ -87,7 +89,18 @@ export function registerIpc(): void {
       return { ...base, projects: [], unassigned: 0 }
     }
     initWorkspace(st.root)
-    return { ...base, projects: listProjectsWithCount(), unassigned: countUnassigned() }
+    return {
+      ...base,
+      projects: listProjectsWithCount(),
+      unassigned: countUnassigned(),
+      // 第 6 批：刚把目录结构升级过的话告诉界面（只提示一次，界面 ack 后不再出现）
+      layoutMigrated: readLayoutNotice() ?? undefined
+    }
+  })
+
+  /** 界面已经提示过目录结构升级了 → 清掉标记，保证提示条只出现一次 */
+  ipcMain.handle('ws:ackLayout', () => {
+    ackLayoutNotice()
   })
 
   // ---------- 项目维护 ----------
@@ -100,7 +113,8 @@ export function registerIpc(): void {
   ipcMain.handle('project:create', (_e, input: { name: string; color?: string; note?: string }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
-    return createProject(input)
+    // 第 6 批：顺手在磁盘上建出项目文件夹，界面上的项目与本地文件夹一一对应
+    return createProject({ ...input, workspaceRoot: root })
   })
 
   ipcMain.handle(
@@ -108,18 +122,18 @@ export function registerIpc(): void {
     (_e, args: { id: number; patch: { name?: string; color?: string; note?: string } }) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
-      return updateProject(args.id, args.patch)
+      // 第 6 批：改名会连带把磁盘上的项目文件夹一起改名（并重写库里的路径）
+      return updateProject(args.id, args.patch, root)
     }
   )
 
-  ipcMain.handle(
-    'project:remove',
-    (_e, args: { id: number; moveTo: number | null }) => {
-      const root = getWorkspaceRoot(appData)
-      initWorkspace(root)
-      return removeProject(args.id, { moveTo: args.moveTo })
-    }
-  )
+  ipcMain.handle('project:remove', (_e, args: { id: number; moveTo: number | null }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    // 第 6 批：包文件夹跟着走 —— 转移项目就搬进目标项目文件夹，
+    // 变未归属就搬到工作区根目录（界面上的「待归类」）
+    return removeProject(args.id, { moveTo: args.moveTo }, root)
+  })
 
   // 调整项目在左栏的显示顺序（上移 / 下移一位）
   ipcMain.handle('project:move', (_e, args: { id: number; direction: 'up' | 'down' }) => {
@@ -291,8 +305,14 @@ export function registerIpc(): void {
     (_e, input: { name?: string; projectId?: number | null; category?: string }) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
-      const pack = createPack({ ...input, workspaceRoot: root })
-      return { ok: true, pack }
+      // 第 6 批：项目缺失时 createPack 会抛错，转成 {ok:false,error} 交给界面显示，
+      // 不让异常以 rejected promise 的形式冒到控制台
+      try {
+        const pack = createPack({ ...input, workspaceRoot: root })
+        return { ok: true, pack }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message }
+      }
     }
   )
 

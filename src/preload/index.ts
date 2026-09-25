@@ -11,6 +11,8 @@ const api = {
   wsSetRoot: (root: string) => ipcRenderer.invoke('ws:setRoot', root),
   wsPickRoot: () => ipcRenderer.invoke('ws:pickRoot'),
   wsOpenRoot: () => ipcRenderer.invoke('ws:openRoot'),
+  // 第 6 批：目录结构升级提示条已被界面看到
+  wsAckLayout: () => ipcRenderer.invoke('ws:ackLayout'),
 
   // 第 5 批：工作区管理与迁移
   wsList: () => ipcRenderer.invoke('ws:list'),

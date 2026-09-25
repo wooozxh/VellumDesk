@@ -10,6 +10,8 @@ export interface Project {
   note: string
   sort_order: number
   archived: number
+  /** 第 6 批：项目在工作区磁盘上对应的文件夹名（三级结构） */
+  folder_name: string
   created_at: string
 }
 
@@ -75,6 +77,11 @@ export interface WsInfo {
   categories: string[]
   subFolders: string[]
   unassigned: number
+  /**
+   * 第 6 批：刚把目录结构升级到三级时才有值 —— 界面弹一次提示条，
+   * 调 wsAckLayout 之后就没了。
+   */
+  layoutMigrated?: { at: string; packs: number }
 }
 
 // ==================== 第 5 批：工作区管理（E-01） ====================
@@ -199,6 +206,8 @@ export interface Api {
     error?: string
   }>
   wsOpenRoot: () => Promise<{ ok: boolean; error?: string }>
+  /** 第 6 批：界面提示过目录结构升级后调用，保证提示条只出现一次 */
+  wsAckLayout: () => Promise<void>
 
   // ---------------- 第 5 批：工作区管理 ----------------
   /** 工作区列表（含当前活动 id） */
@@ -228,11 +237,17 @@ export interface Api {
   updateProject: (
     id: number,
     patch: { name?: string; color?: string; note?: string }
-  ) => Promise<{ ok: boolean; project?: Project; error?: string }>
+  ) => Promise<{
+    ok: boolean
+    project?: Project
+    error?: string
+    /** 第 6 批：改名连带改了磁盘文件夹时返回（界面可提示改了什么） */
+    renamed?: { from: string; to: string; paths: number }
+  }>
   removeProject: (
     id: number,
     action: { moveTo: number | null }
-  ) => Promise<{ ok: boolean; moved: number; error?: string }>
+  ) => Promise<{ ok: boolean; moved: number; error?: string; movedToRoot?: boolean }>
   moveProject: (
     id: number,
     direction: 'up' | 'down'
@@ -242,7 +257,7 @@ export interface Api {
     name?: string
     projectId?: number | null
     category?: string
-  }) => Promise<{ ok: boolean; pack: PackCard }>
+  }) => Promise<{ ok: boolean; pack?: PackCard; error?: string }>
   refreshScan: () => Promise<ScanResult>
   listPacks: () => Promise<PacksView>
   listAssets: (opts: {

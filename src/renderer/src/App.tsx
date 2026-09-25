@@ -39,6 +39,8 @@ export default function App(): React.JSX.Element {
   const [info, setInfo] = useState<WsInfo | null>(null)
   /** ws:info 是否已经查过一次 —— 查过之前不要贸然去敲数据库 */
   const [wsReady, setWsReady] = useState(false)
+  /** 第 6 批：刚升级过目录结构时的提示（看过即清） */
+  const [layoutNotice, setLayoutNotice] = useState<{ at: string; packs: number } | null>(null)
   const [view, setView] = useState<ViewMode>('packs')
   const [keyword, setKeyword] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
@@ -91,8 +93,15 @@ export default function App(): React.JSX.Element {
   const loadWs = useCallback(async (refresh = false): Promise<WsInfo> => {
     const i = await window.api.wsInfo(refresh ? { refresh: true } : undefined)
     setInfo(i)
+    setLayoutNotice(i.layoutMigrated ?? null)
     setWsReady(true)
     return i
+  }, [])
+
+  /** 第 6 批：目录结构升级提示条 —— 看过就清标记，只出现一次 */
+  const dismissLayoutNotice = useCallback((): void => {
+    setLayoutNotice(null)
+    void window.api.wsAckLayout()
   }, [])
 
   /**
@@ -357,9 +366,14 @@ export default function App(): React.JSX.Element {
     if (!requireWs()) return
     try {
       const r = await window.api.createPack(v)
+      if (!r.ok) {
+        // 出错时**不关弹窗**，让用户能改选项目或改名再来一次
+        toast(r.error ?? '创建失败', 'err')
+        return
+      }
       setShowNew(false)
       await reloadAll()
-      toast(`包「${r.pack.name}」已创建，文件夹已建好`, 'ok')
+      toast(`包「${r.pack?.name ?? v.name}」已创建，文件夹已建好`, 'ok')
     } catch (e) {
       toast('创建失败：' + (e as Error).message, 'err')
     }
@@ -376,7 +390,15 @@ export default function App(): React.JSX.Element {
       ? await window.api.updateProject(editingProject.id, v)
       : await window.api.createProject(v)
     if (r.ok) {
-      toast(editingProject ? `项目「${v.name}」已保存` : `项目「${v.name}」已创建`, 'ok')
+      const renamed = (r as { renamed?: { from: string; to: string } }).renamed
+      toast(
+        editingProject
+          ? renamed
+            ? '项目已改名，工作区里的文件夹也跟着改了（文件都还在）'
+            : `项目「${v.name}」已保存`
+          : `项目「${v.name}」已创建，工作区里建好了同名文件夹`,
+        'ok'
+      )
       setShowProjectModal(false)
       setEditingProject(null)
       await reloadAll()
@@ -551,7 +573,7 @@ export default function App(): React.JSX.Element {
 
   const currentProjectLabel = useMemo(() => {
     if (projectFilter === '全部') return '全部'
-    if (projectFilter === null) return '未指定项目'
+    if (projectFilter === null) return '待归类'
     const p = projects.find((x) => x.id === projectFilter)
     return p ? p.name : ''
   }, [projectFilter, projects])
@@ -647,7 +669,14 @@ export default function App(): React.JSX.Element {
                 <button
                   className="item proj-item"
                   onClick={() => setProjectFilter(p.id)}
-                  title={p.note || p.name}
+                  title={[
+                    p.note || p.name,
+                    info?.workspaceRoot && p.folder_name
+                      ? `磁盘位置：${info.workspaceRoot}\\${p.folder_name}`
+                      : ''
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
                 >
                   <span className="proj-label">
                     <i className="cdot" style={{ background: p.color }} />
@@ -710,9 +739,9 @@ export default function App(): React.JSX.Element {
             <button
               className={`item${projectFilter === null ? ' on' : ''}`}
               onClick={() => setProjectFilter(null)}
-              title="没有指定项目的包"
+              title="这些包的文件夹直接躺在工作区根目录，还没选项目"
             >
-              <span>未指定项目</span>
+              <span>待归类</span>
             </button>
           )}
 
@@ -832,6 +861,22 @@ export default function App(): React.JSX.Element {
               </button>
               <button className="btn primary" onClick={doPickRoot}>
                 更改位置
+              </button>
+            </div>
+          )}
+
+          {info?.workspaceOk && layoutNotice && (
+            <div className="wsbanner info">
+              <span className="ico">🗂</span>
+              <div className="txt">
+                <div className="t">目录结构已升级：工作区 / 项目 / 包</div>
+                <div className="s">
+                  {layoutNotice.packs} 个包已归入各自的项目文件夹，文件一个没动
+                  {info.workspaceRoot ? ` —— 位置：${info.workspaceRoot}` : ''}
+                </div>
+              </div>
+              <button className="btn" onClick={dismissLayoutNotice}>
+                知道了
               </button>
             </div>
           )}

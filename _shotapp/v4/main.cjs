@@ -1,7 +1,10 @@
 /**
- * 第 4 批专用界面验证壳。
- * 验证两件事：① 工作区连不上时的顶部提示条 ② 状态栏版本号。
- * 用 SHOT_SCENARIO 选择场景：banner（工作区不可用） / version（工作区正常）。
+ * 第 4 批起的界面验证壳（第 5、6 批继续在这里加场景）。
+ * 用 SHOT_SCENARIO 选择场景：
+ *   banner     工作区不可用（顶部红色提示条 + 状态栏版本号）
+ *   version    工作区正常（老格式配置自动升级）
+ *   wslist     第 5 批：多工作区列表
+ *   threelevel 第 6 批：三级目录结构（迁移提示条 / 待归类入口 / 项目行磁盘路径）
  * 工作区配置与截图都落在仓库外/忽略目录，绝不碰用户真实工作区 D:\素材工作区。
  */
 const { app, BrowserWindow } = require('electron')
@@ -12,7 +15,7 @@ app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-software-rasterizer')
 app.commandLine.appendSwitch('in-process-gpu')
 
-const { writeFileSync, mkdirSync } = require('fs')
+const { writeFileSync, mkdirSync, rmSync } = require('fs')
 const { join } = require('path')
 
 const ROOT = join(__dirname, '..', '..')
@@ -39,6 +42,12 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_wslist'),
     workspaceRoot: join(BASE, 'shot_ws'),
     shot: 'shot-b5-3-wslist.png'
+  },
+  // 第 6 批：三级目录结构（工作区 / 项目 / 包）
+  threelevel: {
+    userData: join(BASE, 'shot4_threelevel'),
+    workspaceRoot: join(BASE, 'shot_ws3'),
+    shot: 'shot-b6-1-threelevel-migrated.png'
   }
 }
 
@@ -100,6 +109,65 @@ app.whenReady().then(async () => {
 
   app.setPath('userData', s.userData)
 
+  // ---- 第 6 批：三级结构场景 ----
+  // 先在工作区里造出「老两级结构」（包文件夹直接躺在根目录）+ 老库记录，
+  // 再让软件跑一次一次性迁移，然后验证界面。全程只碰 D:\_accept_ws。
+  const ws = s.workspaceRoot
+  if (SCEN === 'threelevel') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const oldPack = join(ws, '海南招生海报-2026秋季')
+    mkdirSync(join(oldPack, '01-成品'), { recursive: true })
+    mkdirSync(join(oldPack, '02-素材'), { recursive: true })
+    writeFileSync(join(oldPack, '01-成品', '海报终稿.png'), 'png', 'utf-8')
+    writeFileSync(join(oldPack, '02-素材', '底图.png'), 'png', 'utf-8')
+
+    // 根目录下的游离包（库里有记录、但没有项目归属）→ 界面应归「待归类」
+    const loosePack = join(ws, '零散海报')
+    mkdirSync(join(loosePack, '01-成品'), { recursive: true })
+    writeFileSync(join(loosePack, '01-成品', '随手做的.png'), 'png', 'utf-8')
+
+    // 磁盘上已经存在、和项目同名的空文件夹（软件应识别并沿用，不再另建）
+    mkdirSync(join(ws, '海南升学初三集训营'), { recursive: true })
+
+    // 用已有的 workspace 产物建库（它内部带着 db 模块，会建表 + 建两个收纳区）
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    // 播种"老两级结构"的库记录：直接连库写，避开 esbuild 分包导致的模块实例隔离
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    // 项目不用自己造 —— initWorkspace 首次使用会落 3 个预制项目（集团通用 / 海南升学规划中心 / 海南升学初三集训营）
+    const pid = d.prepare('SELECT id FROM projects WHERE name = ?').get('海南升学规划中心').id
+    const addPack = d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    addPack.run('海南招生海报-2026秋季', '海报', oldPack, pid, now, now)
+    addPack.run('零散海报', '海报', loosePack, null, now, now)
+    // 抹掉布局标记 + 迁移提示 —— 模拟"这个库还是老结构，等着软件来迁"
+    d.prepare("DELETE FROM meta WHERE key IN ('layout_version', 'layout_notice')").run()
+    d.close()
+
+    // 再跑一次 initWorkspace：这次库里有包，会真正走一遍一次性迁移
+    wsm.initWorkspace(ws)
+    const check = new Database(join(ws, '_system', 'media.db'), { readonly: true })
+    const metaRow = check.prepare("SELECT value FROM meta WHERE key = 'layout_notice'").get()
+    say('layout_version        : ' + JSON.stringify(check.prepare("SELECT value FROM meta WHERE key='layout_version'").get()))
+    say('layout_notice         : ' + (metaRow ? metaRow.value : '(none)'))
+    check.close()
+    say('root entries          : ' + require('fs').readdirSync(ws).join(' | '))
+    say(
+      'migrated pack on disk : ' +
+        (require('fs').existsSync(join(ws, '海南升学规划中心', '海南招生海报-2026秋季', '01-成品', '海报终稿.png'))
+          ? '包已进项目文件夹 ✅'
+          : '❌ 包没被搬进项目文件夹')
+    )
+  }
+
   const errs = []
   require(join(ROOT, 'out/test/ipc.cjs')).registerIpc()
 
@@ -131,7 +199,7 @@ app.whenReady().then(async () => {
   say('configured workspace  : ' + s.workspaceRoot)
 
   const bannerText = await js(
-    `(() => { const el = document.querySelector('.wsbanner'); return el ? el.innerText : '' })()`
+    `(() => { const el = document.querySelector('.wsbanner:not(.info)'); return el ? el.innerText : '' })()`
   )
   const bannerBtnCount = await js(
     `document.querySelectorAll('.wsbanner .btn').length`
@@ -150,6 +218,26 @@ app.whenReady().then(async () => {
   const wsActBtns = await js(`document.querySelectorAll('.wsitem.on .wacts button').length`)
   const wsAddText = await js(
     `(() => { const el = document.querySelector('.side .item.addws'); return el ? el.innerText : '' })()`
+  )
+  // 第 6 批：三级结构相关的 DOM
+  const infoBannerText = await js(
+    `(() => { const el = document.querySelector('.wsbanner.info'); return el ? el.innerText : '' })()`
+  )
+  const infoBannerBtn = await js(
+    `(() => { const el = document.querySelector('.wsbanner.info .btn'); return el ? el.innerText.trim() : '' })()`
+  )
+  const looseEntry = await js(
+    `(() => {
+       const btns = [...document.querySelectorAll('.side .item')]
+       const el = btns.find((b) => b.innerText.trim() === '待归类')
+       return el ? el.innerText.trim() : ''
+     })()`
+  )
+  const projTitles = await js(
+    `[...document.querySelectorAll('.side .proj-item')].map((b) => b.getAttribute('title') || '')`
+  )
+  const projNames = await js(
+    `[...document.querySelectorAll('.side .proj-item .pname')].map((b) => b.innerText.trim())`
   )
 
   if (SCEN === 'banner') {
@@ -174,6 +262,60 @@ app.whenReady().then(async () => {
     ok(wsAddText.includes('添加工作区'), '底部有「＋ 添加工作区」入口')
     ok(statusText.includes('主素材库'), '状态栏写明了当前是哪个工作区')
     ok(statusText.includes('v1.0.0'), '状态栏仍显示版本号')
+  } else if (SCEN === 'threelevel') {
+    // ---- 迁移提示条 ----
+    ok(infoBannerText.length > 0, '刚迁移过的工作区出现「目录结构已升级」提示条')
+    ok(infoBannerText.includes('目录结构已升级'), '提示条标题说明了发生了什么')
+    ok(/工作区\s*\/\s*项目\s*\/\s*包/.test(infoBannerText), '提示条写清新结构是三级：工作区 / 项目 / 包')
+    ok(infoBannerText.includes('1 个包'), '提示条报出了本次搬了几个包（应为 1 个）')
+    ok(infoBannerText.includes('文件一个没动'), '提示条明确安抚：文件一个没动')
+    ok(infoBannerBtn === '知道了', `提示条只给一个出口「知道了」，实际「${infoBannerBtn}」`)
+    ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常，不显示红色错误条')
+
+    // ---- 左栏：待归类入口 ----
+    ok(looseEntry === '待归类', '根目录下的游离包让左栏多了「待归类」入口')
+    ok(!leftPanelText.includes('未指定项目'), '老文案「未指定项目」已全部换成「待归类」')
+    ok(
+      projNames.includes('海南升学规划中心') && projNames.includes('海南升学初三集训营'),
+      '两个项目都在左栏：' + JSON.stringify(projNames)
+    )
+    ok(
+      projTitles.some((t) => t.includes('磁盘位置：') && t.includes('海南升学规划中心')),
+      '项目行的悬浮提示写清了它在磁盘上的位置：' + JSON.stringify(projTitles[0] || '')
+    )
+    ok(
+      !leftPanelText.includes('_已解绑的项目') && !leftPanelText.includes('_回收站'),
+      '两个下划线收纳区不出现在左栏里'
+    )
+
+    // ---- 「知道了」点一下就消失，且不再出现 ----
+    // 点击前先留一张证据图：提示条还在的样子
+    try {
+      const img = await win.webContents.capturePage()
+      writeFileSync(join(ROOT, s.shot), img.toPNG())
+      say('screenshot            : ' + s.shot + ' (' + Math.round(img.toPNG().length / 1024) + ' KB)')
+    } catch (e) {
+      ok(false, '截图失败：' + e.message)
+    }
+    // 收尾那张截图换个名字，别把上面这张盖掉
+    s.shot = 'shot-b6-2-threelevel-acked.png'
+
+    await js(`document.querySelector('.wsbanner.info .btn').click()`)
+    await wait(600)
+    const afterAck = await js(
+      `(() => { const el = document.querySelector('.wsbanner.info'); return el ? el.innerText : '' })()`
+    )
+    ok(afterAck === '', '点「知道了」之后提示条立刻消失')
+    const Database2 = require('better-sqlite3')
+    const d2 = new Database2(join(s.workspaceRoot, '_system', 'media.db'), { readonly: true })
+    const noticeRow = d2.prepare("SELECT value FROM meta WHERE key = 'layout_notice'").get()
+    d2.close()
+    ok(
+      !noticeRow || noticeRow.value === '',
+      '标记已从库里清掉，下次启动不会再弹（layout_notice = ' +
+        JSON.stringify(noticeRow ? noticeRow.value : '') +
+        '）'
+    )
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')
@@ -202,4 +344,8 @@ app.whenReady().then(async () => {
   writeFileSync(join(ROOT, `shot-b5-${SCEN}.log`), lines.join('\r\n'), 'utf-8')
 
   app.exit(failed === 0 ? 0 : 1)
+}).catch((e) => {
+  // 没有这层兜底，一旦 setup 阶段抛异常，窗口永远不会出现、进程就一直挂着
+  console.log('\n场景 ' + SCEN + ' 启动阶段炸了：\n' + (e && e.stack ? e.stack : String(e)))
+  app.exit(9)
 })

@@ -80,6 +80,10 @@ export function ProjectModal({
               <div className="hint" style={{ color: 'var(--danger)' }}>
                 {err}
               </div>
+            ) : isEdit ? (
+              <div className="hint">
+                改名会连带把工作区里的项目文件夹一起改名 —— 里面的包和文件跟着走，不会丢
+              </div>
             ) : (
               <div className="hint">公司开了新业务、内部孵化了新项目，就在这里加一个</div>
             )}

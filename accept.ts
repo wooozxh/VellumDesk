@@ -11,7 +11,7 @@ import {
   readFileSync,
   copyFileSync
 } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { tmpdir } from 'os'
 import {
   initWorkspace,
@@ -46,7 +46,16 @@ import {
   removeWorkspace,
   rewritePaths,
   migrateWorkspaceSameDisk,
-  isSameVolume
+  isSameVolume,
+  // 第 6 批：三级目录结构
+  ensureLayoutV3,
+  syncProjectFolders,
+  ensureFolderNames,
+  readLayoutNotice,
+  ackLayoutNotice,
+  UNBOUND_DIR,
+  TRASH_DIR,
+  LAYOUT_VERSION
 } from './src/main/workspace'
 import {
   ensureThumbsForAssets,
@@ -58,7 +67,7 @@ import {
   setFfmpegDir,
   ffmpegReady
 } from './src/main/thumbs'
-import { getDb, closeDb } from './src/main/db'
+import { getDb, closeDb, openDb, getMeta } from './src/main/db'
 import {
   listTagDimensions,
   createTag,
@@ -253,9 +262,14 @@ async function main(): Promise<void> {
   })
   ok(p1.id > 0, `建包成功：id=${p1.id} name=${p1.name}`)
   ok(p1.project_id === projPlan.id, `包已关联到项目 id=${projPlan.id}（海南升学规划中心）`)
-  ok(existsSync(join(WS, '海南招生海报-2026秋季')), '包文件夹已在硬盘上创建')
+  // 第 6 批：三级结构 —— 包文件夹不再直接躺在工作区根下，而是在**项目文件夹**里
+  ok(
+    p1.folder_path === join(WS, projPlan.folder_name, '海南招生海报-2026秋季'),
+    `【第 6 批】包建在项目文件夹下：…\\${projPlan.folder_name}\\海南招生海报-2026秋季`
+  )
+  ok(existsSync(p1.folder_path), '包文件夹已在硬盘上创建')
   for (const sub of SUB_FOLDERS) {
-    ok(existsSync(join(WS, '海南招生海报-2026秋季', sub)), `自动创建子文件夹 ${sub}`)
+    ok(existsSync(join(p1.folder_path, sub)), `自动创建子文件夹 ${sub}`)
   }
 
   // 名称留空的兜底
@@ -1625,6 +1639,333 @@ async function main(): Promise<void> {
   hardRm(w5Root)
 
   hardRm(wsTestRoot)
+
+  // ============ 第 6 批 F-01：三级目录结构（方案 08） ============
+  log('\n[24] 第 6 批 F-01：三级目录结构（工作区 / 项目 / 包）')
+
+  const w6Root = join('D:\\_accept_ws', `wstest6_${RUN_ID}`)
+  const w6App = join(w6Root, 'appdata')
+  const w6Ws = join(w6Root, 'ws')
+  mkdirSync(w6App, { recursive: true })
+
+  /**
+   * 数一个目录下的文件总数（第 6 批自己的，避免与 w5 的撞名）。
+   * 跳过 `_` / `.` 开头的目录 —— `_system` 下会因为备份而新增文件，
+   * 那是软件自己的事，不该算进"用户的文件少了没有"。
+   */
+  function w6CountFiles(dir: string): number {
+    if (!existsSync(dir)) return 0
+    let n = 0
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('_') || name.startsWith('.')) continue
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) n += w6CountFiles(p)
+      else n += 1
+    }
+    return n
+  }
+
+  // (1) 新工作区初始化
+  const w6Add = addWorkspace(w6App, w6Ws)
+  ok(w6Add.ok, '新工作区就绪')
+  ok(existsSync(join(w6Ws, UNBOUND_DIR)), `【建工作区时】创建了收纳区「${UNBOUND_DIR}」`)
+  ok(existsSync(join(w6Ws, TRASH_DIR)), `【建工作区时】创建了收纳区「${TRASH_DIR}」`)
+  ok(
+    getMeta('layout_version') === LAYOUT_VERSION,
+    `新工作区直接标记 layout_version=${LAYOUT_VERSION}（不跑迁移）`
+  )
+  ok(readLayoutNotice() === null, '新工作区不会留下"刚迁移过"的提示（不打扰用户）')
+
+  // (2) 项目 ↔ 文件夹
+  const w6Projs = listProjectsWithCount()
+  ok(w6Projs.length === 3, `内置 3 个预制项目（实际 ${w6Projs.length}）`)
+  ok(
+    w6Projs.every((p) => !!p.folder_name && existsSync(join(w6Ws, p.folder_name))),
+    `每个项目在工作区里有对应文件夹：${w6Projs.map((p) => p.folder_name).join(' / ')}`
+  )
+
+  const w6New = createProject({ name: '抖音短视频运营', workspaceRoot: w6Ws })
+  ok(w6New.ok, '新建项目成功')
+  ok(
+    existsSync(join(w6Ws, '抖音短视频运营')),
+    '【软件与磁盘一致】新建项目时磁盘上立刻出现同名文件夹'
+  )
+  const w6BadName = createProject({ name: '_隐藏项目', workspaceRoot: w6Ws })
+  ok(
+    !w6BadName.ok && !!w6BadName.error && w6BadName.error.includes('下划线'),
+    `以 _ 开头的项目名被拒（否则文件夹会被扫描跳过）：${w6BadName.error}`
+  )
+  const w6Dirty = createProject({ name: 'a<b>c:d', workspaceRoot: w6Ws })
+  ok(w6Dirty.ok, `含非法字符的项目名被消毒后建成：${w6Dirty.project?.name}`)
+  ok(
+    !!w6Dirty.project && !/[<>:"/\\|?*]/.test(w6Dirty.project.folder_name),
+    `文件夹名里没有 Windows 非法字符：${w6Dirty.project?.folder_name}`
+  )
+
+  // (3) 建包落在项目文件夹下
+  const w6Plan = listProjectsWithCount().find((p) => p.name === '海南升学规划中心')!
+  const w6PackA = createPack({ name: '招生海报', projectId: w6Plan.id, workspaceRoot: w6Ws })
+  ok(
+    w6PackA.folder_path === join(w6Ws, w6Plan.folder_name, '招生海报'),
+    `包落在项目文件夹下：…\\${w6Plan.folder_name}\\招生海报`
+  )
+  const w6Camp = listProjectsWithCount().find((p) => p.name === '海南升学初三集训营')!
+  const w6PackB = createPack({ name: '招生海报', projectId: w6Camp.id, workspaceRoot: w6Ws })
+  ok(
+    w6PackB.folder_path === join(w6Ws, w6Camp.folder_name, '招生海报'),
+    `【三级结构白送的好处】不同项目可以有同名包：…\\${w6Camp.folder_name}\\招生海报`
+  )
+  let w6Throw = ''
+  try {
+    createPack({ name: '不该建成', projectId: 999999, workspaceRoot: w6Ws })
+  } catch (e) {
+    w6Throw = (e as Error).message
+  }
+  ok(w6Throw.includes('项目不存在'), `指定了不存在的项目 → 明确报错，不静默兜底：${w6Throw}`)
+
+  // (4) role 判定：深度无关（版本层预留）
+  writeFileSync(join(w6PackA.folder_path, '01-成品', 'a.png'), Buffer.alloc(64, 1))
+  writeFileSync(join(w6PackA.folder_path, '02-素材', 'b.txt'), 'x', 'utf-8')
+  writeFileSync(join(w6PackA.folder_path, '随手丢的.png'), Buffer.alloc(32, 2))
+  mkdirSync(join(w6PackA.folder_path, 'V1', '01-成品'), { recursive: true })
+  writeFileSync(join(w6PackA.folder_path, 'V1', '01-成品', 'c.png'), Buffer.alloc(48, 3))
+
+  scanAll(w6Ws)
+  const w6Rows = listAssets()
+  const w6RoleOf = (n: string): string | undefined =>
+    w6Rows.find((r) => r.file_name === n)?.role
+  ok(w6RoleOf('a.png') === '成品', '项目\\包\\01-成品\\a.png → 成品')
+  ok(w6RoleOf('b.txt') === '素材', '项目\\包\\02-素材\\b.txt → 素材')
+  ok(w6RoleOf('随手丢的.png') === UNASSIGNED_ROLE, '包根目录下的散文件 → 未归属（仍挂在包里）')
+  ok(
+    w6RoleOf('c.png') === '成品',
+    '【版本层预留的决定性证据】项目\\包\\V1\\01-成品\\c.png → 成品（深度无关，将来加版本层不用改代码）'
+  )
+  ok(
+    w6Rows.find((r) => r.file_name === 'c.png')?.pack_id === w6PackA.id,
+    'V1 层里的文件仍归属到该包'
+  )
+
+  // (5) 游离的包 → 待归类
+  const w6Loose = join(w6Ws, '手动丢进来的包')
+  for (const sub of SUB_FOLDERS) mkdirSync(join(w6Loose, sub), { recursive: true })
+  writeFileSync(join(w6Loose, '01-成品', 'loose.png'), Buffer.alloc(16, 4))
+  writeFileSync(join(w6Ws, w6Plan.folder_name, '项目下的散文件.txt'), 'y', 'utf-8')
+  writeFileSync(join(w6Ws, '根目录散文件.txt'), 'z', 'utf-8')
+
+  scanAll(w6Ws)
+  const w6LoosePack = listPacks().find((p) => p.name === '手动丢进来的包')
+  ok(!!w6LoosePack, '根目录下直接带三组文件夹的目录 → 识别为包')
+  ok(w6LoosePack?.project_id === null, '【待归类】游离的包没有项目归属')
+  ok(w6LoosePack?.folder_path === w6Loose, '游离包的位置就在工作区根目录')
+  ok(
+    !listPacks().some((p) => p.folder_path === join(w6Ws, w6Plan.folder_name)),
+    '项目文件夹本身不会被误登记成包'
+  )
+  const w6Rows2 = listAssets()
+  const w6Scatter1 = w6Rows2.find((r) => r.file_name === '项目下的散文件.txt')
+  ok(
+    w6Scatter1?.role === UNASSIGNED_ROLE && w6Scatter1?.pack_id === null,
+    '项目文件夹下直接躺着的散文件 → 未归属池'
+  )
+  const w6Scatter2 = w6Rows2.find((r) => r.file_name === '根目录散文件.txt')
+  ok(
+    w6Scatter2?.role === UNASSIGNED_ROLE && w6Scatter2?.pack_id === null,
+    '工作区根目录下的散文件 → 未归属池'
+  )
+
+  // (6) 项目改名 → 连带改文件夹名（并重写库里的路径）
+  const w6Tag = createTag({ dimension: 'category', name: `改名标签${RUN_ID}`, color: '#4f8cff' })
+  const w6First = getDb()
+    .prepare("SELECT id FROM assets WHERE file_name = 'a.png'")
+    .get() as { id: number }
+  applyTags({ assetIds: [w6First.id], tagIds: [w6Tag.tag!.id] })
+  const w6LinksBefore = (getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags').get() as { c: number }).c
+  const w6PacksBefore = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+  const w6OldFolder = join(w6Ws, w6Plan.folder_name)
+
+  const w6Ren = updateProject(w6Plan.id, { name: '海南升学规划中心（南区）' }, w6Ws)
+  ok(w6Ren.ok, `项目改名成功：${w6Ren.project?.name}`)
+  ok(
+    !!w6Ren.renamed,
+    `改名连带改了磁盘文件夹：…\\${w6Ren.renamed?.from.replace(w6Ws + '\\', '')} → …\\${w6Ren.renamed?.to.replace(w6Ws + '\\', '')}`
+  )
+  ok(!existsSync(w6OldFolder), '旧文件夹已经不在了')
+  const w6NewPlanDir = join(w6Ws, w6Ren.project!.folder_name)
+  ok(existsSync(w6NewPlanDir), '新文件夹出现了')
+  ok(
+    existsSync(join(w6NewPlanDir, '招生海报', '01-成品', 'a.png')),
+    '包和文件跟着搬过去了（一个没少）'
+  )
+  const w6Rows3 = listAssets()
+  ok(
+    w6Rows3.every((r) => !r.abs_path.toLowerCase().startsWith(w6OldFolder.toLowerCase() + '\\')),
+    '库里没有一条路径还指着旧文件夹'
+  )
+  const w6Moved = w6Rows3.find((r) => r.file_name === 'a.png')
+  ok(
+    !!w6Moved && w6Moved.abs_path.toLowerCase().startsWith(w6NewPlanDir.toLowerCase()),
+    `素材路径已重写到新位置：…${w6Moved?.abs_path.slice(w6Ws.length)}`
+  )
+  const w6LinksAfter = (getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags').get() as { c: number }).c
+  ok(w6LinksAfter === w6LinksBefore, `【最关键】改名后标签关联条数不变（${w6LinksAfter}）—— 标签一条没丢`)
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c === w6PacksBefore,
+    `包没有重复登记（还是 ${w6PacksBefore} 个）`
+  )
+
+  // (7) 目标文件夹已存在 → 拒绝，零改动
+  const w6Tmp = createProject({ name: '临时项目X', workspaceRoot: w6Ws })
+  mkdirSync(join(w6Ws, '已经占了这个名'), { recursive: true })
+  const w6Clash = updateProject(w6Tmp.project!.id, { name: '已经占了这个名' }, w6Ws)
+  ok(
+    !w6Clash.ok && !!w6Clash.error && w6Clash.error.includes('已经有一个'),
+    `磁盘上已有同名文件夹 → 拒绝不覆盖：${w6Clash.error}`
+  )
+  ok(
+    listProjectsWithCount().find((p) => p.id === w6Tmp.project!.id)?.name === '临时项目X',
+    '冲突被拒后项目名没变（零改动）'
+  )
+  ok(existsSync(join(w6Ws, '临时项目X')), '冲突被拒后原文件夹还在')
+
+  // (8) 删项目：包文件夹跟着走（同盘 rename）
+  const w6PacksB4 = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+  const w6FilesB4 = w6CountFiles(w6Ws)
+
+  const w6CampNow = listProjectsWithCount().find((p) => p.name === '海南升学初三集训营')!
+  const w6Common = listProjectsWithCount().find((p) => p.name === '集团通用')!
+  const w6DelA = removeProject(w6CampNow.id, { moveTo: w6Common.id }, w6Ws)
+  ok(w6DelA.ok, `删项目（转移到「${w6Common.name}」）成功，动了 ${w6DelA.moved} 个包`)
+  ok(
+    existsSync(join(w6Ws, w6Common.folder_name, '招生海报')),
+    '包文件夹真的搬进了目标项目文件夹'
+  )
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c === w6PacksB4,
+    '包记录一个没少'
+  )
+  ok(w6CountFiles(w6Ws) === w6FilesB4, `磁盘文件一个没少（${w6FilesB4} 个）`)
+
+  const w6Victim = listProjectsWithCount().find((p) => p.name === '集团通用')!
+  // 用 id 而不是名字筛 —— 三级结构下不同项目可以有同名包，用名字会误伤
+  const w6VictimPacks = listPacks().filter((p) => p.project_id === w6Victim.id)
+  const w6VictimIds = w6VictimPacks.map((p) => p.id)
+  const w6VictimNames = w6VictimPacks.map((p) => basename(p.folder_path))
+  ok(w6VictimIds.length > 0, `待删项目「${w6Victim.name}」名下有 ${w6VictimIds.length} 个包`)
+  const w6DelB = removeProject(w6Victim.id, { moveTo: null }, w6Ws)
+  ok(w6DelB.ok && w6DelB.movedToRoot === true, `删项目并让 ${w6DelB.moved} 个包变成未归属`)
+  ok(
+    w6VictimNames.every((n) => existsSync(join(w6Ws, n))),
+    `【待归类】包文件夹搬到了工作区根目录：${w6VictimNames.join(' / ')}`
+  )
+  ok(
+    listPacks()
+      .filter((p) => w6VictimIds.includes(p.id))
+      .every((p) => p.project_id === null),
+    '这些包的 project_id 已置空（界面上就是「待归类」）'
+  )
+  ok(w6CountFiles(w6Ws) === w6FilesB4, '两次删项目之后，磁盘文件依然一个没少')
+
+  // (9) 安全阀：根目录读不到时，一条记录都不许删
+  const w6PacksBefore9 = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+  const w6AssetsBefore9 = (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  const w6Ghost = join(w6Root, 'not-mounted-at-all')
+  const w6GhostScan = scanAll(w6Ghost)
+  ok(w6GhostScan.files === 0, '扫一个根本不存在的根目录：不报错、收集到 0 个文件')
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c === w6PacksBefore9 &&
+      (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === w6AssetsBefore9,
+    '【安全阀】根目录读失败时不做任何删除判定（包与素材记录一条没少）'
+  )
+
+  // (10) 一次性迁移：两级结构（包直接躺在根下）→ 三级
+  const w6bRoot = join('D:\\_accept_ws', `wstest6b_${RUN_ID}`)
+  const w6bWs = join(w6bRoot, 'ws')
+  mkdirSync(join(w6bWs, '_system'), { recursive: true })
+  for (const n of ['老包A', '老包B', '游离包']) {
+    for (const sub of SUB_FOLDERS) mkdirSync(join(w6bWs, n, sub), { recursive: true })
+  }
+  writeFileSync(join(w6bWs, '老包A', '01-成品', '老包A-成品.txt'), 'x', 'utf-8')
+  writeFileSync(join(w6bWs, '老包B', '02-素材', '老包B-素材.txt'), 'y', 'utf-8')
+  writeFileSync(join(w6bWs, '游离包', '02-素材', 'free.txt'), 'f', 'utf-8')
+
+  closeDb()
+  openDb(w6bWs)
+  const w6bProjs = listProjectsWithCount()
+  ok(w6bProjs.length === 3, '造老库：打开时落好 3 个预制项目')
+  ok(getMeta('layout_version') === null, '造老库：还没有 layout_version 标记')
+  const w6bTs = new Date().toISOString()
+  const w6bIns = getDb().prepare(
+    `INSERT INTO packs (name, project_id, category, folder_path, created_at, updated_at)
+     VALUES (?, ?, '未分类', ?, ?, ?)`
+  )
+  w6bIns.run('老包A', w6bProjs[0].id, join(w6bWs, '老包A'), w6bTs, w6bTs)
+  w6bIns.run('老包B', w6bProjs[1].id, join(w6bWs, '老包B'), w6bTs, w6bTs)
+  scanAll(w6bWs)
+  const w6bAssetsBefore = (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+  ok(w6bAssetsBefore === 3, `造老库：登记了 ${w6bAssetsBefore} 条素材`)
+
+  const w6bMig = ensureLayoutV3(w6bWs)
+  ok(w6bMig.migrated && w6bMig.packs === 2, `迁移执行：搬了 ${w6bMig.packs} 个有归属的包`)
+  ok(!existsSync(join(w6bWs, '老包A')), '老包A 已从工作区根目录搬走')
+  // folder_name 是迁移时回填的，所以要重新查（造老库那一刻还是空串）
+  const w6bAfter = listProjectsWithCount()
+  const w6bP0 = w6bAfter.find((p) => p.id === w6bProjs[0].id)!
+  const w6bP1 = w6bAfter.find((p) => p.id === w6bProjs[1].id)!
+  ok(!!w6bP0.folder_name, `迁移顺手给项目回填了文件夹名：${w6bP0.folder_name}`)
+  ok(
+    existsSync(join(w6bWs, w6bP0.folder_name, '老包A')),
+    `老包A 落在项目文件夹「${w6bP0.folder_name}」下`
+  )
+  ok(
+    existsSync(join(w6bWs, w6bP1.folder_name, '老包B')),
+    `老包B 落在项目文件夹「${w6bP1.folder_name}」下`
+  )
+  ok(
+    existsSync(join(w6bWs, w6bP0.folder_name, '老包A', '01-成品', '老包A-成品.txt')),
+    '包里的文件一个没少'
+  )
+  ok(
+    existsSync(join(w6bWs, '游离包')),
+    '【游离包不动】没有项目归属的包迁移时留在根目录（界面上仍是「待归类」）'
+  )
+  ok(
+    (getDb().prepare("SELECT project_id FROM packs WHERE name = '游离包'").get() as {
+      project_id: number | null
+    }).project_id === null,
+    '游离包迁移后仍然没有项目归属'
+  )
+  ok(getMeta('layout_version') === LAYOUT_VERSION, `迁移后标记 layout_version=${LAYOUT_VERSION}`)
+  ok(!!readLayoutNotice(), '迁移后留下一次性提示标记（界面提示一次）')
+  ackLayoutNotice()
+  ok(!readLayoutNotice(), 'ack 之后标记被清掉 —— 提示条只出现一次')
+  const w6bPackRows = getDb().prepare('SELECT folder_path FROM packs').all() as Array<{
+    folder_path: string
+  }>
+  ok(
+    w6bPackRows.every((r) => existsSync(r.folder_path)),
+    '库里记录的每个包路径都真实存在（库与磁盘一致）'
+  )
+  const w6bAssets = getDb().prepare('SELECT abs_path FROM assets').all() as Array<{ abs_path: string }>
+  ok(
+    w6bAssets.every((a) => !a.abs_path.toLowerCase().startsWith(join(w6bWs, '老包').toLowerCase())),
+    '素材路径也重写到了项目文件夹下'
+  )
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === w6bAssetsBefore,
+    '迁移后素材条数不变'
+  )
+  const w6bBackupDir = join(w6bWs, '_system', 'backup')
+  ok(
+    existsSync(w6bBackupDir) && readdirSync(w6bBackupDir).length > 0,
+    '迁移前把数据库备份到了 _system/backup/'
+  )
+  const w6bMig2 = ensureLayoutV3(w6bWs)
+  ok(!w6bMig2.migrated && w6bMig2.packs === 0, '再跑一次迁移：零改动（幂等）')
+
+  closeDb()
+  hardRm(w6bRoot)
+  hardRm(w6Root)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

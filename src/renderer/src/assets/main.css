@@ -1654,6 +1654,16 @@ body:has(.side-resizer.dragging) {
   flex: 0 0 auto;
 }
 
+/* 第 6 批：目录结构升级提示（中性色，不是警告） */
+.wsbanner.info {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.wsbanner.info .ico {
+  color: var(--accent);
+}
+
 /* ============================================================
    第 5 批：左栏工作区列表（多工作区 + 搬移入口）
    ============================================================ */

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { join, basename, dirname, extname, relative, sep } from 'path'
+import { join, basename, dirname, extname, relative, sep, isAbsolute } from 'path'
 import {
   existsSync,
   mkdirSync,
@@ -9,13 +9,16 @@ import {
   writeFileSync,
   renameSync,
   copyFileSync,
-  unlinkSync
+  unlinkSync,
+  rmdirSync
 } from 'fs'
 import {
   closeDb,
   getDb,
   openDb,
   pickColor,
+  getMeta,
+  setMeta,
   type AssetRow,
   type PackRow,
   type ProjectRow
@@ -24,6 +27,7 @@ import {
 /**
  * 工作区与「包」的业务逻辑。
  * 对应方案文档：A-01 建包 / A-02 工作区初始化 / A-03 扫描归位 / A-04 采集基础信息 / A-09 认领
+ * 第 6 批：三级目录结构（工作区 / 项目 / 包 /〔版本〕/ 三组）—— 见 docs/08
  */
 
 /** 三个子文件夹，顺序即界面展示顺序（方案 2.3） */
@@ -38,6 +42,36 @@ const FOLDER_TO_ROLE: Record<string, string> = {
 }
 
 export const UNASSIGNED_ROLE = '未归属'
+
+// ---------------------------------------------------------------- 三级结构（第 6 批）
+
+/**
+ * 工作区根目录下的两个「收纳区」，都以 `_` 开头 ——
+ * 扫描规则本来就是「下划线开头跳过」，所以"扫不进去"是零代码实现的。
+ * 两个区都**不真删文件**（铁则：软件永远不悄悄扔掉用户放的东西）。
+ */
+/** 解绑的项目挪这儿：记录保留、界面可恢复 */
+export const UNBOUND_DIR = '_已解绑的项目'
+/** 删除的项目挪这儿：记录已删，文件还在 */
+export const TRASH_DIR = '_回收站'
+
+/** 当前目录布局版本。写在数据库 meta 表里，按工作区独立 */
+export const LAYOUT_VERSION = '3'
+
+/**
+ * 不能当文件夹名的保留字。
+ * 除 Windows 设备名外，还包含我们自己的目录 —— 虽然 `_` 开头的名字在 sanitize 阶段
+ * 就会被改写（见下），这里再挡一道，避免以后改 sanitize 规则时踩雷。
+ */
+const RESERVED_FOLDER_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+  '_system', '_thumbs',
+  UNBOUND_DIR.toLowerCase(),
+  TRASH_DIR.toLowerCase()
+])
+
 
 // ---------------------------------------------------------------- 工作区路径
 
@@ -340,11 +374,17 @@ export function saveWorkspaceRoot(appDataDir: string, workspaceRoot: string): vo
   })
 }
 
-/** A-02：工作区首次初始化 —— 建根目录、_thumbs、_system、数据库 */
+/** A-02：工作区首次初始化 —— 建根目录、_thumbs、_system、数据库、两个收纳区 */
 export function initWorkspace(workspaceRoot: string): void {
   mkdirSync(workspaceRoot, { recursive: true })
   mkdirSync(join(workspaceRoot, '_thumbs'), { recursive: true })
   openDb(workspaceRoot) // 内部会建 _system/media.db
+  // 第 6 批：两个收纳区在"建工作区时"就建好（docs/08 §9），空着也无害
+  mkdirSync(join(workspaceRoot, UNBOUND_DIR), { recursive: true })
+  mkdirSync(join(workspaceRoot, TRASH_DIR), { recursive: true })
+  // 一次性迁移到三级结构（幂等），再补齐项目文件夹
+  ensureLayoutV3(workspaceRoot)
+  syncProjectFolders(workspaceRoot)
 }
 
 // ---------------------------------------------------------------- 建包 A-01
@@ -359,12 +399,24 @@ export function fallbackPackName(d = new Date()): string {
   return `未命名任务-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
 }
 
-/** 文件夹名消毒：去掉 Windows 不允许的字符 */
+/**
+ * 文件夹名消毒：去掉 Windows 不允许的字符，并保证结果**不会被扫描跳过**。
+ *
+ * 关键点（第 6 批新发现的老坑）：目录名以 `_` 或 `.` 开头会被扫描当成软件自己的目录跳过
+ * （`_system` / `_thumbs` / `_已解绑的项目` / `_回收站` 全靠这条规则隐身）。
+ * 所以用户要是把包名叫「_测试」，建出来的文件夹将永远扫不到 —— 包凭空消失。
+ * 开头的 `_` / `.` 一律改写成 `-`，用户还认得出原名。
+ */
 function sanitizeFolderName(name: string): string {
-  return name
+  const cleaned = name
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/[. ]+$/, '')
+    .replace(/^[._]+/, '-') // 开头不能是 . 或 _（否则被扫描跳过）
+    .replace(/[. ]+$/, '') // 结尾不能是点或空格（Windows 会静默去掉，导致库盘不一致）
     .trim()
+
+  const safe = cleaned || '未命名'
+  // Windows 设备名（CON / NUL / COM1…）不能当文件夹名
+  return RESERVED_FOLDER_NAMES.has(safe.toLowerCase()) ? `${safe}-1` : safe
 }
 
 /**
@@ -398,23 +450,41 @@ export interface CreatePackInput {
 /**
  * A-01：新建任务包 —— 硬盘上建文件夹 + 自动建三个子文件夹 + 落库。
  * 名称不校验、不拦截，留空用兜底名（方案 2.2 / 6.0）。
+ *
+ * 第 6 批：包文件夹落在 **`工作区\<项目文件夹>\<包名>`**（三级结构）。
+ * 项目文件夹不存在就先建出来 —— 这样"软件里建项目"与"磁盘上有文件夹"永远一致。
  */
 export function createPack(input: CreatePackInput): PackRow {
   const db = getDb()
+  const root = input.workspaceRoot
   const rawName = (input.name ?? '').trim()
   const name = rawName || fallbackPackName()
   const category = (input.category ?? '').trim() || '未分类'
 
-  // 项目按 ID 关联；没传就落到列表第一个（默认「集团通用」）
+  // 三级结构下"归属哪个项目"直接决定包放进哪个文件夹，所以项目必须先确定
+  ensureFolderNames()
   let projectId = typeof input.projectId === 'number' ? input.projectId : null
+  if (projectId !== null && !db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)) {
+    // 显式指定了不存在的项目 —— 报错而不是静默兜底，
+    // 否则包会落进一个用户没预期的文件夹，事后很难解释
+    throw new Error('指定的项目不存在，无法建包')
+  }
   if (projectId === null) {
     const first = db
-      .prepare('SELECT id FROM projects ORDER BY sort_order, id LIMIT 1')
+      .prepare('SELECT id FROM projects WHERE archived = 0 ORDER BY sort_order, id LIMIT 1')
       .get() as { id: number } | undefined
     projectId = first?.id ?? null
   }
+  if (projectId === null) throw new Error('还没有任何项目，请先新建一个项目')
 
-  const folderPath = uniqueFolderPath(input.workspaceRoot, sanitizeFolderName(name))
+  const proj = db
+    .prepare('SELECT id, folder_name FROM projects WHERE id = ?')
+    .get(projectId) as { id: number; folder_name: string }
+  const projectDir = join(root, proj.folder_name)
+  mkdirSync(projectDir, { recursive: true })
+
+  // 重名判定在**项目文件夹内**做 —— 不同项目可以有同名包，这是三级结构白送的好处
+  const folderPath = uniqueFolderPath(projectDir, sanitizeFolderName(name))
 
   // 建包文件夹 + 三个子文件夹，由软件自动创建，同事不用自己建
   mkdirSync(folderPath, { recursive: true })
@@ -433,7 +503,7 @@ export function createPack(input: CreatePackInput): PackRow {
   const row = db.prepare('SELECT * FROM packs WHERE id = ?').get(info.lastInsertRowid) as PackRow
 
   // 包刚建好就顺手扫一次，把 id 与磁盘对齐
-  scanAll(input.workspaceRoot)
+  scanAll(root)
 
   return row
 }
@@ -447,26 +517,132 @@ export interface ScanResult {
   newFiles: number
 }
 
-/** 判断某个目录是不是一个「包」（含三子文件夹中至少一个，或曾在 packs 表里） */
-function detectRoleFromPath(workspaceRoot: string, absPath: string): {
-  packFolder: string | null
-  role: string
-} {
-  const rel = relative(workspaceRoot, absPath)
-  if (!rel || rel.startsWith('..')) return { packFolder: null, role: UNASSIGNED_ROLE }
-
-  const parts = rel.split(sep)
-  if (parts.length === 1) {
-    // 直接躺在工作区根目录 → 未归属池
-    return { packFolder: null, role: UNASSIGNED_ROLE }
-  }
-
-  const packFolder = join(workspaceRoot, parts[0])
-  const role = parts[1] && FOLDER_TO_ROLE[parts[1]] ? FOLDER_TO_ROLE[parts[1]] : UNASSIGNED_ROLE
-  return { packFolder, role }
+/**
+ * 根目录第一层的分类结果。
+ *
+ * ⚠️ `rootReadable` 是关键安全阀：根目录读失败（移动硬盘没插 / 网络盘断线 / 权限不足）
+ * **不等于**"里面什么都没有"。调用方必须先看这个标志，再决定能不能做删除判定。
+ */
+interface TopDirs {
+  rootReadable: boolean
+  /** 项目文件夹（根目录下、直接子级不含三组名的目录） */
+  projectDirs: string[]
+  /** 游离的包（根目录下、直接子级含三组名的目录）→ 界面归「待归类」 */
+  loosePacks: string[]
 }
 
-/** 递归收集某个包文件夹下所有文件（跳过隐藏系统目录） */
+/** 目录的直接子级里有没有三组文件夹之一 */
+function hasSubFolder(dir: string): boolean {
+  for (const sub of SUB_FOLDERS) {
+    try {
+      if (statSync(join(dir, sub)).isDirectory()) return true
+    } catch {
+      /* 不存在，看下一个 */
+    }
+  }
+  return false
+}
+
+/** 列出某个目录下的直接子目录（跳过下划线 / 点开头的软件目录） */
+function listSubDirs(dir: string): string[] {
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return []
+  }
+  const out: string[] = []
+  for (const name of entries) {
+    if (name.startsWith('_') || name.startsWith('.')) continue
+    const full = join(dir, name)
+    try {
+      if (statSync(full).isDirectory()) out.push(full)
+    } catch {
+      /* 读不到的项跳过 */
+    }
+  }
+  return out
+}
+
+/**
+ * 把工作区根目录的第一层分成「项目文件夹」与「游离的包」。
+ *
+ * 判据只有一条，看**直接子级**：
+ *   根目录下的文件夹 F 直接含 01-成品 / 02-素材 / 03-工程 之一 → F 是【游离的包】
+ *   否则                                                      → F 是【项目文件夹】
+ *
+ * 天然互斥：`项目\` 的直接子级是包文件夹名，只有 `项目\ces\` 的直接子级才含三组名。
+ * 所以不需要在磁盘上留任何标记文件。
+ */
+function listTopDirs(workspaceRoot: string): TopDirs {
+  let entries: string[]
+  try {
+    entries = readdirSync(workspaceRoot)
+  } catch {
+    return { rootReadable: false, projectDirs: [], loosePacks: [] }
+  }
+
+  const projectDirs: string[] = []
+  const loosePacks: string[] = []
+  for (const name of entries) {
+    if (name.startsWith('_') || name.startsWith('.')) continue // _system / _thumbs / 两个收纳区
+    const full = join(workspaceRoot, name)
+    let st: ReturnType<typeof statSync>
+    try {
+      st = statSync(full)
+    } catch {
+      continue
+    }
+    if (!st.isDirectory()) continue
+    if (hasSubFolder(full)) loosePacks.push(full)
+    else projectDirs.push(full)
+  }
+  return { rootReadable: true, projectDirs, loosePacks }
+}
+
+/** p 是否位于 dir 之内（含子级）。按路径段比较，避免 `D:\a` 误配 `D:\abc` */
+function isInside(p: string, dir: string): boolean {
+  const rel = relative(dir, p)
+  return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+/**
+ * 判定一个文件属于哪个包、算哪一类 role（第 6 批的核心：**深度无关**）。
+ *
+ * 先定位「包文件夹」（最长前缀匹配），再在**相对包文件夹的子树**里找第一个匹配三组名的段：
+ *
+ *   项目\包\01-成品\a.png        → 包 = 项目\包，role = 成品
+ *   项目\包\V1\01-成品\a.png     → 包 = 项目\包，role = 成品   ← 将来加版本层，这里一行不用改
+ *   项目\包\随手丢.png           → 包 = 项目\包，role = 未归属（仍挂在包里）
+ *   项目\散文件.txt              → 无包匹配，role = 未归属
+ *
+ * 老实现靠 `parts[0]` 数段数（第 0 段是包、第 1 段是子文件夹），包下插一层就全崩 —— 换掉了。
+ *
+ * `sortedPackDirs` 必须按长度**降序**传入：第一个匹配的就是最长前缀。
+ */
+function locateFile(
+  sortedPackDirs: string[],
+  absPath: string
+): { packPath: string | null; role: string } {
+  let best: string | null = null
+  for (const p of sortedPackDirs) {
+    if (isInside(absPath, p)) {
+      best = p
+      break
+    }
+  }
+  if (!best) return { packPath: null, role: UNASSIGNED_ROLE }
+
+  const parts = relative(best, absPath).split(sep)
+  // 最后一段是文件名，只在它前面的目录段里找三组名
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const role = FOLDER_TO_ROLE[parts[i]]
+    if (role) return { packPath: best, role }
+  }
+  return { packPath: best, role: UNASSIGNED_ROLE }
+}
+
+/** 递归收集某个包文件夹下所有文件（跳过下划线 / 点开头的软件目录） */
 function collectFiles(dir: string, out: string[] = []): string[] {
   let entries: string[]
   try {
@@ -475,7 +651,7 @@ function collectFiles(dir: string, out: string[] = []): string[] {
     return out
   }
   for (const name of entries) {
-    if (name.startsWith('_')) continue // _thumbs / _system 属于软件自己的目录
+    if (name.startsWith('_') || name.startsWith('.')) continue // _thumbs / _system 等
     const full = join(dir, name)
     let st: ReturnType<typeof statSync>
     try {
@@ -489,63 +665,94 @@ function collectFiles(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** A-03 + A-04：全量扫描工作区，登记文件基础信息并归位 */
+/** 直接躺在某个目录下的文件（不递归） */
+function filesDirectlyIn(dir: string): string[] {
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return []
+  }
+  const out: string[] = []
+  for (const name of entries) {
+    if (name.startsWith('_') || name.startsWith('.')) continue
+    const full = join(dir, name)
+    try {
+      if (statSync(full).isFile()) out.push(full)
+    } catch {
+      /* 跳过读不到的项 */
+    }
+  }
+  return out
+}
+
+/**
+ * A-03 + A-04：全量扫描工作区，登记文件基础信息并归位。
+ *
+ * 第 6 批（三级结构）流程：
+ *   1. 根目录第一层 → 项目文件夹 + 游离的包
+ *   2. 项目文件夹的直接子级 → 包文件夹
+ *   3. 磁盘上有的包、库里没有 → 补记录
+ *      （项目文件夹下的挂到该项目；游离包 `project_id` 留空 = 界面上的「待归类」）
+ *   4. 收集文件 → upsert（role 深度无关判定）
+ *   5. 清理：磁盘上已不存在的素材记录 → 摘掉（**绝不删磁盘文件**）
+ *
+ * ⚠️ 安全阀：根目录读失败时**整段跳过删除判定**。
+ * 工作区放在移动硬盘 / 网络盘上、设备没连的时候，"读不到"绝不是"全没了" ——
+ * 一次刷新清空全部索引是这类软件最致命的事故。
+ */
 export function scanAll(workspaceRoot: string): ScanResult {
   const db = getDb()
   const ts = nowIso()
 
-  // 1. 让硬盘上的包文件夹与数据库对齐（同事可能手动建了文件夹）
-  const packFolders: string[] = []
-  let rootEntries: string[] = []
-  try {
-    rootEntries = readdirSync(workspaceRoot)
-  } catch {
-    rootEntries = []
-  }
-  for (const name of rootEntries) {
-    if (name.startsWith('_') || name.startsWith('.')) continue
-    const full = join(workspaceRoot, name)
-    let st: ReturnType<typeof statSync>
-    try {
-      st = statSync(full)
-    } catch {
-      continue
-    }
-    if (!st.isDirectory()) continue
-    packFolders.push(full)
-    const known = db.prepare('SELECT id FROM packs WHERE folder_path = ?').get(full)
-    if (!known) {
-      // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名，归到默认项目）
-      const defaultProject = db
-        .prepare('SELECT id FROM projects ORDER BY sort_order, id LIMIT 1')
-        .get() as { id: number } | undefined
-      db.prepare(
-        `INSERT INTO packs (name, project_id, category, folder_path, created_at, updated_at)
-         VALUES (?, ?, '未分类', ?, ?, ?)`
-      ).run(basename(full), defaultProject?.id ?? null, full, ts, ts)
-    }
+  // 1. 分类根目录第一层，列出所有包文件夹
+  const { rootReadable, projectDirs, loosePacks } = listTopDirs(workspaceRoot)
+
+  ensureFolderNames()
+  const projRows = db
+    .prepare("SELECT id, folder_name FROM projects WHERE folder_name <> ''")
+    .all() as Array<{ id: number; folder_name: string }>
+  const projIdByFolder = new Map<string, number>()
+  for (const p of projRows) {
+    projIdByFolder.set(join(workspaceRoot, p.folder_name).toLowerCase(), p.id)
   }
 
-  // 2. 收集所有文件（含工作区根目录下的散文件 → 未归属池）
+  // 包文件夹 → 归属项目（游离包为空 → 「待归类」）
+  const packPlan: Array<{ dir: string; projectId: number | null }> = []
+  for (const pd of projectDirs) {
+    const pid = projIdByFolder.get(pd.toLowerCase()) ?? null
+    for (const pk of listSubDirs(pd)) packPlan.push({ dir: pk, projectId: pid })
+  }
+  for (const lp of loosePacks) packPlan.push({ dir: lp, projectId: null })
+
+  // 2. 让硬盘上的包文件夹与数据库对齐（同事可能手动建了文件夹）
+  const knownPack = db.prepare('SELECT id FROM packs WHERE folder_path = ?')
+  const insPack = db.prepare(
+    `INSERT INTO packs (name, project_id, category, folder_path, created_at, updated_at)
+     VALUES (?, ?, '未分类', ?, ?, ?)`
+  )
+  for (const p of packPlan) {
+    if (knownPack.get(p.dir)) continue
+    // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名）
+    insPack.run(basename(p.dir), p.projectId, p.dir, ts, ts)
+  }
+
+  // 3. 收集所有文件
   const allFiles: string[] = []
-  for (const name of rootEntries) {
-    if (name.startsWith('_') || name.startsWith('.')) continue
-    const full = join(workspaceRoot, name)
-    let st: ReturnType<typeof statSync>
-    try {
-      st = statSync(full)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) collectFiles(full, allFiles)
-    else if (st.isFile()) allFiles.push(full)
+  for (const p of packPlan) collectFiles(p.dir, allFiles)
+  if (rootReadable) {
+    // 根目录下、项目文件夹下**直接躺着**的散文件 → 未归属池
+    allFiles.push(...filesDirectlyIn(workspaceRoot))
+    for (const pd of projectDirs) allFiles.push(...filesDirectlyIn(pd))
   }
 
-  // 3. 逐个 upsert。铁则：只登记，永不删除用户文件
+  // 4. 逐个 upsert。铁则：只登记，永不删除用户文件
   const packIdByFolder = new Map<string, number>()
   for (const p of db.prepare('SELECT id, folder_path FROM packs').all() as PackRow[]) {
     packIdByFolder.set(p.folder_path, p.id)
   }
+  // 长度降序 → 第一个匹配的就是最长前缀（= 所属包）
+  const sortedPackDirs = packPlan.map((p) => p.dir).sort((a, b) => b.length - a.length)
 
   let newFiles = 0
   let unassigned = 0
@@ -572,12 +779,12 @@ export function scanAll(workspaceRoot: string): ScanResult {
       } catch {
         continue
       }
-      const { packFolder, role } = detectRoleFromPath(workspaceRoot, abs)
+      const { packPath, role } = locateFile(sortedPackDirs, abs)
       if (role === UNASSIGNED_ROLE) unassigned += 1
       if (!existsStmt.get(abs)) newFiles += 1
 
       upsert.run({
-        pack_id: packFolder ? (packIdByFolder.get(packFolder) ?? null) : null,
+        pack_id: packPath ? (packIdByFolder.get(packPath) ?? null) : null,
         role,
         file_name: basename(abs),
         ext: extname(abs).replace(/^\./, '').toLowerCase(),
@@ -592,17 +799,19 @@ export function scanAll(workspaceRoot: string): ScanResult {
   })
   tx(allFiles)
 
-  // 4. 清理：磁盘上已不存在的记录 → 从索引里摘掉（但绝不删磁盘文件）
-  const allKnown = db.prepare('SELECT id, abs_path FROM assets').all() as AssetRow[]
-  const del = db.prepare('DELETE FROM assets WHERE id = ?')
-  const pruneTx = db.transaction(() => {
-    for (const a of allKnown) {
-      if (!existsSync(a.abs_path)) del.run(a.id)
-    }
-  })
-  pruneTx()
+  // 5. 清理：磁盘上已不存在的记录 → 从索引里摘掉（但绝不删磁盘文件）
+  // ⚠️ 安全阀见函数头：读不到 ≠ 不存在，所以这里必须先确认根目录这次读成功了
+  if (rootReadable) {
+    const allKnown = db.prepare('SELECT id, abs_path FROM assets').all() as AssetRow[]
+    const del = db.prepare('DELETE FROM assets WHERE id = ?')
+    db.transaction(() => {
+      for (const a of allKnown) {
+        if (!existsSync(a.abs_path)) del.run(a.id)
+      }
+    })()
+  }
 
-  // 5. 更新包的 updated_at（取包内最新文件时间）
+  // 6. 更新包的 updated_at（取包内最新文件时间）
   db.prepare(
     `UPDATE packs SET updated_at = COALESCE(
        (SELECT MAX(scanned_at) FROM assets WHERE assets.pack_id = packs.id), updated_at)`
@@ -667,6 +876,90 @@ export function claimFiles(
   return { moved, errors }
 }
 
+// ---------------------------------------------------------------- 项目 ↔ 文件夹（第 6 批）
+
+/**
+ * 回填 `projects.folder_name`。幂等，可反复调用。
+ *
+ * 这里（以及下面的 uniqueFolderName）是 `folder_name` 的**唯一生成者** ——
+ * db.ts 只负责建列，不参与取值，避免两处规则打架。
+ */
+export function ensureFolderNames(): void {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT id, name, folder_name FROM projects ORDER BY sort_order, id')
+    .all() as Array<{ id: number; name: string; folder_name: string }>
+
+  // 已有的 folder_name 先占位，避免新回填出来的名字撞上它
+  const taken = new Set<string>()
+  for (const r of rows) if (r.folder_name) taken.add(r.folder_name.toLowerCase())
+
+  const setStmt = db.prepare('UPDATE projects SET folder_name = ? WHERE id = ?')
+  for (const r of rows) {
+    if (r.folder_name) continue
+    const base = sanitizeFolderName(r.name) || `项目${r.id}`
+    let cand = base
+    let i = 2
+    while (taken.has(cand.toLowerCase())) {
+      cand = `${base}-${i}`
+      i += 1
+      if (i > 999) break
+    }
+    taken.add(cand.toLowerCase())
+    setStmt.run(cand, r.id)
+  }
+}
+
+/**
+ * 给一个项目名算可用的文件夹名：消毒 + 避开其他项目已占用的名字。
+ * `excludeId` 传改名的项目自己 —— 它原来占的名字不该算冲突。
+ */
+function uniqueFolderName(name: string, excludeId?: number): string {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT folder_name FROM projects WHERE id <> ?')
+    .all(excludeId ?? -1) as Array<{ folder_name: string }>
+  const taken = new Set(rows.map((r) => r.folder_name.toLowerCase()).filter(Boolean))
+
+  const base = sanitizeFolderName(name) || '未命名项目'
+  let cand = base
+  let i = 2
+  while (taken.has(cand.toLowerCase())) {
+    cand = `${base}-${i}`
+    i += 1
+    if (i > 999) break
+  }
+  return cand
+}
+
+/**
+ * 确保每个项目的文件夹都在磁盘上（"建工作区时预设几个项目"也要有文件夹）。
+ * 返回本次新建的个数。
+ */
+export function syncProjectFolders(workspaceRoot: string): number {
+  ensureFolderNames()
+  const rows = getDb()
+    .prepare("SELECT folder_name FROM projects WHERE folder_name <> ''")
+    .all() as Array<{ folder_name: string }>
+  let made = 0
+  for (const r of rows) {
+    const p = join(workspaceRoot, r.folder_name)
+    if (!existsSync(p)) {
+      mkdirSync(p, { recursive: true })
+      made += 1
+    }
+  }
+  return made
+}
+
+/** 项目名校验：非空、不以 `_` / `.` 开头（否则文件夹会被扫描跳过，项目凭空消失） */
+function checkProjectName(name: string): string | null {
+  const n = (name ?? '').trim()
+  if (!n) return '项目名称不能为空'
+  if (/^[._]/.test(n)) return '项目名不能以下划线或点开头（会跟软件自己的目录冲突）'
+  return null
+}
+
 // ---------------------------------------------------------------- 项目 CRUD
 
 /** 项目列表（含每个项目下的包数）。归档项目默认不给界面，除非显式要 */
@@ -694,18 +987,38 @@ export function getProject(id: number): ProjectRow | undefined {
   return getDb().prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
 }
 
-/** 新建项目。名称必填且不允许重名（重名会让包归属产生歧义） */
+/**
+ * 新建项目。
+ *
+ * 第 6 批：项目名 = 磁盘上的文件夹名（`folder_name`），所以
+ * ① 名称必填、不重名、不能以 `_` / `.` 开头；
+ * ② 传了 workspaceRoot 就**当场把文件夹建出来** ——
+ *    "软件里建项目 → 工作区里出现同名文件夹"，这是三级结构的核心一致性。
+ */
 export function createProject(input: {
   name: string
   color?: string
   note?: string
+  workspaceRoot?: string
 }): { ok: boolean; project?: ProjectRow; error?: string } {
   const db = getDb()
-  const name = (input.name ?? '').trim()
-  if (!name) return { ok: false, error: '项目名称不能为空' }
+  const nameErr = checkProjectName(input.name)
+  if (nameErr) return { ok: false, error: nameErr }
+  const name = input.name.trim()
 
   const dup = db.prepare('SELECT id FROM projects WHERE name = ?').get(name)
   if (dup) return { ok: false, error: `已存在同名项目「${name}」` }
+
+  const folderName = uniqueFolderName(name)
+
+  // 先建文件夹：建不出来就别落记录，免得库里有项目、磁盘上却没地方放包
+  if (input.workspaceRoot) {
+    try {
+      mkdirSync(join(input.workspaceRoot, folderName), { recursive: true })
+    } catch (e) {
+      return { ok: false, error: `建项目文件夹失败：${(e as Error).message}` }
+    }
+  }
 
   const maxOrder = (
     db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM projects').get() as { m: number }
@@ -715,37 +1028,142 @@ export function createProject(input: {
 
   const info = db
     .prepare(
-      `INSERT INTO projects (name, color, note, sort_order, archived, created_at)
-       VALUES (?, ?, ?, ?, 0, ?)`
+      `INSERT INTO projects (name, color, note, sort_order, archived, folder_name, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, ?)`
     )
-    .run(name, color, (input.note ?? '').trim(), maxOrder + 1, ts)
+    .run(name, color, (input.note ?? '').trim(), maxOrder + 1, folderName, ts)
 
   return { ok: true, project: getProject(Number(info.lastInsertRowid)) }
 }
 
-/** 改项目名 / 颜色 / 备注 */
+/**
+ * 把库里所有以 `oldAbs` 为根的路径改成 `newAbs`（项目改名 / 包搬移时用）。
+ *
+ * **按路径段对齐**替换前缀，不做字符串瞎替换 —— 否则 `D:\a` 会误伤 `D:\abc`。
+ * `assets.abs_path` 上是 UNIQUE，所以先全部挪到临时值再写目标值，避免中途撞车。
+ */
+export function reprefixPaths(workspaceRoot: string, oldAbs: string, newAbs: string): number {
+  const db = getDb()
+  const oldRel = relative(workspaceRoot, oldAbs)
+  const newRel = relative(workspaceRoot, newAbs)
+  const hits = (p: string, base: string): boolean =>
+    !!base &&
+    (p.toLowerCase() === base.toLowerCase() || p.toLowerCase().startsWith((base + sep).toLowerCase()))
+
+  const packs = db
+    .prepare('SELECT id, folder_path FROM packs')
+    .all() as Array<{ id: number; folder_path: string }>
+  const assets = db
+    .prepare('SELECT id, abs_path, rel_path FROM assets')
+    .all() as Array<{ id: number; abs_path: string; rel_path: string }>
+
+  const upPack = db.prepare('UPDATE packs SET folder_path = ? WHERE id = ?')
+  const stageAbs = db.prepare('UPDATE assets SET abs_path = ? WHERE id = ?')
+  const upAsset = db.prepare('UPDATE assets SET abs_path = ?, rel_path = ? WHERE id = ?')
+
+  let n = 0
+  db.transaction(() => {
+    for (const p of packs) {
+      if (!hits(p.folder_path, oldAbs)) continue
+      upPack.run(newAbs + p.folder_path.slice(oldAbs.length), p.id)
+      n += 1
+    }
+    const pending: Array<{ id: number; abs: string; rel: string }> = []
+    for (const a of assets) {
+      if (!hits(a.abs_path, oldAbs)) continue
+      pending.push({
+        id: a.id,
+        abs: newAbs + a.abs_path.slice(oldAbs.length),
+        rel: hits(a.rel_path, oldRel) ? newRel + a.rel_path.slice(oldRel.length) : a.rel_path
+      })
+    }
+    for (const x of pending) stageAbs.run(`#migrating#${x.id}`, x.id)
+    for (const x of pending) upAsset.run(x.abs, x.rel, x.id)
+    n += pending.length
+  })()
+  return n
+}
+
+/**
+ * 改项目名 / 颜色 / 备注。
+ *
+ * 第 6 批：名字改了，**磁盘上的项目文件夹跟着改**（否则软件与磁盘不一致，
+ * 正好违背三级结构的初衷）。传了 workspaceRoot 才动磁盘。
+ * 顺序：备份 → rename 文件夹 → 单事务改库；任何一步失败都把文件夹 rename 回来。
+ */
 export function updateProject(
   id: number,
-  patch: { name?: string; color?: string; note?: string }
-): { ok: boolean; project?: ProjectRow; error?: string } {
+  patch: { name?: string; color?: string; note?: string },
+  workspaceRoot?: string
+): {
+  ok: boolean
+  project?: ProjectRow
+  error?: string
+  renamed?: { from: string; to: string; paths: number }
+} {
   const db = getDb()
   const cur = getProject(id)
   if (!cur) return { ok: false, error: '项目不存在' }
 
   const name = patch.name === undefined ? cur.name : patch.name.trim()
-  if (!name) return { ok: false, error: '项目名称不能为空' }
+  const nameErr = checkProjectName(name)
+  if (nameErr) return { ok: false, error: nameErr }
 
   if (name !== cur.name) {
     const dup = db.prepare('SELECT id FROM projects WHERE name = ? AND id <> ?').get(name, id)
     if (dup) return { ok: false, error: `已存在同名项目「${name}」` }
   }
 
-  db.prepare('UPDATE projects SET name = ?, color = ?, note = ? WHERE id = ?').run(
-    name,
-    patch.color === undefined ? cur.color : patch.color.trim() || cur.color,
-    patch.note === undefined ? cur.note : patch.note.trim(),
-    id
-  )
+  const nameChanged = name !== cur.name
+  const oldFolder = cur.folder_name
+  const newFolder = nameChanged ? uniqueFolderName(name, id) : oldFolder
+  const color = patch.color === undefined ? cur.color : patch.color.trim() || cur.color
+  const note = patch.note === undefined ? cur.note : patch.note.trim()
+
+  // 改了名 + 能落磁盘 + 文件夹确实要换 → 连带改文件夹名
+  if (nameChanged && workspaceRoot && oldFolder && newFolder !== oldFolder) {
+    const from = join(workspaceRoot, oldFolder)
+    const to = join(workspaceRoot, newFolder)
+    if (existsSync(to)) {
+      return { ok: false, error: `磁盘上已经有一个「${newFolder}」文件夹，换个名字` }
+    }
+
+    // 这一步动的是用户看得见的目录，先备份数据库
+    backupDb(workspaceRoot)
+
+    let moved = false
+    if (existsSync(from)) {
+      try {
+        renameSync(from, to)
+        moved = true
+      } catch (e) {
+        return { ok: false, error: `文件夹改名失败：${(e as Error).message}` }
+      }
+    }
+
+    try {
+      let paths = 0
+      db.transaction(() => {
+        db.prepare(
+          'UPDATE projects SET name = ?, folder_name = ?, color = ?, note = ? WHERE id = ?'
+        ).run(name, newFolder, color, note, id)
+        paths = reprefixPaths(workspaceRoot, from, to)
+      })()
+      return { ok: true, project: getProject(id), renamed: { from, to, paths } }
+    } catch (e) {
+      // 库没改成 → 文件夹也退回去，别留下"文件夹叫新名、库里还是旧名"的烂摊子
+      if (moved) {
+        try {
+          renameSync(to, from)
+        } catch {
+          /* 退回失败只能如实报错，让用户看到 */
+        }
+      }
+      return { ok: false, error: `改名失败，已尽量回滚：${(e as Error).message}` }
+    }
+  }
+
+  db.prepare('UPDATE projects SET name = ?, color = ?, note = ? WHERE id = ?').run(name, color, note, id)
   return { ok: true, project: getProject(id) }
 }
 
@@ -797,21 +1215,27 @@ export function moveProject(
 
 /**
  * 删除项目。
+ *
  * **不允许出现"包跟着项目一起消失"** —— 项目下有包时，必须由调用方指定去向：
- *   - moveTo: 把包转到另一个项目
- *   - 传 null 则表示「这些包变成未归属」（project_id 置空）
+ *   - `moveTo: N`：把包转到另一个项目（磁盘上同时搬进那个项目的文件夹）
+ *   - `moveTo: null`：这些包「变成未归属」→ 搬到**工作区根目录**，界面上就是「待归类」
+ *
+ * 第 6 批：传了 `workspaceRoot` 才动磁盘。同盘 `rename` 瞬间完成，**只挪不删**。
+ * 搬移失败或改库失败都会把文件夹退回去，不留"库盘不一致"的烂摊子。
  */
 export function removeProject(
   id: number,
-  action: { moveTo: number | null }
-): { ok: boolean; moved: number; error?: string } {
+  action: { moveTo: number | null },
+  workspaceRoot?: string
+): { ok: boolean; moved: number; error?: string; movedToRoot?: boolean } {
   const db = getDb()
   const cur = getProject(id)
   if (!cur) return { ok: false, moved: 0, error: '项目不存在' }
 
-  const packCount = (
-    db.prepare('SELECT COUNT(*) AS c FROM packs WHERE project_id = ?').get(id) as { c: number }
-  ).c
+  const packs = db
+    .prepare('SELECT id, folder_path FROM packs WHERE project_id = ?')
+    .all(id) as Array<{ id: number; folder_path: string }>
+  const packCount = packs.length
 
   // 只剩一个项目时不允许删 —— 否则新建包没有默认归属可选
   const total = (db.prepare('SELECT COUNT(*) AS c FROM projects').get() as { c: number }).c
@@ -819,20 +1243,85 @@ export function removeProject(
     return { ok: false, moved: 0, error: '至少要保留一个项目，无法删除最后一个' }
   }
 
-  if (packCount > 0) {
-    if (action.moveTo !== null) {
-      if (action.moveTo === id) return { ok: false, moved: 0, error: '不能转移到自己' }
-      const target = getProject(action.moveTo)
-      if (!target) return { ok: false, moved: 0, error: '目标项目不存在' }
-      db.prepare('UPDATE packs SET project_id = ? WHERE project_id = ?').run(action.moveTo, id)
-    } else {
-      // 变成未归属：包还在、文件还在，只是不再挂任何项目
-      db.prepare('UPDATE packs SET project_id = NULL WHERE project_id = ?').run(id)
+  let targetProject: ProjectRow | undefined
+  if (packCount > 0 && action.moveTo !== null) {
+    if (action.moveTo === id) return { ok: false, moved: 0, error: '不能转移到自己' }
+    targetProject = getProject(action.moveTo)
+    if (!targetProject) return { ok: false, moved: 0, error: '目标项目不存在' }
+  }
+
+  // ---- 磁盘：把包文件夹搬走（同盘 rename）----
+  const plan: Array<{ packId: number; from: string; to: string }> = []
+  if (workspaceRoot && packCount > 0) {
+    const parent = targetProject
+      ? join(workspaceRoot, targetProject.folder_name)
+      : workspaceRoot // moveTo = null → 搬到工作区根目录 = 待归类
+    mkdirSync(parent, { recursive: true })
+    for (const p of packs) {
+      if (!existsSync(p.folder_path)) continue // 记录悬空，没东西可搬
+      plan.push({ packId: p.id, from: p.folder_path, to: uniqueFolderPath(parent, basename(p.folder_path)) })
+    }
+
+    if (plan.length) {
+      backupDb(workspaceRoot)
+      const done: Array<{ from: string; to: string }> = []
+      for (const step of plan) {
+        try {
+          renameSync(step.from, step.to)
+          done.push({ from: step.from, to: step.to })
+        } catch (e) {
+          for (const d of done.reverse()) {
+            try {
+              renameSync(d.to, d.from)
+            } catch {
+              /* 尽力而为 */
+            }
+          }
+          return { ok: false, moved: 0, error: `搬移包文件夹失败：${(e as Error).message}` }
+        }
+      }
     }
   }
 
-  db.prepare('DELETE FROM projects WHERE id = ?').run(id)
-  return { ok: true, moved: packCount }
+  // ---- 数据库 ----
+  try {
+    db.transaction(() => {
+      for (const step of plan) {
+        db.prepare('UPDATE packs SET folder_path = ? WHERE id = ?').run(step.to, step.packId)
+        reprefixPaths(workspaceRoot!, step.from, step.to)
+      }
+      if (packCount > 0) {
+        if (action.moveTo !== null) {
+          db.prepare('UPDATE packs SET project_id = ? WHERE project_id = ?').run(action.moveTo, id)
+        } else {
+          // 变成未归属：包还在、文件还在，只是不再挂任何项目
+          db.prepare('UPDATE packs SET project_id = NULL WHERE project_id = ?').run(id)
+        }
+      }
+      db.prepare('DELETE FROM projects WHERE id = ?').run(id)
+    })()
+  } catch (e) {
+    for (const step of plan) {
+      try {
+        if (existsSync(step.to)) renameSync(step.to, step.from)
+      } catch {
+        /* 尽力而为 */
+      }
+    }
+    return { ok: false, moved: 0, error: `删除项目失败，已尽量回滚：${(e as Error).message}` }
+  }
+
+  // 项目文件夹搬空了就收掉它 —— 只删空目录，绝不删文件
+  if (workspaceRoot && cur.folder_name) {
+    const dir = join(workspaceRoot, cur.folder_name)
+    try {
+      if (existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir)
+    } catch {
+      /* 删不掉不影响正确性 */
+    }
+  }
+
+  return { ok: true, moved: packCount, movedToRoot: action.moveTo === null }
 }
 
 // ---------------------------------------------------------------- 查询
@@ -1144,6 +1633,154 @@ export function backupDb(workspaceRoot: string): string | null {
     if (existsSync(src + ext)) copyFileSync(src + ext, dst + ext)
   }
   return dst
+}
+
+// ================================================================ 第 6 批 F-01：三级目录结构迁移
+// 对应方案：docs/08-目录结构升级方案.md
+
+export interface LayoutMigration {
+  /** 本次是否真的搬了东西（false = 已迁移过 / 无需迁移） */
+  migrated: boolean
+  /** 搬了几个包 */
+  packs: number
+  error?: string
+}
+
+/**
+ * 一次性把工作区从「两级（包直接躺在根目录）」迁移到「三级（项目 / 包）」。
+ *
+ * 幂等：靠 `meta.layout_version` 标记，加上"源不存在或已在目标位置就跳过"。
+ *
+ * **顺序是刻意这么排的** —— 文件系统没有事务，数据库有：
+ *   ① 备份库 → ② 建项目文件夹 → ③ 全部 rename（记下逆向操作）
+ *   → ④ 单事务改库 → ⑤ 写标记
+ * rename 阶段失败就逐个 rename 回去；改库阶段失败就回滚事务 + 把 rename 退回去。
+ * 任何情况下都能回到起点，不会留下"文件搬了但库没改"的半拉子状态。
+ */
+export function ensureLayoutV3(workspaceRoot: string): LayoutMigration {
+  const db = getDb()
+
+  // folder_name 先补上 —— 迁移目标路径全靠它
+  ensureFolderNames()
+
+  if (getMeta('layout_version') === LAYOUT_VERSION) return { migrated: false, packs: 0 }
+
+  const projRows = db.prepare('SELECT id, folder_name FROM projects').all() as Array<{
+    id: number
+    folder_name: string
+  }>
+  const projById = new Map(projRows.map((p) => [p.id, p]))
+  const packs = db
+    .prepare('SELECT id, folder_path, project_id FROM packs')
+    .all() as Array<{ id: number; folder_path: string; project_id: number | null }>
+
+  // 算迁移计划。两类包不动：
+  //   · 记录悬空（磁盘上没这个文件夹）→ 交给第 7 批的清理逻辑，这里不碰
+  //   · 没有项目归属 → 留在根目录，界面归「待归类」
+  const used = new Set<string>()
+  const plan: Array<{ packId: number; from: string; to: string }> = []
+  for (const p of packs) {
+    const from = p.folder_path
+    if (!from || !existsSync(from)) continue
+    const proj = p.project_id === null ? undefined : projById.get(p.project_id)
+    if (!proj || !proj.folder_name) continue
+
+    const targetDir = join(workspaceRoot, proj.folder_name)
+    if (dirname(from).toLowerCase() === targetDir.toLowerCase()) continue // 已在目标位置
+
+    // 同一批里多个包搬进同一个项目文件夹时，靠内存集合去重（此时磁盘上还没有新名字）
+    const base = basename(from)
+    let to = join(targetDir, base)
+    let i = 2
+    while (existsSync(to) || used.has(to.toLowerCase())) {
+      to = join(targetDir, `${base}-${i}`)
+      i += 1
+      if (i > 999) break
+    }
+    used.add(to.toLowerCase())
+    plan.push({ packId: p.id, from, to })
+  }
+
+  const stamp = new Date().toISOString()
+
+  // 没有要搬的（新工作区 / 已搬过）→ 直接标记就行
+  if (plan.length === 0) {
+    setMeta('layout_version', LAYOUT_VERSION)
+    return { migrated: false, packs: 0 }
+  }
+
+  // ① 备份：迁移动的是用户看得见的目录，先留一手
+  if (!backupDb(workspaceRoot)) {
+    return { migrated: false, packs: 0, error: '备份数据库失败，已中止迁移（磁盘与库都未改动）' }
+  }
+
+  // ② + ③ 建目录、逐个 rename
+  const moved: Array<{ from: string; to: string }> = []
+  for (const step of plan) {
+    try {
+      mkdirSync(dirname(step.to), { recursive: true })
+      renameSync(step.from, step.to)
+      moved.push({ from: step.from, to: step.to })
+    } catch (e) {
+      for (const d of [...moved].reverse()) {
+        try {
+          renameSync(d.to, d.from)
+        } catch {
+          /* 尽力而为 */
+        }
+      }
+      return {
+        migrated: false,
+        packs: 0,
+        error: `搬移「${basename(step.from)}」失败，已全部回滚：${(e as Error).message}`
+      }
+    }
+  }
+
+  // ④ 单事务改库
+  try {
+    db.transaction(() => {
+      for (const step of plan) {
+        db.prepare('UPDATE packs SET folder_path = ? WHERE id = ?').run(step.to, step.packId)
+        reprefixPaths(workspaceRoot, step.from, step.to)
+      }
+    })()
+  } catch (e) {
+    for (const d of moved) {
+      try {
+        if (existsSync(d.to)) renameSync(d.to, d.from)
+      } catch {
+        /* 尽力而为 */
+      }
+    }
+    return { migrated: false, packs: 0, error: `写库失败，已回滚文件夹：${(e as Error).message}` }
+  }
+
+  // ⑤ 写标记（notice 留给界面提示一次，ack 后清掉）
+  setMeta('layout_version', LAYOUT_VERSION)
+  setMeta('layout_notice', JSON.stringify({ at: stamp, packs: plan.length }))
+
+  return { migrated: true, packs: plan.length }
+}
+
+/** 界面提示过迁移结果后调用，保证提示条只出现一次 */
+export function ackLayoutNotice(): void {
+  setMeta('layout_notice', '')
+}
+
+/**
+ * 读「刚迁移过、还没提示」的标记。没有则返回 null。
+ * 只在真正搬了东西之后才有值 —— 新工作区不会打扰用户。
+ */
+export function readLayoutNotice(): { at: string; packs: number } | null {
+  const raw = getMeta('layout_notice')
+  if (!raw) return null
+  try {
+    const o = JSON.parse(raw) as { at?: string; packs?: number }
+    return { at: o.at ?? '', packs: typeof o.packs === 'number' ? o.packs : 0 }
+  } catch {
+    return null
+  }
 }
 
 export interface RewriteResult {
