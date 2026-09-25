@@ -14,7 +14,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps || echo skip-native-rebuild",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
@@ -53,10 +53,32 @@
     "appId": "com.mediabutler",
     "productName": "素材管家",
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "release"
     },
     "files": [
-      "out/**"
+      "**/*",
+      "!src/**",
+      "!docs/**",
+      "!build/**",
+      "!resources/ffmpeg/**",
+      "!_dl/**",
+      "!_shotapp/**",
+      "!素材工作区/**",
+      "!release*/**",
+      "!*.md",
+      "!*.log*",
+      "!*.tsbuildinfo",
+      "!*.png",
+      "!.vscode/**",
+      "!.eslintcache",
+      "!.editorconfig",
+      "!.prettierignore",
+      "!.prettierrc.yaml",
+      "!electron.vite.config.*",
+      "!eslint.config.mjs",
+      "!tsconfig*.json",
+      "!accept.*"
     ],
     "extraResources": [
       {
@@ -65,11 +87,34 @@
       }
     ],
     "asarUnpack": [
-      "**/node_modules/@napi-rs/canvas/**",
-      "**/node_modules/pdfjs-dist/**"
+      "**/node_modules/@napi-rs/**",
+      "**/node_modules/@img/**",
+      "**/node_modules/pdfjs-dist/**",
+      "**/node_modules/better-sqlite3/**",
+      "**/*.node",
+      "**/*.dll"
     ],
+    "npmRebuild": false,
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "executableName": "MediaButler"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "shortcutName": "素材管家",
+      "uninstallDisplayName": "素材管家",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "素材管家-${version}-安装包.${ext}",
+      "differentialPackage": false
     }
   }
 }

@@ -2,7 +2,7 @@
  * 第 1 批验收脚本 —— 按 docs/03-MVP入库功能方案.md 5.3 节主线，用真实文件跑一遍。
  * 调用的是 main 侧同一套业务函数（workspace.ts / db.ts），验证逻辑与界面一致。
  */
-import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, readFileSync } from 'fs'
 import { join } from 'path'
 import {
   initWorkspace,
@@ -19,7 +19,15 @@ import {
   moveProject,
   SUB_FOLDERS,
   UNASSIGNED_ROLE,
-  listAssets
+  listAssets,
+  // 第 4 批：工作区择址兜底
+  resolveWorkspace,
+  isUsableWorkspace,
+  getWorkspaceState,
+  resetWorkspaceState,
+  saveWorkspaceRoot,
+  DEFAULT_WORKSPACE,
+  FALLBACK_FOLDER_NAME
 } from './src/main/workspace'
 import {
   ensureThumbsForAssets,
@@ -1250,6 +1258,94 @@ async function main(): Promise<void> {
 
   if (sugTag.tag) removeTag(sugTag.tag.id)
   removeTag(mk1.tag!.id)
+
+  // ============ 第 4 批 D-01：工作区择址兜底（方案 06 第 6 节） ============
+  log('\n[22] 第 4 批 D-01：工作区择址兜底 + 绝不偷偷改用户位置')
+
+  // 全程用一套独立临时目录，绝不碰用户真实工作区
+  const wsTestRoot = join('D:\\_accept_ws', `wstest_${RUN_ID}`)
+  const appDataA = join(wsTestRoot, 'appdata_a')
+  const appDataB = join(wsTestRoot, 'appdata_b')
+  const appDataC = join(wsTestRoot, 'appdata_c')
+  const docsDir = join(wsTestRoot, 'docs')
+  const goodDir = join(wsTestRoot, 'good')
+  mkdirSync(docsDir, { recursive: true })
+
+  // (1) 可用性判定
+  ok(isUsableWorkspace(goodDir), '可写目录 → 判定为可用')
+  ok(existsSync(join(goodDir, '_system')), '探针顺带把 _system 建好（数据库就放这儿）')
+  ok(!existsSync(join(goodDir, '_system', '.write_probe')), '探针文件用完即删，不留痕')
+
+  // (2) 不可用：父级是文件，mkdir 必然失败
+  const blocker = join(wsTestRoot, 'blocker.txt')
+  writeFileSync(blocker, 'x', 'utf-8')
+  ok(!isUsableWorkspace(join(blocker, 'sub')), '目录建不出来 → 判定为不可用（不会误判成可用）')
+
+  // (3) 首次启动 + 首选位置可用 → 用首选位置，并落配置
+  mkdirSync(appDataA, { recursive: true })
+  const stA = resolveWorkspace(appDataA, docsDir, goodDir)
+  ok(stA.ok && stA.root === goodDir, `首次启动用首选位置（${stA.root}）`)
+  ok(
+    existsSync(join(appDataA, 'workspace.json')) &&
+      JSON.parse(readFileSync(join(appDataA, 'workspace.json'), 'utf-8')).workspaceRoot === goodDir,
+    '首次择址结果已写进配置文件'
+  )
+
+  // (4) 首次启动 + 首选位置不可用 → 自动落到「文档」
+  mkdirSync(appDataB, { recursive: true })
+  const stB = resolveWorkspace(appDataB, docsDir, join(blocker, 'sub'))
+  ok(stB.ok, '首选位置不可用时仍能拿到可用工作区（自动兜底）')
+  ok(
+    stB.root === join(docsDir, FALLBACK_FOLDER_NAME),
+    `兜底落到「文档」下（${stB.root}）`
+  )
+
+  // (5) 【铁则】已有配置但位置连不上 → 绝不偷偷改配置
+  mkdirSync(appDataC, { recursive: true })
+  const deadRoot = join(blocker, 'dead')
+  saveWorkspaceRoot(appDataC, deadRoot)
+  const cfgBefore = readFileSync(join(appDataC, 'workspace.json'), 'utf-8')
+  const stC = resolveWorkspace(appDataC, docsDir)
+  ok(!stC.ok, '已配置的位置连不上 → 如实报告不可用')
+  ok(stC.root === deadRoot, '不可用时仍返回用户原位置（不偷偷换地方）')
+  ok(
+    readFileSync(join(appDataC, 'workspace.json'), 'utf-8') === cfgBefore,
+    '【铁则】配置文件一个字都没被改'
+  )
+  ok(stC.note.length > 0, `给出人看得懂的原因：${stC.note}`)
+
+  // (6) 缓存与重置
+  const c1 = getWorkspaceState(appDataA, docsDir)
+  ok(c1 === getWorkspaceState(appDataA, docsDir), '工作区状态进程内缓存（不必每次调用都写探针）')
+  resetWorkspaceState()
+  ok(getWorkspaceState(appDataA, docsDir) !== c1, 'reset 后重新解析（供「更改位置 / 重试」使用）')
+  resetWorkspaceState()
+
+  // (7) 打包配置契约 —— 锁住本批结论，防止以后被改回去
+  const pkg = JSON.parse(readFileSync('package.json', 'utf-8'))
+  const b = pkg.build || {}
+  ok(/^\d+\.\d+\.\d+$/.test(pkg.version), `版本号取自 package.json：${pkg.version}`)
+  ok(b.productName === '素材管家', 'productName = 素材管家')
+  ok(b.appId === 'com.mediabutler', 'appId 与 setAppUserModelId 一致（com.mediabutler）')
+  ok(
+    b.npmRebuild === false,
+    '【核心】npmRebuild=false —— 原生模块是 N-API 预编译，本机无 VS 工具链'
+  )
+  ok(!existsSync('electron-builder.yml'), '【核心】出包配置只有一处：electron-builder.yml 已删除')
+  ok(
+    Array.isArray(b.files) && b.files.includes('!resources/ffmpeg/**'),
+    '排除 resources/ffmpeg 免重复打包（否则安装包虚胖 267MB）'
+  )
+  ok(
+    Array.isArray(b.extraResources) &&
+      b.extraResources.some((x: { from?: string }) => x.from === 'resources/ffmpeg'),
+    'FFmpeg 走 extraResources 单独一份'
+  )
+  ok(b.win?.executableName === 'MediaButler', '主程序 exe 用 ASCII 名（中文名留给快捷方式）')
+  ok(b.nsis?.perMachine === false, '免管理员权限安装（perMachine=false）')
+  ok(b.directories?.output === 'release', '出包产物落在 release/，与 out/ 编译产物分开')
+
+  hardRm(wsTestRoot)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

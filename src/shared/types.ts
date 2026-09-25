@@ -60,6 +60,12 @@ export interface AssetItem {
 
 export interface WsInfo {
   workspaceRoot: string
+  /** 工作区当前是否可用；不可用时界面顶部给提示条，其余数据为空 */
+  workspaceOk: boolean
+  /** 不可用的原因说明（可用时为空串） */
+  workspaceNote: string
+  /** 软件版本号，唯一出处是 package.json 的 version */
+  appVersion: string
   projects: ProjectWithCount[]
   projectColors: string[]
   categories: string[]
@@ -138,8 +144,16 @@ export interface SuggestTagsResult {
 }
 
 export interface Api {
-  wsInfo: () => Promise<WsInfo>
-  wsSetRoot: (root: string) => Promise<{ ok: boolean; workspaceRoot: string }>
+  /** refresh=true 时重新探测工作区（用于"插上移动硬盘后重试"） */
+  wsInfo: (opts?: { refresh?: boolean }) => Promise<WsInfo>
+  wsSetRoot: (root: string) => Promise<{ ok: boolean; workspaceRoot: string; error?: string }>
+  /** 弹系统选目录对话框，选中后切换工作区（取消时 canceled=true） */
+  wsPickRoot: () => Promise<{
+    ok: boolean
+    canceled?: boolean
+    workspaceRoot?: string
+    error?: string
+  }>
   wsOpenRoot: () => Promise<{ ok: boolean; error?: string }>
 
   // 项目维护

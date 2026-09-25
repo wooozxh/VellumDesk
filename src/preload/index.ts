@@ -7,8 +7,9 @@ import { electronAPI } from '@electron-toolkit/preload'
  */
 const api = {
   // 工作区
-  wsInfo: () => ipcRenderer.invoke('ws:info'),
+  wsInfo: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('ws:info', opts),
   wsSetRoot: (root: string) => ipcRenderer.invoke('ws:setRoot', root),
+  wsPickRoot: () => ipcRenderer.invoke('ws:pickRoot'),
   wsOpenRoot: () => ipcRenderer.invoke('ws:openRoot'),
 
   // 项目维护

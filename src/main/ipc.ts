@@ -1,4 +1,4 @@
-import { ipcMain, shell, app } from 'electron'
+import { ipcMain, shell, app, dialog } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { openDb, getDb } from './db'
@@ -11,6 +11,9 @@ import {
   getPackDetail,
   countUnassigned,
   getWorkspaceRoot,
+  getWorkspaceState,
+  resetWorkspaceState,
+  isUsableWorkspace,
   initWorkspace,
   saveWorkspaceRoot,
   listProjectsWithCount,
@@ -50,19 +53,34 @@ import {
 
 export function registerIpc(): void {
   const appData = app.getPath('userData')
+  const documentsDir = app.getPath('documents')
 
   // ---------- 工作区 ----------
-  ipcMain.handle('ws:info', () => {
-    const root = getWorkspaceRoot(appData)
-    initWorkspace(root)
-    return {
-      workspaceRoot: root,
-      projects: listProjectsWithCount(),
+  /**
+   * 工作区信息。这里要区分两种「不可用」（方案 06 第 6 节）：
+   * - 首次启动、还没有任何配置 → 已在 resolveWorkspace 里自动择址，正常情况必然可用
+   * - 已有配置但位置连不上（移动硬盘拔了 / 盘符没了）→ 绝不偷偷换位置，只如实报告 + 界面给提示
+   */
+  ipcMain.handle('ws:info', (_e, opts?: { refresh?: boolean }) => {
+    // refresh 用于「插上移动硬盘后重试」：丢掉缓存重新探测一次
+    if (opts?.refresh) resetWorkspaceState()
+    const st = getWorkspaceState(appData, documentsDir)
+    const base = {
+      workspaceRoot: st.root,
+      workspaceOk: st.ok,
+      workspaceNote: st.note,
+      appVersion: app.getVersion(),
       projectColors: [...PROJECT_COLORS],
       categories: [...CATEGORIES],
-      subFolders: [...SUB_FOLDERS],
-      unassigned: countUnassigned()
+      subFolders: [...SUB_FOLDERS]
     }
+    if (!st.ok) {
+      // 工作区不可用时数据库根本打不开，直接返回空数据交给界面提示，
+      // 不让异常冒到渲染进程控制台
+      return { ...base, projects: [], unassigned: 0 }
+    }
+    initWorkspace(st.root)
+    return { ...base, projects: listProjectsWithCount(), unassigned: countUnassigned() }
   })
 
   // ---------- 项目维护 ----------
@@ -104,9 +122,36 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('ws:setRoot', (_e, root: string) => {
+    if (!root || !isUsableWorkspace(root)) {
+      return { ok: false, workspaceRoot: root, error: '这个位置不能写入，请换一个目录' }
+    }
     saveWorkspaceRoot(appData, root)
+    resetWorkspaceState()
     initWorkspace(root)
     return { ok: true, workspaceRoot: root }
+  })
+
+  /**
+   * 「更改位置」：弹系统选目录对话框，选中后切过去。
+   * 如果选中的是一个已经有素材的旧工作区目录，原来的包 / 标签 / 登记信息会直接读出来
+   * （媒体库就存在该目录的 `_system/media.db` 里）——
+   * 这就是需求文档第 365 条说的「换电脑或换盘后指过去即恢复，无需重新登记」。
+   */
+  ipcMain.handle('ws:pickRoot', async () => {
+    const r = await dialog.showOpenDialog({
+      title: '选择素材工作区位置',
+      buttonLabel: '用这里',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+    const picked = r.filePaths[0]
+    if (!isUsableWorkspace(picked)) {
+      return { ok: false, error: '这个位置不能写入，换一个试试（别选只读盘或系统目录）' }
+    }
+    saveWorkspaceRoot(appData, picked)
+    resetWorkspaceState()
+    initWorkspace(picked)
+    return { ok: true, workspaceRoot: picked }
   })
 
   ipcMain.handle('ws:openRoot', async () => {

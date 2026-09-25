@@ -40,25 +40,127 @@ export const UNASSIGNED_ROLE = '未归属'
 // ---------------------------------------------------------------- 工作区路径
 
 /**
- * 工作区根目录固定 D:\素材工作区（方案 6.0）。
+ * 工作区根目录首选 D:\素材工作区（方案 6.0）。
  * 路径记在配置文件里而不是数据库里 —— 数据库本身就在工作区内。
  */
 export const DEFAULT_WORKSPACE = 'D:\\素材工作区'
 
-export function getWorkspaceRoot(appDataDir: string): string {
+/** 首次启动时首选位置不可用，就落到系统「文档」下的同名文件夹（方案 06 第 6 节） */
+export const FALLBACK_FOLDER_NAME = '素材工作区'
+
+export interface WorkspaceState {
+  /** 本次使用的工作区根目录 */
+  root: string
+  /** 该目录当前是否可用（能创建 + 能写入） */
+  ok: boolean
+  /** 不可用时的原因说明；可用时为空串 */
+  note: string
+}
+
+/** 系统「文档」目录的兜底推导 —— 不依赖 electron，验收脚本可直接调用 */
+function fallbackDocumentsDir(): string {
+  const home = process.env.USERPROFILE || process.env.HOME || ''
+  return home ? join(home, 'Documents') : DEFAULT_WORKSPACE
+}
+
+/**
+ * 判断某个目录能不能当工作区用：能建目录、能写入文件。
+ *
+ * 只用 existsSync 不够 —— 目录可能存在但不让写（只读盘、U 盘写保护、权限不足）。
+ * 探针写在 `_system` 里（那本来就是软件自己的目录，扫描时会跳过），用完立刻删除，
+ * 不在用户看得见的地方留任何东西。
+ */
+export function isUsableWorkspace(root: string): boolean {
+  try {
+    mkdirSync(join(root, '_system'), { recursive: true })
+    const probe = join(root, '_system', '.write_probe')
+    writeFileSync(probe, '', 'utf-8')
+    unlinkSync(probe)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function readConfiguredRoot(cfgPath: string): string | null {
+  if (!existsSync(cfgPath)) return null
+  try {
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'))
+    if (cfg && typeof cfg.workspaceRoot === 'string' && cfg.workspaceRoot.trim()) {
+      return cfg.workspaceRoot
+    }
+  } catch {
+    // 配置坏了当作「没有配置」处理
+  }
+  return null
+}
+
+/**
+ * 决定本次启动用哪个工作区，并报告它是否可用。
+ *
+ * 铁则「软件永远不悄悄扔掉用户放的东西」在这里的落地方式：
+ * **只在「首次启动、还没有任何配置」时才自动择址**；
+ * 一旦位置已定（哪怕是历史默认值），就不再自作主张改它 ——
+ * 否则移动硬盘没插上时软件悄悄换到「文档」，用户会看到一个空库，以为素材全丢了。
+ */
+export function resolveWorkspace(
+  appDataDir: string,
+  documentsDir?: string,
+  preferredRoot: string = DEFAULT_WORKSPACE
+): WorkspaceState {
   const cfgPath = join(appDataDir, 'workspace.json')
-  if (existsSync(cfgPath)) {
-    try {
-      const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'))
-      if (cfg && typeof cfg.workspaceRoot === 'string' && cfg.workspaceRoot.trim()) {
-        return cfg.workspaceRoot
-      }
-    } catch {
-      // 配置坏了就回落到默认值，不阻断启动
+  const configured = readConfiguredRoot(cfgPath)
+
+  if (configured) {
+    if (isUsableWorkspace(configured)) return { root: configured, ok: true, note: '' }
+    return {
+      root: configured,
+      ok: false,
+      note: '该位置当前不可用（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）'
     }
   }
-  saveWorkspaceRoot(appDataDir, DEFAULT_WORKSPACE)
-  return DEFAULT_WORKSPACE
+
+  // 首次启动：先试首选位置，不可用再落到「文档」
+  const candidates = [
+    preferredRoot,
+    join(documentsDir || fallbackDocumentsDir(), FALLBACK_FOLDER_NAME)
+  ]
+  for (const c of candidates) {
+    if (isUsableWorkspace(c)) {
+      saveWorkspaceRoot(appDataDir, c)
+      return { root: c, ok: true, note: '' }
+    }
+  }
+  // 两个候选都不可用：仍报首选位置，把决定权交给界面提示与用户手动指定
+  return {
+    root: preferredRoot,
+    ok: false,
+    note: '既定位置与「文档」目录都无法创建，请点「更改位置」手动指定一个可写目录'
+  }
+}
+
+/**
+ * 工作区状态在进程内只解析一次。
+ * 一是避免每个 IPC 调用都去写探针文件，二是保证同一次运行里路径不跳变。
+ * 用户手动改过位置后（ws:setRoot / ws:pickRoot）调用 resetWorkspaceState 让它重新解析。
+ */
+let cachedState: WorkspaceState | null = null
+
+export function getWorkspaceState(
+  appDataDir: string,
+  documentsDir?: string
+): WorkspaceState {
+  if (!cachedState) cachedState = resolveWorkspace(appDataDir, documentsDir)
+  return cachedState
+}
+
+export function resetWorkspaceState(): void {
+  cachedState = null
+}
+
+/** 兼容旧调用：只要路径，不关心可用状态 */
+export function getWorkspaceRoot(appDataDir: string, documentsDir?: string): string {
+  return getWorkspaceState(appDataDir, documentsDir).root
 }
 
 export function saveWorkspaceRoot(appDataDir: string, workspaceRoot: string): void {

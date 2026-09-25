@@ -36,6 +36,8 @@ const SIDE_KEY = 'media.sideWidth'
 
 export default function App(): React.JSX.Element {
   const [info, setInfo] = useState<WsInfo | null>(null)
+  /** ws:info 是否已经查过一次 —— 查过之前不要贸然去敲数据库 */
+  const [wsReady, setWsReady] = useState(false)
   const [view, setView] = useState<ViewMode>('packs')
   const [keyword, setKeyword] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
@@ -85,11 +87,19 @@ export default function App(): React.JSX.Element {
 
   // ---------------- 数据加载 ----------------
 
-  const loadWs = useCallback(async (): Promise<WsInfo> => {
-    const i = await window.api.wsInfo()
+  const loadWs = useCallback(async (refresh = false): Promise<WsInfo> => {
+    const i = await window.api.wsInfo(refresh ? { refresh: true } : undefined)
     setInfo(i)
+    setWsReady(true)
     return i
   }, [])
+
+  /**
+   * 只有工作区确实可用，才允许下面那些「自动加载」的副作用动手。
+   * 理由：工作区连不上（移动硬盘没插）时数据库根本打不开，
+   * 那几条副作用会一路把 ENOTDIR 抛到控制台 —— 界面已有提示条，这里统一闸住。
+   */
+  const wsLive = wsReady && info?.workspaceOk === true
 
   /** 第 3 批：拉 5 个维度及其标签（带使用计数） */
   const loadTags = useCallback(async (): Promise<DimensionGroup[]> => {
@@ -129,7 +139,9 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     ;(async () => {
-      await loadWs()
+      const i = await loadWs()
+      // 工作区连不上时（盘没挂载）数据库根本打不开，直接不加载，交给顶部提示条
+      if (!i.workspaceOk) return
       await loadTags()
       await loadPacks()
       await loadAssets('', false, [])
@@ -137,35 +149,80 @@ export default function App(): React.JSX.Element {
   }, [loadWs, loadTags, loadPacks, loadAssets])
 
   useEffect(() => {
+    if (!wsLive) return
     if (view === 'packs') loadPacks()
     else loadAssets(keyword, unassignedOnly, selectedTagIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, unassignedOnly])
+  }, [view, unassignedOnly, wsLive])
 
   useEffect(() => {
-    if (view !== 'files') return
+    if (!wsLive || view !== 'files') return
     const t = setTimeout(() => loadAssets(keyword, unassignedOnly, selectedTagIds), 220)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword])
+  }, [keyword, wsLive])
 
   // 标签勾选变化：左侧筛选立即生效
   useEffect(() => {
+    if (!wsLive) return
     if (view !== 'files') setView('files')
     loadAssets(keyword, unassignedOnly, selectedTagIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTagIds])
+  }, [selectedTagIds, wsLive])
 
   const reloadAll = useCallback(async (): Promise<void> => {
-    await loadWs()
+    const i = await loadWs()
+    if (!i.workspaceOk) return
     await loadTags()
     await loadPacks()
     await loadAssets(keyword, unassignedOnly, selectedTagIds)
   }, [loadWs, loadTags, loadPacks, loadAssets, keyword, unassignedOnly, selectedTagIds])
 
+  // ---------------- 工作区不可用时的两个出口 ----------------
+
+  /** 重试：丢掉缓存重新探测一次（插上移动硬盘后用） */
+  const doRetryWorkspace = async (): Promise<void> => {
+    const i = await loadWs(true)
+    if (!i.workspaceOk) {
+      toast('还是连不上，检查一下磁盘或移动硬盘', 'err')
+      return
+    }
+    await loadTags()
+    await loadPacks()
+    await loadAssets('', false, [])
+    toast('工作区已恢复', 'ok')
+  }
+
+  /** 更改位置：选一个新目录当工作区（选到已有素材的旧工作区，数据会直接读出来） */
+  const doPickRoot = async (): Promise<void> => {
+    try {
+      const r = await window.api.wsPickRoot()
+      if (r.canceled) return
+      if (!r.ok) {
+        toast(r.error || '没能切换工作区', 'err')
+        return
+      }
+      await reloadAll()
+      toast(`工作区已切到：${r.workspaceRoot}`, 'ok')
+    } catch (e) {
+      toast('切换工作区失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  /**
+   * 工作区连不上时，把「会碰文件/数据库」的动作拦下，给一句人话而不是 ENOTDIR 天书。
+   * 只拦这两个顶栏按钮 —— 其余动作（认领、打标签等）在没有素材时本来就点不到。
+   */
+  const requireWs = (): boolean => {
+    if (info?.workspaceOk) return true
+    toast('素材工作区当前连不上，先点上方提示条里的「重试」或「更改位置」', 'err')
+    return false
+  }
+
   // ---------------- A-10 刷新扫描 ----------------
 
   const doRefresh = async (): Promise<void> => {
+    if (!requireWs()) return
     setScanning(true)
     try {
       const r = await window.api.refreshScan()
@@ -190,6 +247,7 @@ export default function App(): React.JSX.Element {
     projectId: number | null
     category: string
   }): Promise<void> => {
+    if (!requireWs()) return
     try {
       const r = await window.api.createPack(v)
       setShowNew(false)
@@ -598,6 +656,24 @@ export default function App(): React.JSX.Element {
         />
 
         <div className="main">
+          {info && !info.workspaceOk && (
+            <div className="wsbanner">
+              <span className="ico">⚠</span>
+              <div className="txt">
+                <div className="t">素材工作区连不上，里面的东西一件没动</div>
+                <div className="s">
+                  {info.workspaceRoot}
+                  {info.workspaceNote ? ` —— ${info.workspaceNote}` : ''}
+                </div>
+              </div>
+              <button className="btn" onClick={doRetryWorkspace}>
+                重试
+              </button>
+              <button className="btn primary" onClick={doPickRoot}>
+                更改位置
+              </button>
+            </div>
+          )}
           <div className="main-scroll">
             {view === 'packs' ? (
               shownPacks.length === 0 ? (
@@ -760,6 +836,10 @@ export default function App(): React.JSX.Element {
               当前：{currentProjectLabel}
               <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
               工作区 <span className="path">{info?.workspaceRoot}</span>
+              <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
+              <span title="软件版本号（出处：package.json 的 version）">
+                v{info?.appVersion ?? '—'}
+              </span>
             </span>
           </div>
         </div>
