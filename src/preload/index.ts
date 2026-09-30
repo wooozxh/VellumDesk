@@ -102,6 +102,20 @@ const api = {
   tagsOfAssets: (assetIds: number[]) => ipcRenderer.invoke('tag:ofAssets', assetIds),
   suggestTags: (assetIds: number[]) => ipcRenderer.invoke('tag:suggest', assetIds),
 
+  // 第 13 批：工单（docs/15）
+  ticketStatus: () => ipcRenderer.invoke('ticket:status'),
+  ticketSaveConfig: (input: {
+    linkOrDocid: string
+    sheets: Array<{ title: string; type: 'print' | 'digital'; enabled: boolean }>
+  }) => ipcRenderer.invoke('ticket:saveConfig', input),
+  ticketSync: () => ipcRenderer.invoke('ticket:sync'),
+  ticketList: (view?: 'all' | 'mine' | 'unassigned' | 'history' | 'reassigned' | 'pending' | 'abnormal') =>
+    ipcRenderer.invoke('ticket:list', view),
+  ticketDetail: (ticketNo: string) => ipcRenderer.invoke('ticket:detail', ticketNo),
+  ticketConfirmBatch: () => ipcRenderer.invoke('ticket:confirmBatch'),
+  ticketCreateTask: (ticketNo: string) => ipcRenderer.invoke('ticket:createTask', ticketNo),
+  ticketOpenApproval: (url: string) => ipcRenderer.invoke('ticket:openApproval', url),
+
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),

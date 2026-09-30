@@ -40,6 +40,8 @@ export type IconName =
   | 'external'
   | 'filter'
   | 'layers'
+  | 'doc'
+  | 'gear'
 
 const ICONS: Record<IconName, React.JSX.Element> = {
   /** 放大镜（搜索素材名 / 标签） */
@@ -177,6 +179,21 @@ const ICONS: Record<IconName, React.JSX.Element> = {
       <path d="M12 3.2 20.6 8 12 12.8 3.4 8Z" />
       <path d="M3.4 12.6 12 17.4l8.6-4.8" />
       <path d="M3.4 16.6 12 21.4l8.6-4.8" />
+    </>
+  ),
+  /** 文档（第 13 批：工单详情弹窗标题） */
+  doc: (
+    <>
+      <path d="M6 2.8h8.4L19 7.4v13.8H6Z" />
+      <path d="M14.2 2.8v4.8H19" />
+      <path d="M9 12.4h7M9 15.8h7M9 8.8h3" />
+    </>
+  ),
+  /** 齿轮（第 13 批：工单设置弹窗标题） */
+  gear: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.2 5.2l2 2M16.8 16.8l2 2M18.8 5.2l-2 2M7.2 16.8l-2 2" />
     </>
   )
 }

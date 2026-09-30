@@ -25,8 +25,10 @@ import { RelocateModal } from './components/RelocateModal'
 import { TagPanel } from './components/TagPanel'
 import { TagManagerModal } from './components/TagManagerModal'
 import { TagPickerModal } from './components/TagPickerModal'
+// 第 13 批：工单视图（自包含组件 —— 新视图不再往本文件堆状态，给 App 减负）
+import { TicketsView } from './components/TicketsView'
 
-type ViewMode = 'packs' | 'files'
+type ViewMode = 'packs' | 'files' | 'tickets'
 
 interface ToastMsg {
   id: number
@@ -808,28 +810,34 @@ export default function App(): React.JSX.Element {
           {COPY.app.name}
         </div>
 
-        <div className="search-wrap">
-          <span className="icon">
-            <Icon name="search" size={13} />
-          </span>
-          <input
-            type="text"
-            value={keyword}
-            placeholder={view === 'packs' ? COPY.top.searchPack : COPY.top.searchFile}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-        </div>
+        {view !== 'tickets' && (
+          <div className="search-wrap">
+            <span className="icon">
+              <Icon name="search" size={13} />
+            </span>
+            <input
+              type="text"
+              value={keyword}
+              placeholder={view === 'packs' ? COPY.top.searchPack : COPY.top.searchFile}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+          </div>
+        )}
 
         <div className="spacer" />
 
         <div className="tabs">
           <button className={view === 'packs' ? 'on' : ''} onClick={() => setView('packs')}>
-            
+
             {COPY.top.viewPacks}
           </button>
           <button className={view === 'files' ? 'on' : ''} onClick={() => setView('files')}>
-            
+
             {COPY.top.viewFiles}
+          </button>
+          <button className={view === 'tickets' ? 'on' : ''} onClick={() => setView('tickets')}>
+
+            {COPY.ticket.viewTab}
           </button>
         </div>
 
@@ -850,6 +858,13 @@ export default function App(): React.JSX.Element {
 
       {/* 主体 */}
       <div className="body">
+        {/* 第 13 批：工单视图独占主体（自带筛选与同步，不复用左栏） */}
+        {view === 'tickets' ? (
+          <div className="main tk-main">
+            <TicketsView onToast={(m) => toast(m)} />
+          </div>
+        ) : (
+          <>
         <div className="side" style={{ width: sideWidth }}>
           {/* 第 3 批：维度式标签筛选；第 7 批起标签计数跟随当前项目范围 */}
           <TagPanel
@@ -1395,6 +1410,8 @@ export default function App(): React.JSX.Element {
             </span>
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* 弹窗 */}

@@ -329,6 +329,108 @@ export interface SuggestTagsResult {
   [assetId: number]: number[]
 }
 
+// ---------------- 第 13 批：工单（docs/15） ----------------
+
+export type TicketType = 'print' | 'digital'
+
+/** 工单列表一行（工单面板用；列表筛选在主进程做，257+ 条也不卡） */
+export interface TicketListItem {
+  id: number
+  ticketNo: string
+  ticketType: TicketType
+  title: string | null
+  approvalState: string | null
+  designerName: string | null
+  projectName: string | null
+  dueDate: string | null
+  submitTime: string | null
+  /** 历史单（首次同步快照之前就在表里的，永不自动建任务） */
+  isHistory: boolean
+  /** 子表重建后的新单，等「确认这批新单」放行 */
+  needConfirm: boolean
+  /** 表里这行被删了（留底） */
+  rowGone: boolean
+  dupWarn: boolean
+  reassignedTo: string | null
+  /** 关联任务（null = 没建） */
+  packId: number | null
+  packName: string | null
+  /** 任务所属项目（null = 待归类）；「项目未匹配」= 工单有 project_name 但 pack 还没建 */
+  packProjectId: number | null
+}
+
+/** 工单详情（点一行弹出来；比列表多的字段全在这） */
+export interface TicketDetail extends TicketListItem {
+  applicantName: string | null
+  department: string | null
+  purpose: string | null
+  sizeText: string | null
+  printQty: number | null
+  materialForm: string | null
+  useScene: string | null
+  doneTime: string | null
+  remark: string | null
+  sourceUrl: string | null
+  approvalUrl: string | null
+  receiverName: string | null
+  receiverPhone: string | null
+  deliverDate: string | null
+  reviewerNames: string | null
+  materialCategory: string | null
+  /** 本机视角：这是不是我的单（设计师 userid = 本机身份） */
+  mine: boolean
+  /** 关联任务的物料概况（文件数 / 最近更新），没建任务为 null */
+  packSummary: { fileCount: number; lastUpdate: string | null } | null
+}
+
+/** 工单配置（设置弹窗 + 未配置判定用） */
+export interface TicketStatus {
+  /** 配置过 docid 且至少启用一个子表 = true */
+  configured: boolean
+  docid: string | null
+  /** 表格名（saveConfig 探测成功时带回来过；纯展示） */
+  docName: string | null
+  sheets: Array<{
+    title: string
+    sheetId: string
+    type: TicketType
+    enabled: boolean
+  }>
+  identity: { userid: string; name: string } | null
+  firstSyncDone: boolean
+}
+
+/** 保存配置（探活：列子表 + 读授权身份，通了才落库） */
+export interface TicketSaveConfigResult {
+  ok: boolean
+  docid?: string
+  docName?: string
+  sheets?: Array<{ title: string; sheetId: string; type: TicketType; enabled: boolean }>
+  identity?: { userid: string; name: string }
+  /** cli-missing / auth-expired / unknown / bad-link */
+  kind?: 'cli-missing' | 'auth-expired' | 'unknown' | 'bad-link'
+  error?: string
+}
+
+/** 一次同步的结果（toast 用；字段与主进程 SyncResult 一致） */
+export interface TicketSyncResult {
+  ok: boolean
+  kind?: 'cli-missing' | 'auth-expired' | 'unknown'
+  error?: string
+  structureChanged: boolean
+  inserted: number
+  updated: number
+  historyMarked: number
+  tasksCreated: number
+  projectMismatch: number
+  reassigned: number
+  rowGone: number
+  rowBack: number
+  needConfirm: number
+  dupWarned: number
+  warnings: string[]
+}
+
 export interface Api {
   /** refresh=true 时重新探测工作区（用于"插上移动硬盘后重试"） */
   wsInfo: (opts?: { refresh?: boolean }) => Promise<WsInfo>
@@ -499,4 +601,25 @@ export interface Api {
   tagsOfAssets: (assetIds: number[]) => Promise<Record<number, Tag[]>>
   /** 标签自动建议（只推荐，不自动贴） */
   suggestTags: (assetIds: number[]) => Promise<SuggestTagsResult>
+
+  // ---------------- 第 13 批：工单（docs/15） ----------------
+  /** 工单配置状态（不碰 CLI，只读本地 meta；未配置时界面走引导） */
+  ticketStatus: () => Promise<TicketStatus>
+  /** 保存配置：粘链接（自动剥 docid）→ 探活（列子表 + 读授权身份）→ 落库 */
+  ticketSaveConfig: (input: {
+    linkOrDocid: string
+    sheets: Array<{ title: string; type: TicketType; enabled: boolean }>
+  }) => Promise<TicketSaveConfigResult>
+  /** 手动同步（拉两个子表 → 结构校验 → applySync）。一期唯一的拉取入口 */
+  ticketSync: () => Promise<TicketSyncResult>
+  /** 工单列表（筛选在主进程做） */
+  ticketList: (view?: 'all' | 'mine' | 'unassigned' | 'history' | 'reassigned' | 'pending' | 'abnormal') => Promise<TicketListItem[]>
+  /** 工单详情 */
+  ticketDetail: (ticketNo: string) => Promise<TicketDetail | null>
+  /** 「确认这批新单」批量放行（§2.2④） */
+  ticketConfirmBatch: () => Promise<{ confirmed: number; tasksCreated: number; warnings: string[] }>
+  /** 历史单/异常单的手动「补建任务」兜底按钮 */
+  ticketCreateTask: (ticketNo: string) => Promise<{ ok: boolean; packId?: number; msg?: string }>
+  /** 打开审批链接（浏览器） */
+  ticketOpenApproval: (url: string) => Promise<{ ok: boolean; error?: string }>
 }

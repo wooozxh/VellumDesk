@@ -73,7 +73,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-node out/test/accept.cjs                        # 619 项断言，结果写 accept-result.txt
+node out/test/accept.cjs                        # 655 项断言，结果写 accept-result.txt
 
 node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -84,6 +84,7 @@ node _shotapp/run-verify4.cjs tagcount          # 界面验证：标签计数口
 node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
 node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
 node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
+node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批）
 ```
 
 注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打三个**（accept.cjs / ipc.cjs / workspace.cjs——截图壳和三级结构场景都依赖 workspace.cjs），否则跑的是旧代码。截图壳的场景工作区在 `D:\_accept_ws\shot*`，与真实工作区完全隔离。

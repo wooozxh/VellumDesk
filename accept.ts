@@ -80,6 +80,17 @@ import {
   FIRST_VERSION_FOLDER
 } from './src/main/workspace'
 import {
+  applySync,
+  detectStructure,
+  confirmPendingTickets,
+  createTaskForTicketManually,
+  META_KEYS,
+  writeTicketSheets,
+  type SheetPayload,
+  type TicketRawRecord,
+  type TicketSheetConfig
+} from './src/main/tickets'
+import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
   ensureVideoMetaForAssets,
@@ -89,7 +100,7 @@ import {
   setFfmpegDir,
   ffmpegReady
 } from './src/main/thumbs'
-import { getDb, closeDb, openDb, getMeta } from './src/main/db'
+import { getDb, closeDb, openDb, getMeta, setMeta } from './src/main/db'
 import {
   listTagDimensions,
   createTag,
@@ -3314,6 +3325,360 @@ async function main(): Promise<void> {
     !!eManualRow && eManualRow.category === '未分类',
     '【兜底】手工建的包文件夹被扫进来时类别记「未分类」（不是空串）'
   )
+
+  // ============ 第 13 批 T-01：工单表迁移 10（方案 15 §5） ============
+  log('\n[30] 第 13 批：tickets 表迁移（唯一键=审批单编号，sheet_id 只是出生地属性）')
+  {
+    const tRoot = join('D:\\_accept_ws', `wstest13_${RUN_ID}`)
+    const tWs = join(tRoot, 'ws')
+    hardRm(tRoot)
+    mkdirSync(tWs, { recursive: true })
+    closeDb()
+    openDb(tWs)
+    initWorkspace(tWs)
+
+    // ---- (1) 全部列都在（含 §3.1 的 reviewer_names / material_category 和撞号兜底 dup_json）----
+    const tCols = getDb().prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+    const tNeed = [
+      'id', 'sheet_id', 'ticket_type', 'ticket_no', 'record_id',
+      'title', 'approval_state', 'applicant_userid', 'applicant_name', 'department',
+      'purpose', 'size_text', 'print_qty', 'material_form', 'use_scene',
+      'due_date', 'submit_time', 'done_time', 'remark', 'source_url', 'approval_url',
+      'receiver_name', 'receiver_phone', 'deliver_date',
+      'designer_userid', 'designer_name', 'project_name',
+      'reviewer_names', 'material_category', 'raw_json', 'dup_json',
+      'first_seen_at', 'last_sync_at', 'is_history', 'dup_warn',
+      'reassigned_to', 'row_gone', 'need_confirm', 'pack_id', 'print_status'
+    ]
+    const tMissing = tNeed.filter((c) => !tCols.some((x) => x.name === c))
+    ok(tCols.length > 0 && tMissing.length === 0, `tickets 表列齐全（${tCols.length} 列${tMissing.length ? '，缺: ' + tMissing.join(',') : ''}）`)
+
+    // ---- (2) 唯一键 = ticket_no 单键（不是「子表+编号」组合键 —— 重新拉表防重复，§2.2①）----
+    const tUk = getDb()
+      .prepare("SELECT name FROM pragma_index_list('tickets') WHERE origin = 'u'")
+      .all() as Array<{ name: string }>
+    const tUkCols = tUk.flatMap((u) =>
+      (getDb().prepare(`PRAGMA index_info('${u.name}')`).all() as Array<{ name: string }>).map(
+        (c) => c.name
+      )
+    )
+    ok(
+      tUk.length === 1 && tUkCols.length === 1 && tUkCols[0] === 'ticket_no',
+      `唯一键 = ticket_no 单键（列：${tUkCols.join(',')}，不是「子表+编号」组合键）`
+    )
+
+    // ---- (3) 唯一键真的拦得住：同编号插第二行必须被拒 ----
+    const tIns = getDb().prepare(
+      `INSERT INTO tickets (sheet_id, ticket_type, ticket_no, title) VALUES (?, ?, ?, ?)`
+    )
+    tIns.run('sheetAAA', 'print', '202610010001', '测试单甲')
+    let tDupThrew = false
+    try {
+      tIns.run('sheetBBB', 'print', '202610010001', '测试单甲-撞号')
+    } catch {
+      tDupThrew = true
+    }
+    ok(tDupThrew, '同编号第二行被唯一键拦下（撞号处理是同步引擎层的事：dup_warn + dup_json，绝不悄悄合并）')
+
+    // ---- (4) 默认值：同步状态四件套 ----
+    const tRow = getDb()
+      .prepare('SELECT * FROM tickets WHERE ticket_no = ?')
+      .get('202610010001') as Record<string, unknown>
+    ok(
+      tRow.is_history === 0 && tRow.dup_warn === 0 && tRow.row_gone === 0 && tRow.need_confirm === 0,
+      '同步状态默认值：is_history / dup_warn / row_gone / need_confirm 全 0'
+    )
+
+    // ---- (5) pack_id 外键 ON DELETE SET NULL：任务删了 → 关联自动清空，工单永远留底 ----
+    const tPack = createPack({ name: '工单的包', projectId: null, category: '', workspaceRoot: tWs })
+    getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(tPack.id, '202610010001')
+    getDb().prepare('DELETE FROM packs WHERE id = ?').run(tPack.id)
+    const tAfter = getDb()
+      .prepare('SELECT pack_id FROM tickets WHERE ticket_no = ?')
+      .get('202610010001') as { pack_id: number | null }
+    ok(tAfter.pack_id === null, '任务被删 → ticket.pack_id 自动置 NULL（工单记录本身永远留底）')
+
+    // ---- (6) 查询索引在位（「我的」筛选 / 任务关联 / 状态筛选）----
+    const tIdx = (getDb().prepare('PRAGMA index_list(tickets)').all() as Array<{ name: string }>).map(
+      (i) => i.name
+    )
+    ok(
+      ['idx_tickets_designer', 'idx_tickets_pack', 'idx_tickets_state'].every((n) => tIdx.includes(n)),
+      '索引在位：designer / pack / state'
+    )
+
+    // ---- (7) meta 表可存工单配置（docid / 子表映射 / 本机身份 / 快照打点）----
+    setMeta('ticket_docid', 's3_TESTDOCID')
+    setMeta('ticket_first_sync_done', '1')
+    ok(
+      getMeta('ticket_docid') === 's3_TESTDOCID' && getMeta('ticket_first_sync_done') === '1',
+      'meta 表工单配置键读写正常（跟工作区走）'
+    )
+
+    closeDb()
+    hardRm(tRoot)
+  }
+
+  // ============ 第 13 批 T-02：同步引擎（方案 15 §4，全部喂假数据，不碰真企微） ============
+  log('\n[31] 第 13 批：同步引擎 applySync（幂等 / 快照 / 条件链 / 改派 / 删行 / 撞号 / 重拉表）')
+  {
+    const kRoot = join('D:\\_accept_ws', `wstest13b_${RUN_ID}`)
+    const kWs = join(kRoot, 'ws')
+    hardRm(kRoot)
+    mkdirSync(kWs, { recursive: true })
+    closeDb()
+    openDb(kWs)
+    initWorkspace(kWs)
+
+    /** 造一条假记录（企微智能表格的 values 结构） */
+    const kRec = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        设计师: [{ userId: 'uME', userName: '本机测试员' }],
+        业务归属: [{ text: '工单测试项目' }],
+        ...over
+      }
+    })
+    const kPayload = (records: TicketRawRecord[], sheetId = 'sheetP'): SheetPayload => ({
+      sheet_id: sheetId,
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const kIdentity = { userid: 'uME', name: '本机测试员' }
+    const kCfg: TicketSheetConfig[] = [
+      { title: '营销物料设计申请（印刷物料）', sheet_id: 'sheetP', type: 'print', enabled: true }
+    ]
+    const kTicket = (no: string): Record<string, unknown> =>
+      getDb().prepare('SELECT * FROM tickets WHERE ticket_no = ?').get(no) as Record<string, unknown>
+
+    const kProj = createProject({ name: '工单测试项目', workspaceRoot: kWs }).project!
+
+    // ---- (1) 首次同步快照（§2.2③）：表里已有的全标历史，一张任务都不建 ----
+    const kS1 = applySync({
+      payloads: [kPayload([kRec('T0001'), kRec('T0002'), kRec('T0003')])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(
+      kS1.inserted === 3 && kS1.historyMarked === 3 && kS1.tasksCreated === 0,
+      `首次同步快照：3 张全标历史、零任务（inserted=${kS1.inserted}, history=${kS1.historyMarked}, tasks=${kS1.tasksCreated}）`
+    )
+    ok(kTicket('T0001').is_history === 1, 'T0001 标了 is_history=1（永不自动建任务）')
+    ok(getMeta(META_KEYS.firstSyncDone) === '1', '首次同步打点已置位')
+
+    // ---- (2) 幂等：同一批再同步一遍 → 只更新不重复 ----
+    const kS2 = applySync({
+      payloads: [kPayload([kRec('T0001'), kRec('T0002'), kRec('T0003')])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    const kTotal = (
+      getDb().prepare('SELECT COUNT(*) AS c FROM tickets').get() as { c: number }
+    ).c
+    ok(
+      kS2.inserted === 0 && kS2.updated === 3 && kTotal === 3,
+      `幂等：第二次同步 0 插入 3 更新，表里还是 3 行（inserted=${kS2.inserted}, updated=${kS2.updated}, total=${kTotal}）`
+    )
+
+    // ---- (3) 建任务条件链（§2.2②：审批中/已通过建；驳回/撤销/别人的/历史的不建）----
+    const kS3 = applySync({
+      payloads: [
+        kPayload([
+          kRec('T0010'),                                            // 审批中 + 我 → 建
+          kRec('T0011', { 当前审批状态: [{ text: '已通过' }] }),     // 已通过 + 我 → 建
+          kRec('T0012', { 当前审批状态: [{ text: '已驳回' }] }),     // 驳回 → 不建
+          kRec('T0013', { 当前审批状态: [{ text: '已撤销' }] }),     // 撤销 → 不建
+          kRec('T0014', { 设计师: [{ userId: 'uOTHER', userName: '别人' }] }), // 别人的 → 不建
+          kRec('T0015', { 设计师: [] })                             // 未指派 → 不建
+        ])
+      ],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(
+      kS3.tasksCreated === 2,
+      `条件链：6 张新单只建 2 个任务（审批中✅ 已通过✅；驳回/撤销/别人/未指派❌）`
+    )
+    ok(kTicket('T0010').pack_id !== null && kTicket('T0011').pack_id !== null, 'T0010/T0011 都关联上了任务')
+    ok(kTicket('T0012').pack_id === null && kTicket('T0014').pack_id === null, 'T0012/T0014 没建任务')
+    const kPack10 = getDb()
+      .prepare('SELECT p.id, p.project_id FROM packs p JOIN tickets t ON t.pack_id = p.id WHERE t.ticket_no = ?')
+      .get('T0010') as { id: number; project_id: number }
+    ok(kPack10.project_id === kProj.id, '任务落对了项目（业务归属 → 同名项目）')
+    ok(existsSync(join(kWs, kProj.folder_name, '物料-T0010', 'V1')), '磁盘上长出了任务文件夹（包\\V1）')
+
+    // ---- (4) 项目未匹配 → 暂不建任务，项目对齐后下轮自动补建 ----
+    const kS4a = applySync({
+      payloads: [kPayload([kRec('T0020', { 业务归属: [{ text: '不存在的项目' }] })])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(
+      kS4a.tasksCreated === 0 && kS4a.projectMismatch === 1 && kTicket('T0020').pack_id === null,
+      '项目对不上 → 暂不建任务（createPack 的兜底会塞第一个项目，宁可不建）'
+    )
+    createProject({ name: '不存在的项目', workspaceRoot: kWs })
+    const kS4b = applySync({
+      payloads: [kPayload([kRec('T0020', { 业务归属: [{ text: '不存在的项目' }] })])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(
+      kS4b.tasksCreated === 1 && kTicket('T0020').pack_id !== null,
+      '项目名对齐后，下一轮同步自动补建任务'
+    )
+
+    // ---- (5) 改派不删任务（§4.2 步骤4）----
+    const kS5 = applySync({
+      payloads: [
+        kPayload([kRec('T0010', { 设计师: [{ userId: 'uOTHER', userName: '新设计师' }] })])
+      ],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    const kT5 = kTicket('T0010')
+    ok(
+      kS5.reassigned === 1 && kT5.pack_id !== null && kT5.reassigned_to === '新设计师',
+      '改派：任务不删、文件夹还在，工单标「已改派给新设计师」'
+    )
+    ok(existsSync(join(kWs, kProj.folder_name, '物料-T0010', 'V1')), '改派后磁盘文件一个没动')
+    // 改回本机 → 改派标记清掉
+    applySync({
+      payloads: [kPayload([kRec('T0010')])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(kTicket('T0010').reassigned_to === null, '设计师改回本机 → 改派标记自动清掉')
+
+    // ---- (6) 删行留底 + 行回来恢复（§4.2 步骤5）----
+    applySync({
+      payloads: [kPayload([kRec('T0011')])], // T0010/T0012… 不在这次的批里
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(
+      kTicket('T0012').row_gone === 1 && kTicket('T0012').pack_id === null && kTicket('T0010').row_gone === 1,
+      '表里删了行 → 工单留底标「已不在表中」（关联任务不动）'
+    )
+    applySync({
+      payloads: [kPayload([kRec('T0010'), kRec('T0012')])],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    ok(kTicket('T0010').row_gone === 0 && kTicket('T0012').row_gone === 0, '行回来 → 标记自动清掉')
+
+    // ---- (7) 批内撞号：两份都留 + dup_warn（§2.2①）----
+    const kS7 = applySync({
+      payloads: [
+        kPayload([
+          kRec('T0030', { 物料名称: [{ text: '第一份' }] }),
+          { ...kRec('T0030', { 物料名称: [{ text: '第二份' }] }), record_id: 'rec_T0030_b' }
+        ])
+      ],
+      structureChanged: false,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    const kT7 = kTicket('T0030')
+    ok(
+      kS7.dupWarned === 1 && kT7.dup_warn === 1 && (kT7.dup_json as string).includes('第二份'),
+      '撞号：dup_warn=1、第二份原文进 dup_json（绝不悄悄合并/丢弃）'
+    )
+    ok(kS7.warnings.some((w) => w.includes('T0030')), '撞号进了警告清单（用户能看到）')
+
+    // ---- (8) 字段缺失不崩（§4.4）----
+    let kS8ok = true
+    try {
+      const kS8 = applySync({
+        payloads: [
+          kPayload([{ record_id: 'rec_bare', values: { 审批单编号: [{ text: 'T0040' }] } }])
+        ],
+        structureChanged: false,
+        identity: kIdentity,
+        workspaceRoot: kWs
+      })
+      kS8ok = kS8.ok && kTicket('T0040').title === null
+    } catch {
+      kS8ok = false
+    }
+    ok(kS8ok, '只有编号、别的列全缺 → 照常入库、字段置空、不崩')
+
+    // ---- (9) 重新拉表（§2.2④）：sheet_id 变 → 旧单原地更新零重复，新单标待确认 ----
+    const kCheck = detectStructure(kCfg, [
+      { sheet_id: 'sheetNEW', title: '营销物料设计申请（印刷物料）' }
+    ])
+    ok(kCheck.structureChanged && kCheck.resolved[0].sheet_id === 'sheetNEW', '结构校验：标题对上、sheet_id 变了 → 检出重建')
+
+    const kCheckMissing = detectStructure(kCfg, [{ sheet_id: 'sheetX', title: '别的表' }])
+    ok(
+      kCheckMissing.missingSheets.length === 1 && kCheckMissing.structureChanged === false,
+      '结构校验：标题找不到 → missingSheets（不算重建）'
+    )
+
+    const kS9 = applySync({
+      payloads: [
+        {
+          sheet_id: 'sheetNEW',
+          title: '营销物料设计申请（印刷物料）',
+          type: 'print' as const,
+          records: [
+            kRec('T0010'),          // 旧单：应该原地更新
+            kRec('T0050'),          // 新单：应该标待确认、不建任务
+            kRec('T0051', { 当前审批状态: [{ text: '已通过' }] }) // 新单：同样待确认
+          ]
+        }
+      ],
+      structureChanged: true,
+      identity: kIdentity,
+      workspaceRoot: kWs
+    })
+    const kCount10 = (
+      getDb().prepare("SELECT COUNT(*) AS c FROM tickets WHERE ticket_no = 'T0010'").get() as { c: number }
+    ).c
+    ok(
+      kCount10 === 1 && kS9.updated >= 1 && kS9.inserted === 2,
+      `重拉表：旧编号 T0010 原地更新、库里还是 1 行（不重复入库）`
+    )
+    ok(
+      kTicket('T0050').need_confirm === 1 && kTicket('T0051').need_confirm === 1 && kS9.tasksCreated === 0,
+      '重拉表后新出现的编号全标「待确认」、零任务自动建（宁可不建，绝不误建）'
+    )
+    ok(kTicket('T0010').pack_id !== null, '重拉表后已建的任务关联原封不动')
+
+    // ---- (10) 「确认这批新单」放行（§2.2④）----
+    const kS10 = confirmPendingTickets(kIdentity, kWs)
+    ok(
+      kS10.confirmed === 2 && kS10.tasksCreated === 2 && kTicket('T0050').need_confirm === 0,
+      `确认放行：2 张待确认清零、按正常规则补建 2 个任务（confirmed=${kS10.confirmed}, tasks=${kS10.tasksCreated}）`
+    )
+
+    // ---- (11) 历史单的「补建任务」手动按钮（§2.2③兜底）----
+    const kS11 = createTaskForTicketManually('T0001', kWs)
+    ok(kS11.ok && kTicket('T0001').pack_id !== null, '历史单也能手动补建任务（兜底按钮）')
+    const kS11b = createTaskForTicketManually('T9999', kWs)
+    ok(!kS11b.ok, '不存在的编号 → 手动补建返回失败，不崩')
+
+    // ---- (12) 配置读写（meta 键跟工作区走）----
+    writeTicketSheets([{ title: '营销物料设计申请（印刷物料）', sheet_id: 'sheetNEW', type: 'print', enabled: true }])
+    const kS12 = JSON.parse(getMeta(META_KEYS.sheets) ?? '[]') as TicketSheetConfig[]
+    ok(kS12.length === 1 && kS12[0].sheet_id === 'sheetNEW', '子表配置（标题为主键 + sheet_id 指纹）读写正常')
+
+    closeDb()
+    hardRm(kRoot)
+  }
 
   closeDb()
   hardRm(eRoot)

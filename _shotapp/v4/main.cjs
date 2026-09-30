@@ -84,6 +84,12 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_category'),
     workspaceRoot: join(BASE, 'shot_wsc'),
     shot: 'shot-b10-4-category-deleted.png'
+  },
+  // 第 13 批：工单视图（顶栏第三格「工单」：筛选 / 徽标 / 关联任务 / 详情弹窗）
+  tickets: {
+    userData: join(BASE, 'shot4_tickets'),
+    workspaceRoot: join(BASE, 'shot_wst'),
+    shot: 'shot-b13-4-detail.png'
   }
 }
 
@@ -496,6 +502,91 @@ app.whenReady().then(async () => {
     const scanned = wsm.scanAll(ws)
     say('seeded packs          : 3（海报 / 短视频 / 折页）')
     say('auto-recognized vers  : ' + scanned.newVersions)
+  }
+
+  if (SCEN === 'tickets') {
+    // 第 13 批：工单视图。播种 8 张覆盖各形态的工单（我的/别人的/未指派/历史/待确认/撞号）
+    // + 一张已建任务的单。meta 里落好配置（docid / 子表映射 / 本机身份 / 首同步已做），
+    // 界面一进工单视图就该出列表 —— 全程不碰真企微（wecom 适配器只在真同步时才被调）。
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const proj = d
+      .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
+      .get('海南升学规划中心')
+
+    // 给 T001 配一个真实任务（文件夹 + packs 记录 + 工单关联）
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const t1Dir = join(ws, proj.folder_name, '海南招生海报-工单A')
+    for (const sub of SUB) mkdirSync(join(t1Dir, 'V1', sub), { recursive: true })
+    writeFileSync(join(t1Dir, 'V1', '01-成品', '海报终稿.png'), 'x'.repeat(300 * 1024), 'utf-8')
+    const packInfo = d
+      .prepare(
+        `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run('海南招生海报-工单A', '海报', t1Dir, proj.id, now, now)
+    const packId = Number(packInfo.lastInsertRowid)
+
+    // 工单配置（meta）：已配置 + 首同步已做（否则全部会被当成历史单）
+    const setM = d.prepare('INSERT INTO meta (key, value) VALUES (?, ?)')
+    setM.run('ticket_docid', 's3_SHOTTEST')
+    setM.run('ticket_docname', '营销物料设计工单队列（测试）')
+    setM.run(
+      'ticket_sheets',
+      JSON.stringify([
+        { title: '营销物料制作申请（印刷物料）', sheet_id: 'tlT1', type: 'print', enabled: true },
+        { title: '营销物料制作申请（电子物料）', sheet_id: 'tlT2', type: 'digital', enabled: true }
+      ])
+    )
+    setM.run('ticket_identity', JSON.stringify({ userid: 'uME', name: '测试设计师' }))
+    setM.run('ticket_first_sync_done', '1')
+
+    const addTicket = d.prepare(`
+      INSERT INTO tickets (sheet_id, ticket_type, ticket_no, record_id, title, approval_state,
+        applicant_name, department, designer_userid, designer_name, project_name,
+        due_date, submit_time, material_category, print_qty, is_history, need_confirm,
+        dup_warn, dup_json, raw_json, first_seen_at, last_sync_at, pack_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', '{}', ?, ?, ?)`)
+    const T = (no, o) =>
+      addTicket.run(
+        'tlT1', 'print', no, 'rec_' + no,
+        o.title ?? '物料-' + no, o.state ?? '审批中',
+        '申请人甲', '营销中心',
+        o.designer === undefined ? 'uME' : o.designer,
+        o.designerName === undefined ? '测试设计师' : o.designerName,
+        o.project ?? '海南升学规划中心',
+        o.due ?? '2026-10-05', now, o.cat ?? '海报', o.qty ?? 100,
+        o.history ? 1 : 0, o.pending ? 1 : 0, o.dup ? 1 : 0,
+        now, now, o.packId ?? null
+      )
+    T('202610010001', { title: '海南招生海报-工单A', state: '审批中', packId }) // 我的，已建任务
+    T('202610010002', { title: '招生折页-B款', state: '已通过' })                  // 我的，活已干完
+    T('202610010003', { title: '易拉宝-校区门口', state: '已驳回' })               // 我的，驳回 → 压暗
+    T('202610010004', {
+      title: '详情长图-国庆版', state: '审批中',
+      designer: 'uOTHER', designerName: '别的同事', due: '2026-10-08'
+    })                                                                              // 别人的
+    T('202610010005', { title: '推文配图-双节', designer: null, designerName: null }) // 未指派
+    T('202610010006', { title: '旧单-开学季', history: true })                      // 历史单
+    T('202610010007', { title: '新单-待确认', pending: true })                      // 子表重建后的新单
+    T('202610010008', { title: '撞号单', dup: true })                               // 编号重复
+    // 一张电子类型的（第二子表）
+    addTicket.run(
+      'tlT2', 'digital', '202610010009', 'rec_202610010009', '短视频封面-秋季', '审批中',
+      '申请人乙', '营销中心', 'uME', '测试设计师', '海南升学规划中心',
+      '2026-10-06', now, null, null, 0, 0, 0, now, now, null
+    )
+    d.close()
+    wsm.scanAll(ws) // 登记 T001 任务里的文件，详情卡有文件数
+    say('seeded tickets        : 9（我的3 / 别人1 / 未指派1 / 历史1 / 待确认1 / 撞号1 / 电子1）')
   }
 
   const errs = []
@@ -2080,6 +2171,106 @@ app.whenReady().then(async () => {
       '【边界】「海报」也没被牵连'
     )
     await shot('shot-b10-4-category-deleted.png')
+  } else if (SCEN === 'tickets') {
+    // ============================================================
+    // 第 13 批：工单视图（顶栏第三格）。布景：9 张各形态工单 + 1 个已建任务。
+    // ============================================================
+    const clickChip = async (text) => {
+      await js(`(() => {
+        const b = [...document.querySelectorAll('.tk-toolbar .chip')]
+          .find(x => x.innerText.trim() === ${JSON.stringify(text)})
+        if (b) b.click()
+        return b ? 'ok' : 'no-chip'
+      })()`)
+      await wait(700)
+    }
+    const rowCount = () => js(`document.querySelectorAll('.tk-list .tk-row').length`)
+    const rowByNo = (no) =>
+      js(`(() => {
+        const r = [...document.querySelectorAll('.tk-list .tk-row')]
+          .find(x => x.innerText.includes(${JSON.stringify(no)}))
+        if (!r) return null
+        return {
+          dim: r.classList.contains('dim'),
+          type: ((r.querySelector('.tk-type')||{}).innerText||'').trim(),
+          state: ((r.querySelector('.tk-state')||{}).innerText||'').trim(),
+          task: ((r.querySelector('.c-task')||{}).innerText||'').trim(),
+          designer: ((r.querySelector('.c-designer')||{}).innerText||'').trim()
+        }
+      })()`)
+
+    // (1) 顶栏出现第三格「工单」，点进去
+    const tabOk = await pickSideItem(COPY.ticket.viewTab, '.tabs button')
+    ok(tabOk === 'ok', `顶栏第三格「${COPY.ticket.viewTab}」出现了`)
+    await wait(1200)
+
+    // (2) 筛选标签齐全 + 同步按钮在
+    const chips = await js(`[...document.querySelectorAll('.tk-toolbar .chip')].map(b => b.innerText.trim())`)
+    ok(
+      Array.isArray(chips) && chips.length === 7,
+      `七个筛选标签齐全（${Array.isArray(chips) ? chips.join(' / ') : String(chips)}）`
+    )
+    const syncBtn = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.syncBtn)})); return b ? b.innerText.trim() : '' })()`
+    )
+    ok(syncBtn.includes(COPY.ticket.syncBtn), `「${COPY.ticket.syncBtn}」按钮在`)
+
+    // (3) 默认「我的」：7 张（= 派给我的全部：含我的历史单/待确认/撞号 —— 列表可见性口径，磁盘上只长该建任务的那些），驳回的压暗
+    ok((await rowCount()) === 7, `默认「我的」视图 7 张（实际 ${await rowCount()}）`)
+    const r1 = await rowByNo('202610010001')
+    ok(!!r1 && r1.type === COPY.ticket.typePrint, '印刷类型徽标正确')
+    ok(!!r1 && r1.state === '审批中', '审批中是活跃状态（正常亮显，徽标蓝色）')
+    ok(
+      !!r1 && r1.task.includes(COPY.ticket.linkedTask.split('{name}')[0].slice(0, 2)),
+      `已建任务的单显示任务名（${r1 ? r1.task : '—'}）`
+    )
+    const r3 = await rowByNo('202610010003')
+    ok(!!r3 && r3.dim === true, '已驳回的单整行压暗（用户拍板：审批中才建任务，驳回保留展示）')
+    await shot('shot-b13-1-mine.png')
+
+    // (4) 全部：9 张；类型徽标印刷/电子都在；未指派 / 历史 / 待确认各归各位
+    await clickChip(COPY.ticket.filterAll)
+    ok((await rowCount()) === 9, `「全部」视图 9 张（实际 ${await rowCount()}）`)
+    const r9 = await rowByNo('202610010009')
+    ok(!!r9 && r9.type === COPY.ticket.typeDigital, `电子类型徽标正确（${r9 ? r9.type : '—'}）`)
+    const r5 = await rowByNo('202610010005')
+    ok(!!r5 && r5.designer === COPY.ticket.filterUnassigned, '设计师空着的单标「未指派」')
+    const r6 = await rowByNo('202610010006')
+    ok(!!r6 && r6.task.includes(COPY.ticket.noTaskHistory.split('（')[0].slice(0, 2)), `历史单的任务列写明原因（${r6 ? r6.task : '—'}）`)
+    await shot('shot-b13-2-all.png')
+
+    // (5) 待确认：1 张 + 「确认这批新单」批量按钮
+    await clickChip(COPY.ticket.filterPending)
+    ok((await rowCount()) === 1, `「待确认」视图 1 张（实际 ${await rowCount()}）`)
+    const confirmBtn = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.confirmBatch)})); return b ? b.innerText.trim() : '' })()`
+    )
+    ok(confirmBtn.includes(COPY.ticket.confirmBatch), `「${COPY.ticket.confirmBatch}」按钮在（子表重建防护，§2.2④）`)
+
+    // (6) 详情弹窗：三段字段 + 打开审批 + 关联任务卡
+    await clickChip(COPY.ticket.filterMine)
+    await js(
+      `(() => { const r = [...document.querySelectorAll('.tk-list .tk-row')].find(x => x.innerText.includes('202610010001')); if (r) r.click(); return r ? 'ok' : 'no-row' })()`
+    )
+    await wait(900)
+    const dTitle = await js(
+      `(() => { const m = document.querySelector('.mask .modal'); return m ? ((m.querySelector('h3')||{}).innerText||'').trim() : '' })()`
+    )
+    ok(dTitle.includes('海南招生海报-工单A'), `详情弹窗标题是物料名（${dTitle}）`)
+    const dSections = await js(
+      `[...document.querySelectorAll('.tk-detail h4')].map(x => x.innerText.trim())`
+    )
+    ok(
+      Array.isArray(dSections) && dSections.includes(plain(COPY.ticket.basicSection)) && dSections.includes(plain(COPY.ticket.printSection)) && dSections.includes(plain(COPY.ticket.taskSection)),
+      `详情分三段：基本信息 / 印刷信息 / 关联任务（${Array.isArray(dSections) ? dSections.join(' / ') : String(dSections)}）`
+    )
+    const dOpen = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-actions .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.openApproval)})); return b ? 'ok' : 'no' })()`
+    )
+    ok(dOpen === 'ok', `「${COPY.ticket.openApproval}」按钮在（一期不做附件下载，跳审批页看）`)
+    await shot('shot-b13-4-detail.png')
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(600)
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

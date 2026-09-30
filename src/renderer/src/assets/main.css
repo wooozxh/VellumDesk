@@ -2405,3 +2405,293 @@ svg {
 .pack-card .thumb .ph svg {
   display: block;
 }
+
+/* ==================== 第 13 批：工单视图（docs/15 §6） ==================== */
+
+/* 工单视图独占主体区：贴边撑满，不带左栏 */
+.main.tk-main {
+  padding: 14px 18px;
+  overflow: auto;
+}
+
+/* 工具行：筛选标签 + 同步按钮 */
+.tk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.tk-toolbar .spacer {
+  flex: 1;
+}
+
+/* 同步提示条（警告清单 / 结构变化，可关） */
+.tk-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-soft);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: pre-line;
+}
+.tk-hint .txt {
+  flex: 1;
+  line-height: 1.6;
+}
+.tk-hint .wx {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+}
+
+/* 列表行（表头 + 数据行共用栅格） */
+.tk-row {
+  display: grid;
+  grid-template-columns: 52px 118px minmax(160px, 1.4fr) 86px 96px 92px minmax(150px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.tk-row.tk-head {
+  color: var(--text-3);
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+.tk-list > .tk-row {
+  cursor: pointer;
+}
+.tk-list > .tk-row:hover {
+  background: var(--bg-mute);
+}
+.tk-row.dim {
+  opacity: 0.45;
+}
+.tk-row .c-title,
+.tk-row .c-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 类型徽标：印刷 = 蓝，电子 = 青 */
+.tk-type {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.tk-type.print {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.tk-type.digital {
+  color: #57d4d4;
+  background: rgba(43, 181, 181, 0.16);
+}
+
+/* 状态徽标：已通过 = 绿，审批中 = 蓝亮显（活跃状态），驳回/撤销随行压暗 */
+.tk-state {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--bg-card);
+  color: var(--text-2);
+}
+.tk-state.st-pass {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.tk-state.st-live {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.tk-state.st-dim {
+  color: var(--text-3);
+}
+
+/* 关联任务列的几种态 */
+.tk-linked {
+  color: var(--accent-text);
+}
+.tk-dim {
+  color: var(--text-3);
+}
+.tk-warn {
+  color: var(--warn);
+}
+
+/* 空态（未配置引导） */
+.tk-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 60px 0;
+  text-align: center;
+}
+.tk-empty-ico {
+  color: var(--text-3);
+}
+.tk-empty .t {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.tk-empty-small {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* 详情弹窗 */
+.tk-detail h4 {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.tk-detail-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.tk-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 18px;
+}
+.tk-field {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 3px 0;
+}
+.tk-field .k {
+  color: var(--text-3);
+  flex: 0 0 76px;
+}
+.tk-field .v {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tk-packcard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--bg-mute);
+  font-size: 12.5px;
+}
+.tk-packcard .name {
+  color: var(--accent-text);
+}
+.tk-packcard .meta {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.tk-packcard.empty {
+  color: var(--text-3);
+  justify-content: space-between;
+}
+.tk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* 设置弹窗 */
+.tk-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tk-label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.tk-linkrow {
+  display: flex;
+  gap: 8px;
+}
+.tk-linkrow input {
+  flex: 1;
+}
+.tk-ok {
+  color: var(--ok);
+  font-size: 12px;
+}
+.tk-sheetlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tk-sheetrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--bg-mute);
+}
+.tk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.tk-identity {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.tk-identity .k {
+  color: var(--text-3);
+}
+.tk-identity em {
+  color: var(--text-3);
+  font-style: normal;
+  font-size: 11.5px;
+}
+.tk-firstwarn {
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-soft);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.tk-err {
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger-soft);
+  color: var(--text-2);
+  font-size: 12px;
+}

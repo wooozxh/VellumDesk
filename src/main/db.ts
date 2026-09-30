@@ -94,6 +94,75 @@ export interface PackVersionRow {
   created_at: string
 }
 
+/**
+ * 第 13 批（工单模块，迁移 10）：企微审批工单的本地镜像行。
+ *
+ * 身份规则（docs/15 §2.2①）：**唯一键 = ticket_no**（审批单编号，企微全公司唯一流水号）；
+ * sheet_id 只是"出生地"属性 —— 用户会重新拉表（子表重建后 sheet_id 全变），
+ * 按编号匹配则旧单原地更新，任务 / 历史标记 / 关联全不动。
+ * 撞号（同批两行同编号，人工改错）：第一份进业务字段，第二份原文存 dup_json，
+ * 行标 dup_warn=1 —— 两份都留、出声警告，绝不悄悄合并。
+ */
+export interface TicketRow {
+  id: number
+  /** 出生地：企微子表 id（重新拉表会变，仅展示用，不参与身份判定） */
+  sheet_id: string
+  /** 'print' 印刷 / 'digital' 电子（按配置里子表→类型的映射） */
+  ticket_type: string
+  /** 审批单编号 —— 唯一键 */
+  ticket_no: string
+  /** 企微记录 id（删行判定用） */
+  record_id: string | null
+  // ---- 业务字段（docs/15 §3 映射，全可 null：表列缺失时置空不崩）----
+  title: string | null
+  approval_state: string | null
+  applicant_userid: string | null
+  applicant_name: string | null
+  department: string | null
+  purpose: string | null
+  size_text: string | null
+  print_qty: number | null
+  material_form: string | null
+  use_scene: string | null
+  due_date: string | null
+  submit_time: string | null
+  done_time: string | null
+  remark: string | null
+  source_url: string | null
+  approval_url: string | null
+  receiver_name: string | null
+  receiver_phone: string | null
+  deliver_date: string | null
+  designer_userid: string | null
+  designer_name: string | null
+  project_name: string | null
+  /** 物料审核人（多个取姓名串，仅展示） */
+  reviewer_names: string | null
+  /** 物料类别（印刷表单选列，仅展示） */
+  material_category: string | null
+  /** 原始 values 快照 —— 后补映射字段不用重拉 */
+  raw_json: string | null
+  /** 撞号时第二份记录的原文（绝不悄悄丢） */
+  dup_json: string | null
+  // ---- 同步状态 ----
+  first_seen_at: string | null
+  last_sync_at: string | null
+  /** 历史单：首次同步快照时已在表里的（永不建任务） */
+  is_history: number
+  /** 编号重复警告 */
+  dup_warn: number
+  /** 改派：设计人变成了别人（任务不删，只标记） */
+  reassigned_to: string | null
+  /** 表里这行被删了（留底，关联任务不动） */
+  row_gone: number
+  /** 子表重建后的新单：待用户「确认这批新单」才参与建任务（§2.2④） */
+  need_confirm: number
+  /** 建了任务后的关联（任务被删时由外键置 NULL） */
+  pack_id: number | null
+  /** 二期预留：印刷状态（本地值，写回表） */
+  print_status: string | null
+}
+
 /** 打开（或新建）工作区数据库 */
 export function openDb(workspaceRoot: string): Database.Database {
   if (db) return db
@@ -253,6 +322,41 @@ function migrate(d: Database.Database): void {
       created_at  TEXT    NOT NULL,
       PRIMARY KEY (pack_id, folder_name)
     );
+
+    -- 第 13 批（工单模块，迁移 10）：企微审批工单的本地镜像。
+    -- 唯一键 = ticket_no（§2.2①）；sheet_id 只是出生地属性。
+    -- pack_id 外键 ON DELETE SET NULL：任务被删时关联自动清空，工单本身永远留底。
+    CREATE TABLE IF NOT EXISTS tickets (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      sheet_id      TEXT    NOT NULL,
+      ticket_type   TEXT    NOT NULL,
+      ticket_no     TEXT    NOT NULL,
+      record_id     TEXT,
+      title TEXT, approval_state TEXT,
+      applicant_userid TEXT, applicant_name TEXT, department TEXT,
+      purpose TEXT, size_text TEXT, print_qty INTEGER,
+      material_form TEXT, use_scene TEXT,
+      due_date TEXT, submit_time TEXT, done_time TEXT,
+      remark TEXT, source_url TEXT, approval_url TEXT,
+      receiver_name TEXT, receiver_phone TEXT, deliver_date TEXT,
+      designer_userid TEXT, designer_name TEXT, project_name TEXT,
+      reviewer_names TEXT, material_category TEXT,
+      raw_json TEXT,
+      dup_json  TEXT,
+      first_seen_at TEXT, last_sync_at TEXT,
+      is_history    INTEGER NOT NULL DEFAULT 0,
+      dup_warn      INTEGER NOT NULL DEFAULT 0,
+      reassigned_to TEXT,
+      row_gone      INTEGER NOT NULL DEFAULT 0,
+      need_confirm  INTEGER NOT NULL DEFAULT 0,
+      pack_id       INTEGER REFERENCES packs(id) ON DELETE SET NULL,
+      print_status  TEXT,
+      UNIQUE(ticket_no)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tickets_pack     ON tickets(pack_id);
+    CREATE INDEX IF NOT EXISTS idx_tickets_designer ON tickets(designer_userid);
+    CREATE INDEX IF NOT EXISTS idx_tickets_state    ON tickets(approval_state);
   `)
 
   // ---- 迁移 1：packs 表加 project_id（旧库是 project 文本列）----

@@ -59,7 +59,7 @@ import {
   readAsDataUrl,
   isImage
 } from './thumbs'
-import { PROJECT_COLORS } from './db'
+import { PROJECT_COLORS, getDb, setMeta } from './db'
 import {
   listTagDimensions,
   createTag,
@@ -71,6 +71,19 @@ import {
   tagsOfAssets,
   suggestTagsForAssets
 } from './tags'
+// 第 13 批：工单（docs/15）—— 引擎在 tickets.ts，企微适配在 ticketsWecom.ts
+import {
+  applySync,
+  confirmPendingTickets,
+  createTaskForTicketManually,
+  detectStructure,
+  META_KEYS,
+  readTicketConfig,
+  writeTicketSheets,
+  type SheetPayload,
+  type TicketSheetConfig
+} from './tickets'
+import { extractDocid, fetchIdentity, fetchSheetRecords, fetchSheets } from './ticketsWecom'
 
 /**
  * 主进程 / 界面的全部通信接口。
@@ -718,5 +731,284 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return suggestTagsForAssets(assetIds)
+  })
+
+  // ---------- 第 13 批：工单（docs/15） ----------
+  ipcMain.handle('ticket:status', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const cfg = readTicketConfig()
+    return {
+      configured: !!(cfg.docid && cfg.identity && cfg.sheets.some((s) => s.enabled)),
+      docid: cfg.docid,
+      docName: cfg.docName,
+      sheets: cfg.sheets.map((s) => ({
+        title: s.title,
+        sheetId: s.sheet_id,
+        type: s.type,
+        enabled: s.enabled
+      })),
+      identity: cfg.identity,
+      firstSyncDone: cfg.firstSyncDone
+    }
+  })
+
+  ipcMain.handle(
+    'ticket:saveConfig',
+    async (
+      _e,
+      input: { linkOrDocid: string; sheets: Array<{ title: string; type: 'print' | 'digital'; enabled: boolean }> }
+    ) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      const docid = extractDocid(input.linkOrDocid)
+      if (!docid) return { ok: false, kind: 'bad-link' as const, error: '链接里解析不出表格编号' }
+      // 探活：列子表 + 读授权身份 —— 都通了才落库（配置错当场暴露，不留到同步时）
+      const sheetsRes = await fetchSheets(docid)
+      if (!sheetsRes.ok || !sheetsRes.data)
+        return { ok: false, kind: sheetsRes.kind, error: sheetsRes.error }
+      const sheetsInfo = sheetsRes.data
+      const idRes = await fetchIdentity()
+      if (!idRes.ok || !idRes.data) return { ok: false, kind: idRes.kind, error: idRes.error }
+      // **探查模式**（input.sheets 为空）：只返回表里实际有哪些子表，不落库 ——
+      // 设置弹窗第一步用它展示子表清单让用户勾选，第二步带完整 sheets 再来存。
+      if (input.sheets.length === 0) {
+        return {
+          ok: true,
+          docid,
+          docName: sheetsInfo.docName,
+          sheets: sheetsInfo.sheets.map((s) => ({
+            title: s.title,
+            sheetId: s.sheet_id,
+            // 类型按标题猜（含「印刷」→ print，否则 digital），用户在弹窗里可改
+            type: (s.title.includes('印刷') ? 'print' : 'digital') as 'print' | 'digital',
+            enabled: true
+          })),
+          identity: idRes.data
+        }
+      }
+      const sheets: TicketSheetConfig[] = input.sheets.map((s) => {
+        const hit = sheetsInfo.sheets.find((x) => x.title === s.title)
+        return { title: s.title, sheet_id: hit?.sheet_id ?? '', type: s.type, enabled: s.enabled }
+      })
+      setMeta(META_KEYS.docid, docid)
+      setMeta(META_KEYS.docname, sheetsInfo.docName ?? '')
+      writeTicketSheets(sheets)
+      setMeta(META_KEYS.identity, JSON.stringify(idRes.data))
+      return {
+        ok: true,
+        docid,
+        docName: sheetsRes.data.docName,
+        sheets: sheets.map((s) => ({
+          title: s.title,
+          sheetId: s.sheet_id,
+          type: s.type,
+          enabled: s.enabled
+        })),
+        identity: idRes.data
+      }
+    }
+  )
+
+  ipcMain.handle('ticket:sync', async () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const cfg = readTicketConfig()
+    const zero = {
+      structureChanged: false,
+      inserted: 0,
+      updated: 0,
+      historyMarked: 0,
+      tasksCreated: 0,
+      projectMismatch: 0,
+      reassigned: 0,
+      rowGone: 0,
+      rowBack: 0,
+      needConfirm: 0,
+      dupWarned: 0,
+      warnings: [] as string[]
+    }
+    if (!cfg.docid || !cfg.identity)
+      return { ok: false, kind: 'unknown' as const, error: COPY.ticket.notConfigured, ...zero }
+    const sheetsRes = await fetchSheets(cfg.docid)
+    if (!sheetsRes.ok || !sheetsRes.data)
+      return { ok: false, kind: sheetsRes.kind, error: sheetsRes.error, ...zero }
+    const check = detectStructure(cfg.sheets, sheetsRes.data.sheets)
+    const payloads: SheetPayload[] = []
+    for (const r of check.resolved) {
+      const pr = await fetchSheetRecords(cfg.docid, r.sheet_id, r.cfg.title, r.cfg.type)
+      if (!pr.ok || !pr.data)
+        return { ok: false, kind: pr.kind, error: pr.error, ...zero }
+      payloads.push(pr.data)
+    }
+    const result = applySync({
+      payloads,
+      structureChanged: check.structureChanged,
+      identity: cfg.identity,
+      workspaceRoot: root
+    })
+    // 缺失的子表（标题找不到了）拼进警告，让用户知道有子表没同步到
+    for (const title of check.missingSheets) {
+      result.warnings.push(fmt(COPY.ticket.warnMissingSheet, { title }))
+    }
+    // 子表重建后回写 sheet_id 指纹缓存（标题仍是主键，指纹保持新鲜）
+    if (check.resolved.some((r) => r.sheet_id !== r.cfg.sheet_id)) {
+      writeTicketSheets(
+        cfg.sheets.map((s) => {
+          const hit = check.resolved.find((r) => r.cfg.title === s.title)
+          return hit ? { ...s, sheet_id: hit.sheet_id } : s
+        })
+      )
+    }
+    return result
+  })
+
+  ipcMain.handle(
+    'ticket:list',
+    (_e, view?: 'all' | 'mine' | 'unassigned' | 'history' | 'reassigned' | 'pending' | 'abnormal') => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      const db = getDb()
+      const cfg = readTicketConfig()
+      const mineUserid = cfg.identity?.userid ?? ''
+      let where = '1=1'
+      const args: unknown[] = []
+      if (view === 'mine' && mineUserid) {
+        where = 't.designer_userid = ?'
+        args.push(mineUserid)
+      } else if (view === 'mine') {
+        return []
+      } else if (view === 'unassigned') {
+        where = 't.designer_userid IS NULL'
+      } else if (view === 'history') {
+        where = 't.is_history = 1'
+      } else if (view === 'reassigned') {
+        where = 't.reassigned_to IS NOT NULL'
+      } else if (view === 'pending') {
+        where = 't.need_confirm = 1'
+      } else if (view === 'abnormal') {
+        // 编号重复 / 项目未匹配（工单写了业务归属，但软件里没有同名项目）
+        where =
+          't.dup_warn = 1 OR (t.project_name IS NOT NULL AND t.project_name <> \'\' AND NOT EXISTS (SELECT 1 FROM projects pr WHERE pr.name = t.project_name))'
+      }
+      const rows = db
+        .prepare(
+          `SELECT t.id, t.ticket_no, t.ticket_type, t.title, t.approval_state,
+             t.designer_name, t.project_name, t.due_date, t.submit_time,
+             t.is_history, t.need_confirm, t.row_gone, t.dup_warn, t.reassigned_to,
+             t.pack_id, p.name AS pack_name, p.project_id AS pack_project_id
+           FROM tickets t LEFT JOIN packs p ON p.id = t.pack_id
+           WHERE ${where}
+           ORDER BY t.submit_time DESC, t.id DESC`
+        )
+        .all(...args) as Array<Record<string, unknown>>
+      return rows.map((r) => ({
+        id: r.id as number,
+        ticketNo: r.ticket_no as string,
+        ticketType: r.ticket_type as 'print' | 'digital',
+        title: (r.title as string) ?? null,
+        approvalState: (r.approval_state as string) ?? null,
+        designerName: (r.designer_name as string) ?? null,
+        projectName: (r.project_name as string) ?? null,
+        dueDate: (r.due_date as string) ?? null,
+        submitTime: (r.submit_time as string) ?? null,
+        isHistory: r.is_history === 1,
+        needConfirm: r.need_confirm === 1,
+        rowGone: r.row_gone === 1,
+        dupWarn: r.dup_warn === 1,
+        reassignedTo: (r.reassigned_to as string) ?? null,
+        packId: (r.pack_id as number) ?? null,
+        packName: (r.pack_name as string) ?? null,
+        packProjectId: (r.pack_project_id as number) ?? null
+      }))
+    }
+  )
+
+  ipcMain.handle('ticket:detail', (_e, ticketNo: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const db = getDb()
+    const t = db
+      .prepare('SELECT * FROM tickets WHERE ticket_no = ?')
+      .get(ticketNo) as Record<string, unknown> | undefined
+    if (!t) return null
+    const cfg = readTicketConfig()
+    let packSummary: { fileCount: number; lastUpdate: string | null } | null = null
+    let packName: string | null = null
+    let packProjectId: number | null = null
+    if (t.pack_id !== null && t.pack_id !== undefined) {
+      const p = db
+        .prepare('SELECT name, project_id FROM packs WHERE id = ?')
+        .get(t.pack_id as number) as { name: string; project_id: number | null } | undefined
+      if (p) {
+        packName = p.name
+        packProjectId = p.project_id
+        // assets 表没有 updated_at（用的是 modified_at）—— 第 13 批场景壳抓出来的
+        const s = db
+          .prepare('SELECT COUNT(*) AS c, MAX(modified_at) AS last FROM assets WHERE pack_id = ?')
+          .get(t.pack_id as number) as { c: number; last: string | null }
+        packSummary = { fileCount: s.c, lastUpdate: s.last }
+      }
+    }
+    return {
+      id: t.id as number,
+      ticketNo: t.ticket_no as string,
+      ticketType: t.ticket_type as 'print' | 'digital',
+      title: (t.title as string) ?? null,
+      approvalState: (t.approval_state as string) ?? null,
+      designerName: (t.designer_name as string) ?? null,
+      projectName: (t.project_name as string) ?? null,
+      dueDate: (t.due_date as string) ?? null,
+      submitTime: (t.submit_time as string) ?? null,
+      isHistory: t.is_history === 1,
+      needConfirm: t.need_confirm === 1,
+      rowGone: t.row_gone === 1,
+      dupWarn: t.dup_warn === 1,
+      reassignedTo: (t.reassigned_to as string) ?? null,
+      packId: (t.pack_id as number) ?? null,
+      packName,
+      packProjectId,
+      applicantName: (t.applicant_name as string) ?? null,
+      department: (t.department as string) ?? null,
+      purpose: (t.purpose as string) ?? null,
+      sizeText: (t.size_text as string) ?? null,
+      printQty: (t.print_qty as number) ?? null,
+      materialForm: (t.material_form as string) ?? null,
+      useScene: (t.use_scene as string) ?? null,
+      doneTime: (t.done_time as string) ?? null,
+      remark: (t.remark as string) ?? null,
+      sourceUrl: (t.source_url as string) ?? null,
+      approvalUrl: (t.approval_url as string) ?? null,
+      receiverName: (t.receiver_name as string) ?? null,
+      receiverPhone: (t.receiver_phone as string) ?? null,
+      deliverDate: (t.deliver_date as string) ?? null,
+      reviewerNames: (t.reviewer_names as string) ?? null,
+      materialCategory: (t.material_category as string) ?? null,
+      mine: !!cfg.identity && t.designer_userid === cfg.identity.userid,
+      packSummary
+    }
+  })
+
+  ipcMain.handle('ticket:confirmBatch', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const cfg = readTicketConfig()
+    if (!cfg.identity) return { confirmed: 0, tasksCreated: 0, warnings: [] }
+    return confirmPendingTickets(cfg.identity, root)
+  })
+
+  ipcMain.handle('ticket:createTask', (_e, ticketNo: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return createTaskForTicketManually(ticketNo, root)
+  })
+
+  ipcMain.handle('ticket:openApproval', async (_e, url: string) => {
+    try {
+      await shell.openExternal(url)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
   })
 }

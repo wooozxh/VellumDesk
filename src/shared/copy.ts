@@ -695,5 +695,70 @@ export const COPY = {
     seqTaken: '第 {seq} 稿已经绑给「{taken}」了',
     bindFailed: '绑定失败：{msg}',
     notFound: '这一稿不存在'
+  },
+
+  // ==================== 工单模块（第 13 批；docs/15） ====================
+  ticket: {
+    /** 顶栏分段控件第三格 */
+    viewTab: '工单',
+    /** 同步按钮 */
+    syncBtn: '同步工单',
+    syncing: '同步中…',
+    /** 筛选标签 */
+    filterMine: '我的',
+    filterAll: '全部',
+    filterUnassigned: '未指派',
+    filterHistory: '历史单',
+    filterReassigned: '已改派',
+    filterPending: '待确认',
+    filterAbnormal: '异常',
+    /** 类型徽标 */
+    typePrint: '印刷',
+    typeDigital: '电子',
+    /** 关联任务列 */
+    linkedTask: '任务：{name}',
+    noTaskMine: '未指派给我',
+    noTaskOther: '不是我的单',
+    noTaskState: '未通过审批',
+    noTaskHistory: '历史单',
+    noTaskPending: '待确认',
+    /** 建任务 / 补建 */
+    createTask: '建任务',
+    confirmBatch: '确认这批新单',
+    /** 详情弹窗 */
+    detailTitle: '工单详情',
+    openApproval: '打开审批（含附件）',
+    basicSection: '基本信息',
+    printSection: '印刷信息',
+    taskSection: '关联任务',
+    /** 设置弹窗 */
+    settingsTitle: '工单同步设置',
+    settingsDocid: '智能表格链接',
+    settingsDocidOk: '已识别表格：{docid}',
+    settingsSheets: '启用的子表',
+    settingsIdentity: '本机使用者',
+    settingsIdentityHint: '读自企业微信授权，换人请重新授权 CLI',
+    settingsFirstSyncWarn: '首次同步会把当前表里所有工单标记为历史单，不建任何任务',
+    settingsFirstSyncDone: '首次同步已完成（{n} 张已标历史）',
+    /** 状态提示（同步结果 toast） */
+    syncDone: '同步完成：新增 {inserted} · 更新 {updated} · 建任务 {tasks}',
+    syncDoneMore: '待确认 {pending} · 改派 {reassigned} · 表中删除 {gone} · 警告 {warns}',
+    /** 降级 / 异常 */
+    notConfigured: '工单功能未配置：点这里粘贴智能表格链接',
+    cliMissing: '本机未配置企微同步（未安装 wecom-cli 或未授权），其余功能不受影响',
+    authExpired: '企微授权已过期，请在企业微信里重新授权后重试',
+    syncFailed: '同步失败：{msg}',
+    /** 引擎警告（进同步结果，不是界面常驻文案） */
+    warnMissingSheet: '配置的子表「{title}」在表格里找不到了，本次跳过——请检查是否重新拉过表',
+    warnStructureChanged: '检测到子表已重建：新出现的工单已标「待确认」，不会自动建任务',
+    warnEmptyNo: '{n} 条记录没有审批单编号，已跳过（record_id：{ids}）',
+    warnDupNo: '审批单编号 {no} 出现了 {n} 次：两份都已保留，请去表里修正',
+    warnProjectMismatch: '工单 {no} 的业务归属「{project}」在软件里没有同名项目，暂不建任务——项目名对齐后会自动补建',
+    warnCreateFailed: '工单 {no} 建任务失败：{msg}',
+    reassignedTo: '已改派给 {name}',
+    rowGoneLabel: '已不在表中',
+    dupWarnLabel: '编号重复',
+    pendingLabel: '待确认',
+    projectMismatchLabel: '项目未匹配'
   }
 } as const

@@ -23,5 +23,11 @@ export type {
   PackVersion,
   CreateVersionInput,
   BindableFolder,
-  BindVersionInput
+  BindVersionInput,
+  TicketType,
+  TicketListItem,
+  TicketDetail,
+  TicketStatus,
+  TicketSaveConfigResult,
+  TicketSyncResult
 } from '../../shared/types'
