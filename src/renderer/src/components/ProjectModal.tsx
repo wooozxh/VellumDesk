@@ -1,11 +1,12 @@
+import { COPY } from '../../../shared/copy'
 import { useState } from 'react'
 import type { Project } from '../types'
 import { Icon } from './Icon'
 
 const PRESET_NOTES = [
-  '教育咨询 + 异地升学办理',
-  '外回初三考生集训提分',
-  '不属于具体业务的通用素材'
+  COPY.projModal.notePresetEducation,
+  COPY.projModal.notePresetCamp,
+  COPY.projModal.notePresetCommon
 ]
 
 /**
@@ -39,13 +40,13 @@ export function ProjectModal({
   const submit = async (): Promise<void> => {
     if (busy) return
     if (!name.trim()) {
-      setErr('项目名称不能为空')
+      setErr(COPY.projErr.nameEmpty)
       return
     }
     setBusy(true)
     const r = await onSubmit({ name: name.trim(), color, note: note.trim() })
     setBusy(false)
-    if (!r.ok) setErr(r.error ?? '操作失败')
+    if (!r.ok) setErr(r.error ?? COPY.projModal.failed)
   }
 
   return (
@@ -54,11 +55,11 @@ export function ProjectModal({
         <h3>
           {isEdit ? (
             <>
-              <Icon name="edit" size={15} /> 编辑项目
+              <Icon name="edit" size={15} />  {COPY.projModal.titleEdit}
             </>
           ) : (
             <>
-              <Icon name="plus" size={15} strokeWidth={2} /> 新建项目
+              <Icon name="plus" size={15} strokeWidth={2} />  {COPY.side.newProjectTip}
             </>
           )}
           <button className="close" onClick={onClose}>
@@ -69,13 +70,14 @@ export function ProjectModal({
         <div className="content">
           <div className="field">
             <label>
-              项目名称 <span style={{ color: 'var(--danger)' }}>*</span>
+              
+              {COPY.projModal.nameLabel} <span style={{ color: 'var(--danger)' }}>*</span>
             </label>
             <input
               type="text"
               value={name}
               autoFocus
-              placeholder="例：抖音短视频运营"
+              placeholder={COPY.projModal.namePlaceholder}
               onChange={(e) => {
                 setName(e.target.value)
                 setErr('')
@@ -91,15 +93,16 @@ export function ProjectModal({
               </div>
             ) : isEdit ? (
               <div className="hint">
-                改名会连带把工作区里的项目文件夹一起改名 —— 里面的包和文件跟着走，不会丢
+                
+                {COPY.projModal.renameHint}
               </div>
             ) : (
-              <div className="hint">公司开了新业务、内部孵化了新项目，就在这里加一个</div>
+              <div className="hint">{COPY.projModal.createHint}</div>
             )}
           </div>
 
           <div className="field">
-            <label>标签颜色</label>
+            <label>{COPY.projModal.colorLabel}</label>
             <div className="swatches">
               {colors.map((c) => (
                 <button
@@ -112,16 +115,17 @@ export function ProjectModal({
               ))}
             </div>
             <div className="hint">
-              包卡片和左栏的项目标签用这个色，一排包摆出来能一眼看出哪些同属一个项目
+              
+              {COPY.projModal.colorHint}
             </div>
           </div>
 
           <div className="field" style={{ marginBottom: 0 }}>
-            <label>备注（可选）</label>
+            <label>{COPY.projModal.noteLabel}</label>
             <input
               type="text"
               value={note}
-              placeholder="这个项目是干什么的"
+              placeholder={COPY.projModal.notePlaceholder}
               onChange={(e) => setNote(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submit()
@@ -130,7 +134,8 @@ export function ProjectModal({
             />
             {!note && (
               <div className="hint">
-                参考：
+                
+                {COPY.projModal.notePresets}
                 {PRESET_NOTES.map((n, i) => (
                   <button
                     key={n}
@@ -148,10 +153,11 @@ export function ProjectModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           <button className="btn primary" onClick={submit} disabled={busy}>
-            {busy ? '保存中…' : isEdit ? '保存' : '创建'}
+            {busy ? COPY.common.saving : isEdit ? COPY.common.save : COPY.common.create}
           </button>
         </div>
       </div>

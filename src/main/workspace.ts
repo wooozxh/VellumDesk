@@ -1,3 +1,4 @@
+import { COPY, fmt } from '../shared/copy'
 import Database from 'better-sqlite3'
 import { join, basename, dirname, extname, relative, sep, isAbsolute } from 'path'
 import {
@@ -293,7 +294,7 @@ export function resolveWorkspace(
     return {
       root: active.root,
       ok: false,
-      note: '该位置当前不可用（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）'
+      note: COPY.wsErr.badLocationNote
     }
   }
 
@@ -312,7 +313,7 @@ export function resolveWorkspace(
   return {
     root: preferredRoot,
     ok: false,
-    note: '既定位置与「文档」目录都无法创建，请点「更改位置」手动指定一个可写目录'
+    note: COPY.wsErr.noWritableNote
   }
 }
 
@@ -398,7 +399,7 @@ function nowIso(): string {
 /** 包名称留空时的兜底取名（方案 6.0） */
 export function fallbackPackName(d = new Date()): string {
   const p = (n: number): string => String(n).padStart(2, '0')
-  return `未命名任务-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
+  return fmt(COPY.ws.untitledTask, { y: d.getFullYear(), mo: p(d.getMonth() + 1), d: p(d.getDate()), h: p(d.getHours()), mi: p(d.getMinutes()) })
 }
 
 /**
@@ -416,7 +417,7 @@ function sanitizeFolderName(name: string): string {
     .replace(/[. ]+$/, '') // 结尾不能是点或空格（Windows 会静默去掉，导致库盘不一致）
     .trim()
 
-  const safe = cleaned || '未命名'
+  const safe = cleaned || COPY.ws.untitledName
   // Windows 设备名（CON / NUL / COM1…）不能当文件夹名
   return RESERVED_FOLDER_NAMES.has(safe.toLowerCase()) ? `${safe}-1` : safe
 }
@@ -480,7 +481,7 @@ export function createPack(input: CreatePackInput): PackRow {
   if (projectId !== null && !db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)) {
     // 显式指定了不存在的项目 —— 报错而不是静默兜底，
     // 否则包会落进一个用户没预期的文件夹，事后很难解释
-    throw new Error('指定的项目不存在，无法建包')
+    throw new Error(COPY.wsErr.projectMissingForPack)
   }
   if (projectId === null) {
     const first = db
@@ -488,7 +489,7 @@ export function createPack(input: CreatePackInput): PackRow {
       .get() as { id: number } | undefined
     projectId = first?.id ?? null
   }
-  if (projectId === null) throw new Error('还没有任何项目，请先新建一个项目')
+  if (projectId === null) throw new Error(COPY.wsErr.noProjectYet)
 
   const proj = db
     .prepare('SELECT id, folder_name FROM projects WHERE id = ?')
@@ -772,7 +773,7 @@ function detectVersions(
         const taken = known.find((v) => v.seq === seq)
         if (taken) {
           conflicts.push(
-            `包里有个文件夹叫「${name}」，但第 ${seq} 稿已经绑给「${taken.folder_name}」了`
+            fmt(COPY.wsErr.folderTaken, { name: name, seq: seq, taken: taken.folder_name })
           )
           continue
         }
@@ -1097,13 +1098,13 @@ function verifyRelocateTarget(
   workspaceRoot: string
 ): RelocateCheck {
   if (!existsSync(newAbsPath)) {
-    return { ok: false, reason: '这个文件不存在', absPath: '', relPath: '' }
+    return { ok: false, reason: COPY.wsErr.fileNotExist, absPath: '', relPath: '' }
   }
   const rel = relative(workspaceRoot, newAbsPath)
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
     return {
       ok: false,
-      reason: '这个文件在工作区外面 —— 请指到工作区里的文件（外面的文件软件管不着）',
+      reason: COPY.wsErr.outsideWorkspace,
       absPath: '',
       relPath: ''
     }
@@ -1112,7 +1113,7 @@ function verifyRelocateTarget(
   if (name !== asset.file_name) {
     return {
       ok: false,
-      reason: `文件名对不上：这条记录是「${asset.file_name}」，选中的是「${name}」`,
+      reason: fmt(COPY.wsErr.nameMismatch, { record: asset.file_name, picked: name }),
       absPath: '',
       relPath: ''
     }
@@ -1121,12 +1122,12 @@ function verifyRelocateTarget(
   try {
     st = statSync(newAbsPath)
   } catch {
-    return { ok: false, reason: '读不到这个文件（可能被占用或没权限）', absPath: '', relPath: '' }
+    return { ok: false, reason: COPY.wsErr.unreadable, absPath: '', relPath: '' }
   }
   if (st.size !== asset.size) {
     return {
       ok: false,
-      reason: `大小对不上：记录里是 ${asset.size} 字节，选中这个文件是 ${st.size} 字节（多半不是同一个文件）`,
+      reason: fmt(COPY.wsErr.sizeMismatch, { record: asset.size, picked: st.size }),
       absPath: '',
       relPath: ''
     }
@@ -1147,7 +1148,7 @@ export function relocateAsset(
 ): { ok: boolean; error?: string; relPath?: string } {
   const db = getDb()
   const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(assetId) as AssetRow | undefined
-  if (!asset) return { ok: false, error: '这条素材记录不存在了（可能刚被清理过）' }
+  if (!asset) return { ok: false, error: COPY.wsErr.assetGone }
 
   const check = verifyRelocateTarget(asset, newAbsPath, workspaceRoot)
   if (!check.ok) return { ok: false, error: check.reason }
@@ -1156,7 +1157,7 @@ export function relocateAsset(
   try {
     st = statSync(newAbsPath)
   } catch {
-    return { ok: false, error: '读不到这个文件' }
+    return { ok: false, error: COPY.wsErr.unreadablePlain }
   }
 
   try {
@@ -1193,7 +1194,7 @@ export function relocateAsset(
       })
     })()
   } catch (e) {
-    return { ok: false, error: '写入失败：' + (e as Error).message }
+    return { ok: false, error: COPY.wsErr.writeFailed + (e as Error).message }
   }
   return { ok: true, relPath: check.relPath }
 }
@@ -1243,7 +1244,7 @@ export function suggestRelocateBatch(dir: string, workspaceRoot: string): Reloca
           oldRelPath: a.rel_path,
           matchedPath: cand,
           ok: true,
-          reason: drop === 0 ? '按完整目录结构命中' : `去掉前 ${drop} 层目录后命中`
+          reason: drop === 0 ? COPY.ws.reasonFullMatch : fmt(COPY.ws.reasonDropMatch, { n: drop })
         }
       }
       // 找到了同名文件但校验不过 → 直接报原因，不再往下猜（再猜更容易指错）
@@ -1262,7 +1263,7 @@ export function suggestRelocateBatch(dir: string, workspaceRoot: string): Reloca
       oldRelPath: a.rel_path,
       matchedPath: null,
       ok: false,
-      reason: '这个目录下没找到它'
+      reason: COPY.ws.reasonNotFound
     }
   })
 }
@@ -1277,7 +1278,7 @@ export function applyRelocateBatch(
   for (const it of items) {
     const r = relocateAsset(it.assetId, it.newAbsPath, workspaceRoot)
     if (r.ok) moved += 1
-    else errors.push(r.error ?? '未知错误')
+    else errors.push(r.error ?? COPY.wsErr.unknown)
   }
   return { moved, errors }
 }
@@ -1302,8 +1303,8 @@ export function claimFiles(
 ): { moved: number; errors: string[] } {
   const db = getDb()
   const pack = db.prepare('SELECT * FROM packs WHERE id = ?').get(packId) as PackRow | undefined
-  if (!pack) return { moved: 0, errors: ['目标包不存在'] }
-  if (!SUB_FOLDERS.includes(subFolder)) return { moved: 0, errors: ['目标分组不合法'] }
+  if (!pack) return { moved: 0, errors: [COPY.wsErr.targetPackMissing] }
+  if (!SUB_FOLDERS.includes(subFolder)) return { moved: 0, errors: [COPY.wsErr.badSubFolder] }
 
   // 目标目录：有稿就落在「那一稿文件夹」里，否则落在包根目录下的组里。
   // 这一层不能搞错 —— 搞错等于把文件悄悄挪出了那一稿（用户看到的是"移了个位置，版本没了"）。
@@ -1322,7 +1323,7 @@ export function claimFiles(
     }
   } else if (versionId !== null) {
     const v = pickVersion.get(versionId, packId) as { id: number; folder_name: string } | undefined
-    if (!v) return { moved: 0, errors: ['目标版本不存在'] }
+    if (!v) return { moved: 0, errors: [COPY.wsErr.targetVerMissing] }
     baseDir = join(pack.folder_path, v.folder_name)
     targetVersionId = v.id
   }
@@ -1336,7 +1337,7 @@ export function claimFiles(
 
   for (const src of absPaths) {
     if (!existsSync(src)) {
-      errors.push(`${basename(src)}：文件已不存在`)
+      errors.push(fmt(COPY.wsErr.fileGone, { name: basename(src) }))
       continue
     }
     // 同名冲突时自动加后缀，绝不覆盖
@@ -1429,7 +1430,7 @@ export function ensureFolderNames(): void {
   const setStmt = db.prepare('UPDATE projects SET folder_name = ? WHERE id = ?')
   for (const r of rows) {
     if (r.folder_name) continue
-    const base = sanitizeFolderName(r.name) || `项目${r.id}`
+    const base = sanitizeFolderName(r.name) || fmt(COPY.ws.fallbackProjectFolder, { id: r.id })
     let cand = base
     let i = 2
     while (taken.has(cand.toLowerCase())) {
@@ -1453,7 +1454,7 @@ function uniqueFolderName(name: string, excludeId?: number): string {
     .all(excludeId ?? -1) as Array<{ folder_name: string }>
   const taken = new Set(rows.map((r) => r.folder_name.toLowerCase()).filter(Boolean))
 
-  const base = sanitizeFolderName(name) || '未命名项目'
+  const base = sanitizeFolderName(name) || COPY.ws.untitledProject
   let cand = base
   let i = 2
   while (taken.has(cand.toLowerCase())) {
@@ -1492,8 +1493,8 @@ export function syncProjectFolders(workspaceRoot: string): number {
 /** 项目名校验：非空、不以 `_` / `.` 开头（否则文件夹会被扫描跳过，项目凭空消失） */
 function checkProjectName(name: string): string | null {
   const n = (name ?? '').trim()
-  if (!n) return '项目名称不能为空'
-  if (/^[._]/.test(n)) return '项目名不能以下划线或点开头（会跟软件自己的目录冲突）'
+  if (!n) return COPY.projErr.nameEmpty
+  if (/^[._]/.test(n)) return COPY.projErr.namePrefix
   return null
 }
 
@@ -1544,7 +1545,7 @@ export function createProject(input: {
   const name = input.name.trim()
 
   const dup = db.prepare('SELECT id FROM projects WHERE name = ?').get(name)
-  if (dup) return { ok: false, error: `已存在同名项目「${name}」` }
+  if (dup) return { ok: false, error: fmt(COPY.projErr.dup, { name: name }) }
 
   const folderName = uniqueFolderName(name)
 
@@ -1553,7 +1554,7 @@ export function createProject(input: {
     try {
       mkdirSync(join(input.workspaceRoot, folderName), { recursive: true })
     } catch (e) {
-      return { ok: false, error: `建项目文件夹失败：${(e as Error).message}` }
+      return { ok: false, error: fmt(COPY.projErr.folderCreateFailed, { msg: (e as Error).message }) }
     }
   }
 
@@ -1640,7 +1641,7 @@ export function updateProject(
 } {
   const db = getDb()
   const cur = getProject(id)
-  if (!cur) return { ok: false, error: '项目不存在' }
+  if (!cur) return { ok: false, error: COPY.projErr.notFound }
 
   const name = patch.name === undefined ? cur.name : patch.name.trim()
   const nameErr = checkProjectName(name)
@@ -1648,7 +1649,7 @@ export function updateProject(
 
   if (name !== cur.name) {
     const dup = db.prepare('SELECT id FROM projects WHERE name = ? AND id <> ?').get(name, id)
-    if (dup) return { ok: false, error: `已存在同名项目「${name}」` }
+    if (dup) return { ok: false, error: fmt(COPY.projErr.dup, { name: name }) }
   }
 
   const nameChanged = name !== cur.name
@@ -1662,7 +1663,7 @@ export function updateProject(
     const from = join(workspaceRoot, oldFolder)
     const to = join(workspaceRoot, newFolder)
     if (existsSync(to)) {
-      return { ok: false, error: `磁盘上已经有一个「${newFolder}」文件夹，换个名字` }
+      return { ok: false, error: fmt(COPY.projErr.folderExists, { name: newFolder }) }
     }
 
     // 这一步动的是用户看得见的目录，先备份数据库
@@ -1674,7 +1675,7 @@ export function updateProject(
         renameSync(from, to)
         moved = true
       } catch (e) {
-        return { ok: false, error: `文件夹改名失败：${(e as Error).message}` }
+        return { ok: false, error: fmt(COPY.projErr.renameFailed, { msg: (e as Error).message }) }
       }
     }
 
@@ -1696,7 +1697,7 @@ export function updateProject(
           /* 退回失败只能如实报错，让用户看到 */
         }
       }
-      return { ok: false, error: `改名失败，已尽量回滚：${(e as Error).message}` }
+      return { ok: false, error: fmt(COPY.projErr.renameRollback, { msg: (e as Error).message }) }
     }
   }
 
@@ -1717,12 +1718,12 @@ export function moveProject(
 ): { ok: boolean; moved: boolean; error?: string } {
   const db = getDb()
   const cur = getProject(id)
-  if (!cur) return { ok: false, moved: false, error: '项目不存在' }
-  if (cur.archived) return { ok: false, moved: false, error: '已归档的项目不参与排序' }
+  if (!cur) return { ok: false, moved: false, error: COPY.projErr.notFound }
+  if (cur.archived) return { ok: false, moved: false, error: COPY.projErr.archivedNoSort }
 
   const list = listProjects(false)
   const idx = list.findIndex((p) => p.id === id)
-  if (idx < 0) return { ok: false, moved: false, error: '项目不存在' }
+  if (idx < 0) return { ok: false, moved: false, error: COPY.projErr.notFound }
 
   const swapIdx = direction === 'up' ? idx - 1 : idx + 1
   if (swapIdx < 0 || swapIdx >= list.length) {
@@ -1778,7 +1779,7 @@ export function removeProject(
 } {
   const db = getDb()
   const cur = getProject(id)
-  if (!cur) return { ok: false, moved: 0, error: '项目不存在' }
+  if (!cur) return { ok: false, moved: 0, error: COPY.projErr.notFound }
 
   const packs = db
     .prepare('SELECT id, folder_path FROM packs WHERE project_id = ?')
@@ -1788,7 +1789,7 @@ export function removeProject(
   // 只剩一个项目时不允许删 —— 否则新建包没有默认归属可选
   const total = (db.prepare('SELECT COUNT(*) AS c FROM projects').get() as { c: number }).c
   if (total <= 1) {
-    return { ok: false, moved: 0, error: '至少要保留一个项目，无法删除最后一个' }
+    return { ok: false, moved: 0, error: COPY.projErr.keepAtLeastOne }
   }
 
   // ---- 出口三：整个项目搬进 _回收站（第 7 批）----
@@ -1798,9 +1799,9 @@ export function removeProject(
 
   let targetProject: ProjectRow | undefined
   if (packCount > 0 && action.moveTo !== null) {
-    if (action.moveTo === id) return { ok: false, moved: 0, error: '不能转移到自己' }
+    if (action.moveTo === id) return { ok: false, moved: 0, error: COPY.projErr.moveToSelf }
     targetProject = getProject(action.moveTo)
-    if (!targetProject) return { ok: false, moved: 0, error: '目标项目不存在' }
+    if (!targetProject) return { ok: false, moved: 0, error: COPY.projErr.targetMissing }
   }
 
   // ---- 磁盘：把包文件夹搬走（同盘 rename）----
@@ -1830,7 +1831,7 @@ export function removeProject(
               /* 尽力而为 */
             }
           }
-          return { ok: false, moved: 0, error: `搬移包文件夹失败：${(e as Error).message}` }
+          return { ok: false, moved: 0, error: fmt(COPY.projErr.movePackFailed, { msg: (e as Error).message }) }
         }
       }
     }
@@ -1861,7 +1862,7 @@ export function removeProject(
         /* 尽力而为 */
       }
     }
-    return { ok: false, moved: 0, error: `删除项目失败，已尽量回滚：${(e as Error).message}` }
+    return { ok: false, moved: 0, error: fmt(COPY.projErr.deleteRollback, { msg: (e as Error).message }) }
   }
 
   // 项目文件夹搬空了就收掉它 —— 只删空目录，绝不删文件
@@ -1981,7 +1982,7 @@ export function cleanupMissingPacks(workspaceRoot: string, rootReadable: boolean
 
   backupPackRecords(
     workspaceRoot,
-    '扫描时发现包文件夹已不在磁盘上，包记录与包内素材记录已一并摘除（磁盘文件本来就没有了）',
+    COPY.wsErr.scanPackGoneNote,
     records
   )
 
@@ -2021,7 +2022,7 @@ function removeProjectToTrash(
     const fileCount = db.prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?')
     backupPackRecords(
       workspaceRoot,
-      `删除项目「${cur.name}」：记录已删，文件夹已移入 ${TRASH_DIR}`,
+      fmt(COPY.projErr.deletedToTrash, { name: cur.name, dir: TRASH_DIR }),
       packRows.map((p) => ({
         name: p.name,
         category: p.category,
@@ -2048,7 +2049,7 @@ function removeProjectToTrash(
         // 整个项目文件夹一起搬 —— 里面没进过扫描的手工文件夹也跟着走，绝不漏
         renameSync(from, to)
       } catch (e) {
-        return { ok: false, moved: 0, error: `搬进回收站失败，什么都没动：${(e as Error).message}` }
+        return { ok: false, moved: 0, error: fmt(COPY.projErr.trashFailed, { msg: (e as Error).message }) }
       }
     }
   }
@@ -2071,7 +2072,7 @@ function removeProjectToTrash(
         /* 尽力而为 */
       }
     }
-    return { ok: false, moved: 0, error: `删除项目失败，已尽量回滚：${(e as Error).message}` }
+    return { ok: false, moved: 0, error: fmt(COPY.projErr.deleteRollback, { msg: (e as Error).message }) }
   }
 
   return { ok: true, moved: 0, deletedPacks: packRows.length, toTrashPath: to || undefined }
@@ -2093,19 +2094,19 @@ export function movePackTo(
 ): UpdatePackResult {
   const db = getDb()
   const cur = db.prepare('SELECT * FROM packs WHERE id = ?').get(packId) as PackRow | undefined
-  if (!cur) return { ok: false, error: '包不存在' }
+  if (!cur) return { ok: false, error: COPY.packErr.notFound }
 
   // ---- 目标父目录 ----
   let parentDir = workspaceRoot
   if (target.projectId !== null) {
     const proj = getProject(target.projectId)
-    if (!proj) return { ok: false, error: '目标项目不存在' }
-    if (proj.archived) return { ok: false, error: '目标项目已解绑，不能往里放包' }
+    if (!proj) return { ok: false, error: COPY.projErr.targetMissing }
+    if (proj.archived) return { ok: false, error: COPY.projErr.archivedNoPack }
     parentDir = join(workspaceRoot, proj.folder_name)
   }
 
   const name = target.name.trim()
-  if (!name) return { ok: false, error: '包名称不能为空' }
+  if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category = target.category.trim() || UNCATEGORIZED
 
   // ---- 目标文件夹 ----
@@ -2138,7 +2139,7 @@ export function movePackTo(
       renameSync(cur.folder_path, to)
       renamed = true
     } catch (e) {
-      return { ok: false, error: `搬移包文件夹失败，什么都没动：${(e as Error).message}` }
+      return { ok: false, error: fmt(COPY.packErr.moveFailed, { msg: (e as Error).message }) }
     }
   }
 
@@ -2159,7 +2160,7 @@ export function movePackTo(
         /* 尽力而为 */
       }
     }
-    return { ok: false, error: `改包信息失败，已尽量回滚：${(e as Error).message}` }
+    return { ok: false, error: fmt(COPY.packErr.editRollback, { msg: (e as Error).message }) }
   }
 }
 
@@ -2194,10 +2195,10 @@ export function updatePack(
   workspaceRoot: string
 ): UpdatePackResult {
   const cur = getPackRow(packId)
-  if (!cur) return { ok: false, error: '包不存在' }
+  if (!cur) return { ok: false, error: COPY.packErr.notFound }
 
   const name = patch.name === undefined ? cur.name : patch.name.trim()
-  if (!name) return { ok: false, error: '包名称不能为空' }
+  if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category =
     patch.category === undefined ? cur.category : patch.category.trim() || UNCATEGORIZED
   const projectId = patch.projectId === undefined ? cur.project_id : patch.projectId
@@ -2244,14 +2245,14 @@ export function unbindProject(
 ): { ok: boolean; packs: number; error?: string; movedTo?: string } {
   const db = getDb()
   const cur = getProject(id)
-  if (!cur) return { ok: false, packs: 0, error: '项目不存在' }
-  if (cur.archived) return { ok: false, packs: 0, error: '该项目已经解绑过了' }
+  if (!cur) return { ok: false, packs: 0, error: COPY.projErr.notFound }
+  if (cur.archived) return { ok: false, packs: 0, error: COPY.projErr.alreadyUnbound }
 
   const active = (
     db.prepare('SELECT COUNT(*) AS c FROM projects WHERE archived = 0').get() as { c: number }
   ).c
   if (active <= 1) {
-    return { ok: false, packs: 0, error: '至少要保留一个项目，无法解绑最后一个' }
+    return { ok: false, packs: 0, error: COPY.projErr.keepAtLeastOneUnbind }
   }
 
   const packCount = (
@@ -2278,7 +2279,7 @@ export function unbindProject(
       renameSync(from, to)
       moved = true
     } catch (e) {
-      return { ok: false, packs: 0, error: `搬移项目文件夹失败，什么都没动：${(e as Error).message}` }
+      return { ok: false, packs: 0, error: fmt(COPY.projErr.moveFailed, { msg: (e as Error).message }) }
     }
   }
 
@@ -2298,7 +2299,7 @@ export function unbindProject(
         /* 尽力而为 */
       }
     }
-    return { ok: false, packs: 0, error: `解绑失败，已尽量回滚：${(e as Error).message}` }
+    return { ok: false, packs: 0, error: fmt(COPY.projErr.unbindRollback, { msg: (e as Error).message }) }
   }
 
   return { ok: true, packs: packCount, movedTo: moved ? to : undefined }
@@ -2313,7 +2314,7 @@ export function unbindProject(
 export function restoreProject(id: number, workspaceRoot: string): { ok: boolean; error?: string } {
   const db = getDb()
   const cur = getProject(id)
-  if (!cur) return { ok: false, error: '项目不存在' }
+  if (!cur) return { ok: false, error: COPY.projErr.notFound }
   if (!cur.archived) return { ok: true }
 
   const from = join(workspaceRoot, UNBOUND_DIR, cur.folder_name)
@@ -2321,7 +2322,7 @@ export function restoreProject(id: number, workspaceRoot: string): { ok: boolean
   if (existsSync(to)) {
     return {
       ok: false,
-      error: `工作区里已经有一个「${cur.folder_name}」文件夹了，先把它改名或挪走再还原`
+      error: fmt(COPY.projErr.restoreFolderExists, { name: cur.folder_name })
     }
   }
 
@@ -2333,7 +2334,7 @@ export function restoreProject(id: number, workspaceRoot: string): { ok: boolean
       renameSync(from, to)
       moved = true
     } catch (e) {
-      return { ok: false, error: `搬回项目文件夹失败，什么都没动：${(e as Error).message}` }
+      return { ok: false, error: fmt(COPY.projErr.restoreMoveFailed, { msg: (e as Error).message }) }
     }
   }
 
@@ -2350,7 +2351,7 @@ export function restoreProject(id: number, workspaceRoot: string): { ok: boolean
         /* 尽力而为 */
       }
     }
-    return { ok: false, error: `还原失败，已尽量回滚：${(e as Error).message}` }
+    return { ok: false, error: fmt(COPY.projErr.restoreRollback, { msg: (e as Error).message }) }
   }
 
   return { ok: true }
@@ -2521,9 +2522,9 @@ export function createVersion(
 ): { ok: boolean; version?: PackVersion; error?: string; moved?: number } {
   const db = getDb()
   const pack = getPackRow(input.packId)
-  if (!pack) return { ok: false, error: '包不存在' }
+  if (!pack) return { ok: false, error: COPY.packErr.notFound }
   if (!existsSync(pack.folder_path)) {
-    return { ok: false, error: '包文件夹不在磁盘上了，先刷新扫描' }
+    return { ok: false, error: COPY.packErr.folderGone }
   }
 
   const maxSeq = (
@@ -2535,7 +2536,7 @@ export function createVersion(
   const folderName = `V${seq}`
   const folderPath = join(pack.folder_path, folderName)
   if (existsSync(folderPath)) {
-    return { ok: false, error: `「${folderName}」文件夹已经存在了，用「绑定文件夹」把它纳入管理` }
+    return { ok: false, error: fmt(COPY.packErr.folderExists, { name: folderName }) }
   }
 
   // ① 建文件夹
@@ -2543,7 +2544,7 @@ export function createVersion(
     mkdirSync(folderPath, { recursive: true })
     for (const sub of SUB_FOLDERS) mkdirSync(join(folderPath, sub), { recursive: true })
   } catch (e) {
-    return { ok: false, error: `建版本文件夹失败：${(e as Error).message}` }
+    return { ok: false, error: fmt(COPY.packErr.createVerFolderFailed, { msg: (e as Error).message }) }
   }
 
   // ② 可选：复制上一稿
@@ -2591,7 +2592,7 @@ export function createVersion(
           /* 尽力而为 */
         }
       }
-      return { ok: false, error: `搬文件失败，已尽量还原：${(e as Error).message}` }
+      return { ok: false, error: fmt(COPY.packErr.moveFileRollback, { msg: (e as Error).message }) }
     }
   }
 
@@ -2632,7 +2633,7 @@ export function createVersion(
         /* 尽力而为 */
       }
     }
-    return { ok: false, error: `写库失败，已尽量还原：${(e as Error).message}` }
+    return { ok: false, error: fmt(COPY.packErr.writeDbRollback, { msg: (e as Error).message }) }
   }
 
   // ④ 扫一遍：把复制进来的新文件登记好、版本归属算准
@@ -2693,13 +2694,13 @@ export function bindVersion(
 ): { ok: boolean; version?: PackVersion; error?: string } {
   const db = getDb()
   const pack = getPackRow(input.packId)
-  if (!pack) return { ok: false, error: '包不存在' }
+  if (!pack) return { ok: false, error: COPY.packErr.notFound }
 
   const name = input.folderName.trim()
-  if (!name) return { ok: false, error: '文件夹名为空' }
+  if (!name) return { ok: false, error: COPY.verErr.folderNameEmpty }
   const folderPath = join(pack.folder_path, name)
   if (dirname(folderPath) !== pack.folder_path) {
-    return { ok: false, error: '只能绑定包文件夹里的文件夹' }
+    return { ok: false, error: COPY.verErr.onlyInPack }
   }
   let isDir = false
   try {
@@ -2707,20 +2708,20 @@ export function bindVersion(
   } catch {
     isDir = false
   }
-  if (!isDir) return { ok: false, error: `包里没有「${name}」这个文件夹` }
+  if (!isDir) return { ok: false, error: fmt(COPY.verErr.folderNotInPack, { name: name }) }
   if (!Number.isInteger(input.seq) || input.seq < 1) {
-    return { ok: false, error: '编号必须是大于 0 的整数' }
+    return { ok: false, error: COPY.verErr.seqInvalid }
   }
 
   const dupName = db
     .prepare('SELECT id FROM pack_versions WHERE pack_id = ? AND folder_name = ? COLLATE NOCASE')
     .get(pack.id, name)
-  if (dupName) return { ok: false, error: `「${name}」已经绑定过了` }
+  if (dupName) return { ok: false, error: fmt(COPY.verErr.alreadyBound, { name: name }) }
 
   const dupSeq = db
     .prepare('SELECT folder_name FROM pack_versions WHERE pack_id = ? AND seq = ?')
     .get(pack.id, input.seq) as { folder_name: string } | undefined
-  if (dupSeq) return { ok: false, error: `第 ${input.seq} 稿已经绑给「${dupSeq.folder_name}」了` }
+  if (dupSeq) return { ok: false, error: fmt(COPY.verErr.seqTaken, { seq: input.seq, taken: dupSeq.folder_name }) }
 
   try {
     db.prepare(
@@ -2733,7 +2734,7 @@ export function bindVersion(
       name
     )
   } catch (e) {
-    return { ok: false, error: `绑定失败：${(e as Error).message}` }
+    return { ok: false, error: fmt(COPY.verErr.bindFailed, { msg: (e as Error).message }) }
   }
 
   // 顺手扫一遍，让这个文件夹里的文件立刻挂上这一稿
@@ -2754,7 +2755,7 @@ export function unbindVersion(versionId: number): { ok: boolean; error?: string 
   const v = db.prepare('SELECT * FROM pack_versions WHERE id = ?').get(versionId) as
     | PackVersionRow
     | undefined
-  if (!v) return { ok: false, error: '这一稿不存在' }
+  if (!v) return { ok: false, error: COPY.verErr.notFound }
   db.transaction(() => {
     db.prepare('UPDATE assets SET version_id = NULL WHERE version_id = ?').run(versionId)
     db.prepare('DELETE FROM pack_versions WHERE id = ?').run(versionId)
@@ -2774,7 +2775,7 @@ export function setCurrentVersion(versionId: number): { ok: boolean; error?: str
   const v = db.prepare('SELECT * FROM pack_versions WHERE id = ?').get(versionId) as
     | PackVersionRow
     | undefined
-  if (!v) return { ok: false, error: '这一稿不存在' }
+  if (!v) return { ok: false, error: COPY.verErr.notFound }
   db.transaction(() => {
     db.prepare('UPDATE pack_versions SET is_current = 0 WHERE pack_id = ?').run(v.pack_id)
     db.prepare('UPDATE pack_versions SET is_current = 1 WHERE id = ?').run(versionId)
@@ -2990,7 +2991,7 @@ export function getPackDetail(packId: number): {
         WHERE k.id = ?`
     )
     .get(packId) as (PackRow & { projectName: string | null; projectColor: string | null }) | undefined
-  if (!pack) throw new Error('包不存在')
+  if (!pack) throw new Error(COPY.packErr.notFound)
 
   // 第 9 批：万一当前版本那稿被解绑了，这里兜底把指针顺延，界面才不至于"一个都不选中"
   ensureCurrentVersion(packId)
@@ -3136,7 +3137,7 @@ function detectOldRootFrom(conn: Database.Database): OldRootProbe {
     return {
       ok: false,
       oldRoot: null,
-      error: `库里的素材路径指向 ${roots.size} 个不同位置，数据异常，已拒绝自动改动`
+      error: fmt(COPY.wsErr.multiRoot, { n: roots.size })
     }
   }
 
@@ -3146,7 +3147,7 @@ function detectOldRootFrom(conn: Database.Database): OldRootProbe {
     return {
       ok: false,
       oldRoot: null,
-      error: `库里有 ${skipped}/${rows.length} 条记录的路径自相矛盾，已拒绝自动改动`
+      error: fmt(COPY.wsErr.inconsistent, { skipped: skipped, total: rows.length })
     }
   }
 
@@ -3168,7 +3169,7 @@ function detectOldRootFrom(conn: Database.Database): OldRootProbe {
     return {
       ok: false,
       oldRoot: null,
-      error: `包目录分布在 ${proots.size} 个不同位置，数据异常，已拒绝自动改动`
+      error: fmt(COPY.wsErr.multiPackRoot, { n: proots.size })
     }
   }
   return { ok: true, oldRoot: [...proots][0] }
@@ -3277,7 +3278,7 @@ export function ensureLayoutV3(workspaceRoot: string): LayoutMigration {
 
   // ① 备份：迁移动的是用户看得见的目录，先留一手
   if (!backupDb(workspaceRoot)) {
-    return { migrated: false, packs: 0, error: '备份数据库失败，已中止迁移（磁盘与库都未改动）' }
+    return { migrated: false, packs: 0, error: COPY.wsErr.backupFailedMigrate }
   }
 
   // ② + ③ 建目录、逐个 rename
@@ -3298,7 +3299,7 @@ export function ensureLayoutV3(workspaceRoot: string): LayoutMigration {
       return {
         migrated: false,
         packs: 0,
-        error: `搬移「${basename(step.from)}」失败，已全部回滚：${(e as Error).message}`
+        error: fmt(COPY.wsErr.moveRollback, { name: basename(step.from), msg: (e as Error).message })
       }
     }
   }
@@ -3319,7 +3320,7 @@ export function ensureLayoutV3(workspaceRoot: string): LayoutMigration {
         /* 尽力而为 */
       }
     }
-    return { migrated: false, packs: 0, error: `写库失败，已回滚文件夹：${(e as Error).message}` }
+    return { migrated: false, packs: 0, error: fmt(COPY.wsErr.writeDbRollback, { msg: (e as Error).message }) }
   }
 
   // ⑤ 写标记（notice 留给界面提示一次，ack 后清掉）
@@ -3435,7 +3436,7 @@ export function rewritePaths(newRoot: string, oldRootHint?: string): RewriteResu
     backupPath = backupDb(newRoot)
   } catch (e) {
     openDb(newRoot) // 把库开回去，别让调用方拿到死连接
-    return { ...base, oldRoot, error: `备份失败，已中止重写：${(e as Error).message}` }
+    return { ...base, oldRoot, error: fmt(COPY.wsErr.backupFailedRewrite, { msg: (e as Error).message }) }
   }
 
   const d = openDb(newRoot)
@@ -3457,7 +3458,7 @@ export function rewritePaths(newRoot: string, oldRootHint?: string): RewriteResu
       ...base,
       oldRoot,
       backupPath,
-      error: `重写失败（库已回滚，备份在 ${backupPath}）：${(e as Error).message}`
+      error: fmt(COPY.wsErr.rewriteRollback, { path: backupPath, msg: (e as Error).message })
     }
   }
 
@@ -3520,7 +3521,7 @@ export function inspectWorkspaceDir(root: string): DirInspection {
     }
     return { kind: 'foreign', root: norm, oldRoot: probe.oldRoot }
   } catch (e) {
-    return { kind: 'broken', root: norm, error: `读库失败：${(e as Error).message}` }
+    return { kind: 'broken', root: norm, error: fmt(COPY.wsErr.readDbFailed, { msg: (e as Error).message }) }
   } finally {
     try {
       conn?.close()
@@ -3555,14 +3556,15 @@ export function addWorkspace(
 ): AddWorkspaceResult {
   const norm = trimSlash(root)
 
+
   if (!isUsableWorkspace(norm)) {
-    return { ok: false, error: '这个位置不能写入，请换一个目录' }
+    return { ok: false, error: COPY.wsErr.notWritable }
   }
 
   const info = inspectWorkspaceDir(norm)
 
   if (info.kind === 'broken') {
-    return { ok: false, error: info.error || '这个目录里的素材库看起来有问题，已中止' }
+    return { ok: false, error: info.error || COPY.wsErr.libBroken }
   }
 
   if (info.kind === 'foreign' && !opts.rewrite) {
@@ -3577,7 +3579,7 @@ export function addWorkspace(
   let migrated: RewriteResult | undefined
   if (info.kind === 'foreign') {
     const r = rewritePaths(norm, info.oldRoot)
-    if (!r.ok) return { ok: false, error: r.error || '改写库里的路径失败' }
+    if (!r.ok) return { ok: false, error: r.error || COPY.ipc.rewriteFailed }
     migrated = r
   } else {
     initWorkspace(norm)
@@ -3592,15 +3594,15 @@ export function switchWorkspace(
   id: string
 ): { ok: boolean; root?: string; name?: string; error?: string } {
   const cfg = readWorkspaceConfig(appDataDir)
-  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+  if (!cfg) return { ok: false, error: COPY.wsErr.noWorkspace }
 
   const target = cfg.workspaces.find((w) => w.id === id)
-  if (!target) return { ok: false, error: '工作区不存在' }
+  if (!target) return { ok: false, error: COPY.wsErr.wsMissing }
 
   if (!isUsableWorkspace(target.root)) {
     return {
       ok: false,
-      error: `「${target.name}」当前位置连不上（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）`
+      error: fmt(COPY.wsErr.wsOffline, { name: target.name })
     }
   }
 
@@ -3626,11 +3628,11 @@ export function removeWorkspace(
   id: string
 ): { ok: boolean; switchedTo?: string; error?: string } {
   const cfg = readWorkspaceConfig(appDataDir)
-  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+  if (!cfg) return { ok: false, error: COPY.wsErr.noWorkspace }
 
   const rest = cfg.workspaces.filter((w) => w.id !== id)
-  if (rest.length === cfg.workspaces.length) return { ok: false, error: '工作区不存在' }
-  if (rest.length === 0) return { ok: false, error: '至少要保留一个工作区' }
+  if (rest.length === cfg.workspaces.length) return { ok: false, error: COPY.wsErr.wsMissing }
+  if (rest.length === 0) return { ok: false, error: COPY.wsErr.keepOneWs }
 
   if (cfg.activeId !== id) {
     writeWorkspaceConfig(appDataDir, { ...cfg, workspaces: rest })
@@ -3670,24 +3672,24 @@ export function migrateWorkspaceSameDisk(
   targetParentDir: string
 ): MigrateResult {
   const cfg = readWorkspaceConfig(appDataDir)
-  if (!cfg) return { ok: false, error: '还没有配置任何工作区' }
+  if (!cfg) return { ok: false, error: COPY.wsErr.noWorkspace }
 
   const active = cfg.workspaces.find((w) => w.id === cfg.activeId) || cfg.workspaces[0]
   const from = trimSlash(active.root)
   const parent = trimSlash(targetParentDir)
   const to = join(parent, basename(from))
 
-  if (!existsSync(from)) return { ok: false, from, to, error: '当前工作区目录不存在' }
-  if (!existsSync(parent)) return { ok: false, from, to, error: '目标位置不存在' }
+  if (!existsSync(from)) return { ok: false, from, to, error: COPY.wsErr.curWsDirMissing }
+  if (!existsSync(parent)) return { ok: false, from, to, error: COPY.wsErr.targetMissing }
   if (to.toLowerCase().startsWith(from.toLowerCase() + sep)) {
-    return { ok: false, from, to, error: '不能把工作区搬到它自己里面' }
+    return { ok: false, from, to, error: COPY.wsErr.moveIntoItself }
   }
   if (existsSync(to)) {
     return {
       ok: false,
       from,
       to,
-      error: `目标位置已经有一个「${basename(from)}」了，换个位置或先改名`
+      error: fmt(COPY.wsErr.targetExists, { name: basename(from) })
     }
   }
   if (!isSameVolume(from, parent)) {
@@ -3701,7 +3703,7 @@ export function migrateWorkspaceSameDisk(
   } catch (e) {
     resetWorkspaceState()
     initWorkspace(from) // 把库开回原处，不留下半死状态
-    return { ok: false, from, to, error: `搬移失败：${(e as Error).message}` }
+    return { ok: false, from, to, error: fmt(COPY.wsErr.moveFailed, { msg: (e as Error).message }) }
   }
 
   const list = cfg.workspaces.map((w) =>
@@ -3715,7 +3717,7 @@ export function migrateWorkspaceSameDisk(
   // 库里的绝对路径还是旧根 → 重写
   const r = rewritePaths(to, from)
   if (!r.ok) {
-    return { ok: false, from, to, error: r.error || '文件夹搬好了，但库里的路径没改成，请看备份' }
+    return { ok: false, from, to, error: r.error || COPY.wsErr.movedButDbFailed }
   }
 
   return {

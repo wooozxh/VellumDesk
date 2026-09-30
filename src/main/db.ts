@@ -1,3 +1,4 @@
+import { COPY } from '../shared/copy'
 import Database from 'better-sqlite3'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
@@ -369,9 +370,9 @@ function migrate(d: Database.Database): void {
   const projectCount = (d.prepare('SELECT COUNT(*) AS c FROM projects').get() as { c: number }).c
   if (projectCount === 0) {
     const seed = [
-      { name: '集团通用', color: '#6b7280', note: '不属于具体业务的通用素材' },
-      { name: '海南升学规划中心', color: '#4f8cff', note: '教育咨询 + 异地升学办理' },
-      { name: '海南升学初三集训营', color: '#3fb950', note: '外回初三考生集训提分' }
+      { name: COPY.seed.projCommonName, color: '#6b7280', note: COPY.projModal.notePresetCommon },
+      { name: COPY.seed.projEduName, color: '#4f8cff', note: COPY.projModal.notePresetEducation },
+      { name: COPY.seed.projCampName, color: '#3fb950', note: COPY.projModal.notePresetCamp }
     ]
     const ins = d.prepare(
       `INSERT INTO projects (name, color, note, sort_order, archived, created_at)
@@ -444,33 +445,33 @@ export const PROJECT_COLORS = [
 export const TAG_DIMENSIONS: readonly DimensionDef[] = [
   {
     key: 'category',
-    label: '物料类别',
+    label: COPY.dim.category,
     mode: 'multi',
     editable: true,
     presets: [
-      '海报', '折页', '详情长图', '短视频', '宣传片',
-      '直播物料', '字体', '图标素材', '参考图'
+      COPY.seed.catPoster, COPY.seed.catFolded, COPY.seed.catLongImage, COPY.seed.catShortVideo, COPY.seed.catPromo,
+      COPY.seed.catLive, COPY.seed.catFont, COPY.seed.catIcon, COPY.seed.catRef
     ],
     colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5', '#e86fa8', '#8fa83d', '#d9a0ff'],
-    hint: '一张海报可以同时是「海报」和「参考图」'
+    hint: COPY.dim.categoryHint
   },
   {
     key: 'channel',
-    label: '使用渠道',
+    label: COPY.dim.channel,
     mode: 'multi',
     editable: true,
-    presets: ['公众号', '朋友圈', '视频号', '抖音', '线下门店', '官网'],
+    presets: [COPY.seed.chOfficial, COPY.seed.chMoments, COPY.seed.chVideo, COPY.seed.chDouyin, COPY.seed.chStore, COPY.seed.chWebsite],
     colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5'],
-    hint: '同一张图可以发多个渠道'
+    hint: COPY.dim.channelHint
   },
   {
     key: 'status',
-    label: '状态',
+    label: COPY.dim.status,
     mode: 'single',
     editable: true,
-    presets: ['草稿', '待审核', '已交付', '已归档'],
+    presets: [COPY.seed.stDraft, COPY.seed.stReview, COPY.seed.stDelivered, COPY.seed.stArchived],
     colors: ['#6b7280', '#e8a33d', '#3fb950', '#8fa83d'],
-    hint: '一条素材同一时刻只处于一种状态'
+    hint: COPY.dim.statusHint
   }
 ] as const
 

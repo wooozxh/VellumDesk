@@ -1418,7 +1418,18 @@ async function main(): Promise<void> {
   const pkg = JSON.parse(readFileSync('package.json', 'utf-8'))
   const b = pkg.build || {}
   ok(/^\d+\.\d+\.\d+$/.test(pkg.version), `版本号取自 package.json：${pkg.version}`)
-  ok(b.productName === '素材管家', 'productName = 素材管家')
+  // 显示名三处必须一致：产品名（窗口/进程显示）/ 快捷方式名 / 卸载列表名。
+  // 写成契约而不是硬编码具体名字 —— 改名是业务动作，不该每次都来改测试。
+  const dispNames = [b.productName, b.nsis?.shortcutName, b.nsis?.uninstallDisplayName]
+  ok(
+    dispNames.every((x: unknown) => typeof x === 'string' && (x as string).length > 0) &&
+      new Set(dispNames).size === 1,
+    `应用显示名三处一致：${dispNames[0]}`
+  )
+  ok(
+    typeof b.nsis?.artifactName === 'string' && b.nsis.artifactName.startsWith(b.productName),
+    `安装包文件名带产品名：${b.nsis?.artifactName}`
+  )
   ok(b.appId === 'com.mediabutler', 'appId 与 setAppUserModelId 一致（com.mediabutler）')
   ok(
     b.npmRebuild === false,

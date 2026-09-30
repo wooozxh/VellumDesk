@@ -18,6 +18,12 @@ app.commandLine.appendSwitch('in-process-gpu')
 const { writeFileSync, mkdirSync, rmSync, existsSync } = require('fs')
 const { join } = require('path')
 
+// 界面文案统一走字典（由 `npx esbuild src/shared/copy.ts --outfile=_shotapp/v4/copy.cjs` 生成）：
+// 断言引用 COPY.xxx 而不是硬编码中文，改文案时这里自动跟着变，不会测试失败。
+const { COPY, fmt } = require('./copy.cjs')
+/** 字典模板 → 用户实际看到的文字（去掉 <b>/<code>/<em>/<path>/<span> 内联标记） */
+const plain = (s) => String(s).replace(/<\/?(b|code|em|span|path)>/g, '')
+
 const ROOT = join(__dirname, '..', '..')
 process.env.MEDIA_FFMPEG_DIR = join(ROOT, 'resources', 'ffmpeg')
 
@@ -521,6 +527,29 @@ app.whenReady().then(async () => {
       const img = await win.webContents.capturePage()
       writeFileSync(join(ROOT, name), img.toPNG())
       say('screenshot            : ' + name + ' (' + Math.round(img.toPNG().length / 1024) + ' KB)')
+      // 可选：把这一屏的**全部可见文字**落盘（改文案/抽字典时做「前后一字不差」比对用）。
+      // 不设 SHOT_TEXT_DUMP 时零行为；设了就是目标目录。
+      if (process.env.SHOT_TEXT_DUMP) {
+        const dir = process.env.SHOT_TEXT_DUMP
+        mkdirSync(dir, { recursive: true })
+        const base = name.replace(/\.png$/, '')
+        const norm = (s) =>
+          String(s)
+            .replace(/\r\n/g, '\n')
+            .replace(/[ \t]+/g, ' ')
+            .split('\n')
+            .map((x) => x.trim())
+            .filter(Boolean)
+            .join('\n')
+        // ① 可见文字（受 CSS display/visibility 影响，最接近用户看到的）
+        writeFileSync(join(dir, base + '.txt'), norm(await js('document.body.innerText')), 'utf-8')
+        // ② 全部文字节点（**与 CSS 完全无关**，用来排除"CSS 改了导致某块被藏起来"的干扰）
+        writeFileSync(
+          join(dir, base + '.all.txt'),
+          norm(await js(`(() => { const w=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const o=[]; while(w.nextNode()) o.push(w.currentNode.nodeValue); return o.join('\\n') })()`)),
+          'utf-8'
+        )
+      }
     } catch (e) {
       ok(false, '截图失败：' + e.message)
     }
@@ -685,8 +714,8 @@ app.whenReady().then(async () => {
     // ---- 迁移提示条 ----
     ok(infoBannerText.length > 0, '刚迁移过的工作区出现「目录结构已升级」提示条')
     ok(infoBannerText.includes('目录结构已升级'), '提示条标题说明了发生了什么')
-    ok(/工作区\s*\/\s*项目\s*\/\s*包/.test(infoBannerText), '提示条写清新结构是三级：工作区 / 项目 / 包')
-    ok(infoBannerText.includes('1 个包'), '提示条报出了本次搬了几个包（应为 1 个）')
+    ok(infoBannerText.includes(COPY.banner.layoutUpgraded), '提示条写清新结构是三级：工作区 / 项目 / 任务')
+    ok(infoBannerText.includes(fmt(COPY.banner.layoutMoved, { n: 1 })), '提示条报出了本次搬了几个任务（应为 1 个）')
     ok(infoBannerText.includes('文件一个没动'), '提示条明确安抚：文件一个没动')
     ok(infoBannerBtn === '知道了', `提示条只给一个出口「知道了」，实际「${infoBannerBtn}」`)
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常，不显示红色错误条')
@@ -758,7 +787,7 @@ app.whenReady().then(async () => {
     const activeTab0 = await js(
       `(() => { const el = document.querySelector('.tabs button.on'); return el ? el.innerText.trim() : '' })()`
     )
-    ok(activeTab0 === '包视图', `启动默认落在包视图（当前高亮：${activeTab0}）`)
+    ok(activeTab0 === COPY.top.viewPacks, `启动默认落在${COPY.top.viewPacks}（当前高亮：${activeTab0}）`)
 
     // ---- (1) 初始状态：有「待归类」，没有「已解绑」 ----
     const entryBefore = await js(
@@ -814,7 +843,7 @@ app.whenReady().then(async () => {
     const moveHint = await js(
       `(() => { const m = document.querySelector('.modal'); return m ? m.innerText : '' })()`
     )
-    ok(moveHint.includes('包文件夹会搬进「海南升学规划中心」'), '弹窗提前说明了文件夹会搬去哪')
+    ok(moveHint.includes(fmt(COPY.editPack.moveInto, { name: '海南升学规划中心' })), '弹窗提前说明了文件夹会搬去哪')
 
     const homeSubmit = await clickModalOk()
     ok(homeSubmit === 'ok', `点保存（${homeSubmit}）`)
@@ -835,7 +864,7 @@ app.whenReady().then(async () => {
     await clickByText('.side .item', '全部')
     await wait(500)
     const beforeCategory = q('SELECT category, folder_path FROM packs WHERE name = ?', '招生折页-A4')
-    const editOpened = await clickPackAction('招生折页-A4', '编辑包信息')
+    const editOpened = await clickPackAction('招生折页-A4', COPY.editPack.title)
     ok(editOpened === 'ok', `包卡片上有「编辑」入口（${editOpened}）`)
     await wait(400)
     const editBox = await js(
@@ -850,7 +879,7 @@ app.whenReady().then(async () => {
          }
        })()`
     )
-    ok(editBox.title.includes('编辑包信息'), `弹窗标题：${editBox.title.trim()}`)
+    ok(editBox.title.includes(COPY.editPack.title), `弹窗标题：${editBox.title.trim()}`)
     ok(editBox.fields === 3, `三块可改：名称 / 所属项目 / 类别（${editBox.fields} 块）`)
     ok(editBox.path.includes('招生折页-A4'), '弹窗里显示了当前文件夹在哪')
     await shot('shot-b7-2-lifecycle-editpack.png')
@@ -1101,7 +1130,7 @@ app.whenReady().then(async () => {
       })()`
     )
     await wait(400)
-    await pickSideItem('包视图', '.tabs button')
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
 
     // (4) 乙项目 = 1
     const pickB = await pickSideItem('海南升学初三集训营', '.side .proj-item')
@@ -1163,7 +1192,7 @@ app.whenReady().then(async () => {
       }
     }
 
-    await pickSideItem('包视图', '.tabs button')
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(600)
 
     // (1) 左栏出现「⚠️ 文件已丢失 2」
@@ -1305,12 +1334,12 @@ app.whenReady().then(async () => {
     writeFileSync(join(s.workspaceRoot, '散落的图.png'), 'CCCC', 'utf-8')
     const refresh = await js(
       `(() => {
-         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes('刷新扫描'))
+         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes(${JSON.stringify(COPY.top.rescan)}))
          if (!b) return 'no-btn'
          b.click(); return 'ok'
        })()`
     )
-    ok(refresh === 'ok', `点了「刷新扫描」（${refresh}）`)
+    ok(refresh === 'ok', `点了「${COPY.top.rescan}」（${refresh}）`)
     await wait(2000)
     const entry2 = await js(
       `(() => {
@@ -1346,7 +1375,7 @@ app.whenReady().then(async () => {
     const projFolder = qv('SELECT folder_name AS f FROM projects WHERE name = ?', '海南升学规划中心').f || '海南升学规划中心'
     const vPackDir = join(s.workspaceRoot, projFolder, '海南招生海报-2026秋季')
 
-    await pickSideItem('包视图', '.tabs button')
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(1000)
 
     // (1) 包卡片上的版本行 —— 不点进去也知道这个包有几稿、当前是第几稿
@@ -1496,7 +1525,7 @@ app.whenReady().then(async () => {
       `「复制上一稿」是可选（默认不勾）：${cm && cm.chks.join(' || ')}`
     )
     ok(
-      !!cm && cm.chks.every((t) => !t.includes('把包里现在这')),
+      !!cm && cm.chks.every((t) => !t.includes(plain(COPY.verModal.collectHint).split('{')[0].trim())),
       '包里已有稿 → 不再出现「收编现有文件」（那是第一稿才有的事）'
     )
     await shot('shot-b9-4-version-create.png')
@@ -1671,7 +1700,7 @@ app.whenReady().then(async () => {
 
     // (9) 解绑 V3（名字规范、正是扫描会自动认的那种）+ 刷新扫描
     //     → 文件夹留在磁盘上、文件回「未分版本」，但**不会**被扫描又认回来
-    await pickSideItem('包视图', '.tabs button')
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(1000)
     await js(
       `(() => {
@@ -1722,7 +1751,7 @@ app.whenReady().then(async () => {
 
     await js(
       `(() => {
-         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes('刷新扫描'))
+         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes(${JSON.stringify(COPY.top.rescan)}))
          if (b) b.click()
          return 'ok'
        })()`
@@ -1759,7 +1788,7 @@ app.whenReady().then(async () => {
     await wait(700)
     await js(
       `(() => {
-         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes('新建任务包'))
+         const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes(${JSON.stringify(COPY.top.newPack)}))
          if (b) b.click()
          return b ? 'ok' : 'no-btn'
        })()`
@@ -1775,7 +1804,7 @@ app.whenReady().then(async () => {
          }
        })()`
     )
-    ok(!!npTip && npTip.title.includes('新建任务包'), `新建包弹窗打开（${npTip && npTip.title}）`)
+    ok(!!npTip && npTip.title.includes(COPY.top.newPack), `新建包弹窗打开（${npTip && npTip.title}）`)
     ok(
       !!npTip && npTip.path.includes('V1') && npTip.path.includes('01-成品'),
       `弹窗提前讲清会自带第 1 稿 V1：${npTip && npTip.path}`
@@ -1878,7 +1907,7 @@ app.whenReady().then(async () => {
     }
     const openNewPack = async () => {
       await js(`(() => {
-        const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes('新建任务包'))
+        const b = [...document.querySelectorAll('button')].find(x => x.innerText.includes(${JSON.stringify(COPY.top.newPack)}))
         if (b) b.click()
         return b ? 'ok' : 'no-btn'
       })()`)
@@ -1893,12 +1922,12 @@ app.whenReady().then(async () => {
     const readNewPackChips = () =>
       js(`(() => {
          const m = [...document.querySelectorAll('.mask > .modal')]
-           .find(x => ((x.querySelector('h3')||{}).innerText||'').includes('新建任务包'))
+           .find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.top.newPack)}))
          if (!m) return null
          return [...m.querySelectorAll('.chips .chip')].map(b => b.innerText.trim())
        })()`)
 
-    await pickSideItem('包视图', '.tabs button')
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(900)
 
     // (1) 左栏「物料类别」现在有这些
@@ -1997,8 +2026,8 @@ app.whenReady().then(async () => {
     )
     ok(!!warn && warn.title.includes('删除标签'), '删除前先弹二次确认')
     ok(
-      !!warn && warn.text.includes('1 个包正在使用这个类别'),
-      `【核心】确认框写明「有 1 个包正在用这个类别」：${warn && warn.text}`
+      !!warn && warn.text.includes(fmt(plain(COPY.tagMgr.delPackCount).split('，')[0], { n: 1 })),
+      `【核心】确认框写明「有 1 个任务正在用这个类别」：${warn && warn.text}`
     )
     ok(
       !!warn && warn.text.includes('未分类') && warn.btns.includes('确认删除'),

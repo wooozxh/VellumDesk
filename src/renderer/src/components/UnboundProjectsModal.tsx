@@ -1,3 +1,5 @@
+import { COPY } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useState } from 'react'
 import type { UnboundProject } from '../types'
 import { fmtSize } from './FileRow'
@@ -31,14 +33,14 @@ export function UnboundProjectsModal({
     setErr('')
     const r = await onRestore(p)
     setBusyId(null)
-    if (!r.ok) setErr(r.error ?? '还原失败')
+    if (!r.ok) setErr(r.error ?? COPY.unbound.failed)
   }
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
         <h3>
-          <Icon name="archive" size={15} /> 已解绑的项目（{projects.length}）
+          <Icon name="archive" size={15} /> <Rich tpl={COPY.unbound.title} v={{ n: projects.length }} />
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -46,7 +48,7 @@ export function UnboundProjectsModal({
 
         <div className="content">
           {projects.length === 0 ? (
-            <div className="hint">没有已解绑的项目</div>
+            <div className="hint">{COPY.unbound.empty}</div>
           ) : (
             <>
               <div
@@ -57,9 +59,7 @@ export function UnboundProjectsModal({
                   marginBottom: 10
                 }}
               >
-                这些项目已经结项留底，软件里不显示，但本地文件一个都没动 —— 都在
-                <span className="path">{` ${workspaceRoot}\\_已解绑的项目\\ `}</span>
-                里。点「还原」就搬回工作区、重新显示在左栏。
+                <Rich tpl={COPY.unbound.hint} v={{ path: ` ${workspaceRoot}\\_已解绑的项目\\ ` }} />
               </div>
 
               <div className="unbound-list">
@@ -72,7 +72,7 @@ export function UnboundProjectsModal({
                         <span className="ub-folder">{p.folder_name}</span>
                       </div>
                       <div className="ub-sub">
-                        {p.packCount} 个包 · {p.fileCount} 个文件 · {fmtSize(p.totalSize)}
+                        <Rich tpl={COPY.unbound.meta} v={{ packs: p.packCount, files: p.fileCount, size: fmtSize(p.totalSize) }} />
                       </div>
                     </div>
                     <button
@@ -80,7 +80,7 @@ export function UnboundProjectsModal({
                       disabled={busyId !== null}
                       onClick={() => void restore(p)}
                     >
-                      {busyId === p.id ? '还原中…' : '还原'}
+                      {busyId === p.id ? COPY.unbound.restoring : COPY.unbound.restore}
                     </button>
                   </div>
                 ))}
@@ -97,7 +97,8 @@ export function UnboundProjectsModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            关闭
+            
+            {COPY.common.close}
           </button>
         </div>
       </div>

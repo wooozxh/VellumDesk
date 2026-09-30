@@ -14,6 +14,14 @@ accept-result.txt
 accept.cjs
 _shotapp/_userdata
 _shotapp/probe.cjs
+# 场景壳的文案字典桥（run-verify4.cjs 每次跑前自动用 esbuild 从 src/shared/copy.ts 重打）
+_shotapp/v4/copy.cjs
+# 文案字典工作流的中间产物
+tools/copy-sheet/_sheet_read.json
+tools/copy-sheet/_changes.json
+tools/copy-sheet/_applied.json
+tools/copy-sheet/sheet1-界面文案.csv
+tools/copy-sheet/sheet2-默认数据.csv
 electron.vite.config.*.mjs
 *.tsbuildinfo
 

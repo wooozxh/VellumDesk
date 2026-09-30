@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useEffect, useState } from 'react'
 import type { BindableFolder, PackVersion } from '../types'
 import { Icon } from './Icon'
@@ -63,13 +65,16 @@ export function VersionModal({
     })
     setBusy(false)
     if (!res.ok) {
-      toast(res.error ?? '新建版本失败', 'err')
+      toast(res.error ?? COPY.verModal.newFailed, 'err')
       return
     }
     const bits: string[] = []
-    if (res.moved) bits.push(`收编了 ${res.moved} 个文件`)
-    if (copyPrev && prev) bits.push(`复制了 V${prev.seq} 的内容`)
-    onDone(`已建第 ${res.version?.seq ?? nextSeq} 稿${bits.length ? '，' + bits.join('、') : ''}`)
+    if (res.moved) bits.push(fmt(COPY.verModal.collected, { n: res.moved }))
+    if (copyPrev && prev) bits.push(fmt(COPY.verModal.copied, { n: prev.seq }))
+    onDone(
+      fmt(COPY.verModal.created, { seq: res.version?.seq ?? nextSeq }) +
+        (bits.length ? '，' + bits.join('、') : '')
+    )
   }
 
   const doBind = async (): Promise<void> => {
@@ -83,10 +88,10 @@ export function VersionModal({
     })
     setBusy(false)
     if (!res.ok) {
-      toast(res.error ?? '绑定失败', 'err')
+      toast(res.error ?? COPY.verModal.bindFailed, 'err')
       return
     }
-    onDone(`已把「${picked}」绑成 V${res.version?.seq ?? seq}`)
+    onDone(fmt(COPY.verModal.bound, { name: picked, seq: res.version?.seq ?? seq }))
   }
 
   return (
@@ -95,11 +100,11 @@ export function VersionModal({
         <h3>
           {mode === 'create' ? (
             <>
-              <Icon name="plus" size={15} strokeWidth={2} /> 新建版本 V{nextSeq}
+              <Icon name="plus" size={15} strokeWidth={2} /> <Rich tpl={COPY.verModal.titleNew} v={{ n: nextSeq }} />
             </>
           ) : (
             <>
-              <Icon name="clip" size={15} /> 绑定已有文件夹
+              <Icon name="clip" size={15} />  {COPY.verModal.titleBind}
             </>
           )}
           <button className="close" onClick={onClose}>
@@ -111,16 +116,14 @@ export function VersionModal({
           {mode === 'create' ? (
             <>
               <div className="hint-box">
-                软件会在<b>这个包的文件夹</b>里建一个 <code>V{nextSeq}</code> 文件夹，里面自动长好
-                <code> 01-成品 / 02-素材 / 03-工程 </code>三个空文件夹 ——
-                资源管理器里立刻能看到，往里丢东西就行。
+                <Rich tpl={COPY.verModal.newHint} v={{ n: nextSeq }} />
               </div>
 
               <label className="fld">
-                <span>这一稿改了什么（版本说明）</span>
+                <span>{COPY.verModal.noteLabel}</span>
                 <input
                   value={note}
-                  placeholder="例：客户反馈——主标题太小，整体调亮"
+                  placeholder={COPY.verModal.notePlaceholder}
                   onChange={(e) => setNote(e.target.value)}
                   autoFocus
                 />
@@ -134,10 +137,7 @@ export function VersionModal({
                     onChange={(e) => setTakeExisting(e.target.checked)}
                   />
                   <span>
-                    把包里现在这 {unassignedCount} 个文件收进第 1 稿
-                    <em>
-                      （只搬已经躺在 01-成品 / 02-素材 / 03-工程 里的；直接丢在包根目录的不动）
-                    </em>
+                    <Rich tpl={COPY.verModal.collectHint} v={{ n: unassignedCount }} />
                   </span>
                 </label>
               )}
@@ -150,8 +150,8 @@ export function VersionModal({
                     onChange={(e) => setCopyPrev(e.target.checked)}
                   />
                   <span>
-                    把 V{prev.seq} 的文件复制一份进来
-                    <em>（改稿时省事，但会多占一份硬盘空间——默认不勾）</em>
+                    <Rich tpl={COPY.verModal.copyHint} v={{ n: prev.seq }} />
+                    <em>{COPY.verModal.copyHintNote}</em>
                   </span>
                 </label>
               )}
@@ -159,15 +159,16 @@ export function VersionModal({
           ) : (
             <>
               <div className="hint-box">
-                你自己在资源管理器里建好的文件夹（名字随便叫），在这儿绑定一下就归软件管了。
-                编号由软件按你说的算，<b>文件夹名和里面的文件一个都不动</b>。
+                
+                {COPY.verModal.bindHintA}<b>{COPY.verModal.bindHintBold}</b>{COPY.verModal.bindHintB}
               </div>
 
               {folders === null ? (
-                <div className="group-empty">正在看包里有啥文件夹…</div>
+                <div className="group-empty">{COPY.verModal.scanningFolders}</div>
               ) : folders.length === 0 ? (
                 <div className="group-empty">
-                  这个包文件夹里没有可绑定的文件夹了（都已认领，或者你还没建）
+                  
+                  {COPY.verModal.noFolders}
                 </div>
               ) : (
                 <>
@@ -186,13 +187,13 @@ export function VersionModal({
                         <span className="bfn">
                   <Icon name="folder" size={13} /> {f.folderName}
                 </span>
-                        <span className="bfc">{f.fileCount} 个文件</span>
+                        <span className="bfc"><Rich tpl={COPY.common.fileCount} v={{ n: f.fileCount }} /></span>
                       </label>
                     ))}
                   </div>
 
                   <label className="fld">
-                    <span>算第几稿</span>
+                    <span>{COPY.verModal.seqLabel}</span>
                     <input
                       type="number"
                       min={1}
@@ -204,10 +205,10 @@ export function VersionModal({
               )}
 
               <label className="fld">
-                <span>这一稿改了什么（可留空）</span>
+                <span>{COPY.verModal.noteLabel2}</span>
                 <input
                   value={note}
-                  placeholder="例：第二稿——按客户意见改了配色"
+                  placeholder={COPY.verModal.notePlaceholder2}
                   onChange={(e) => setNote(e.target.value)}
                 />
               </label>
@@ -217,15 +218,16 @@ export function VersionModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose} disabled={busy}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           {mode === 'create' ? (
             <button className="btn primary" onClick={doCreate} disabled={busy}>
-              {busy ? '正在建…' : `建 V${nextSeq}`}
+              {busy ? COPY.verModal.building : fmt(COPY.verModal.buildBtn, { n: nextSeq })}
             </button>
           ) : (
             <button className="btn primary" onClick={doBind} disabled={busy || !picked}>
-              {busy ? '正在绑…' : `绑成 V${seq}`}
+              {busy ? COPY.verModal.binding : fmt(COPY.verModal.bindBtn, { n: seq })}
             </button>
           )}
         </div>

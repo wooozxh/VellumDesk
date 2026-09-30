@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AssetItem, PackDetail, PackVersion } from '../types'
 import { fmtSize } from './FileRow'
@@ -28,7 +30,7 @@ function ThumbCell({
         e.preventDefault()
         onReveal()
       }}
-      title={`${item.file_name}\n${item.rel_path}\n双击打开 · 右键定位`}
+      title={fmt(COPY.pdm.fileTip, { name: item.file_name, path: item.rel_path })}
     >
       <input
         className="cbwrap"
@@ -38,7 +40,7 @@ function ThumbCell({
         onClick={(e) => e.stopPropagation()}
       />
       <div className="box">
-        {item.thumb ? <img src={item.thumb} alt={item.file_name} /> : <div className="ext">{item.ext || '文件'}</div>}
+        {item.thumb ? <img src={item.thumb} alt={item.file_name} /> : <div className="ext">{item.ext || COPY.file.extFallback}</div>}
       </div>
       <div className="cap" title={item.file_name}>
         {item.file_name}
@@ -128,10 +130,10 @@ export function PackDetailModal({
   const doSetCurrent = async (v: PackVersion): Promise<void> => {
     const r = await window.api.setCurrentVersion(v.id)
     if (!r.ok) {
-      toast(r.error ?? '设置失败', 'err')
+      toast(r.error ?? COPY.pdm.setFailed, 'err')
       return
     }
-    toast(`已把 V${v.seq} 设为当前版本（文件夹一个都没动）`, 'ok')
+    toast(fmt(COPY.pdm.setCurrent, { n: v.seq }), 'ok')
     await load()
     onChanged()
   }
@@ -139,10 +141,10 @@ export function PackDetailModal({
   const doUnbind = async (v: PackVersion): Promise<void> => {
     const r = await window.api.unbindVersion(v.id)
     if (!r.ok) {
-      toast(r.error ?? '解绑失败', 'err')
+      toast(r.error ?? COPY.toast.projectUnbindFailed, 'err')
       return
     }
-    toast(`已解绑 V${v.seq}：文件夹和文件都没动，只是软件不再把它当一稿`, 'info')
+    toast(fmt(COPY.pdm.unbound, { n: v.seq }), 'info')
     await load()
     onChanged()
   }
@@ -172,9 +174,9 @@ export function PackDetailModal({
     })
     setBusy(false)
     if (res.ok) {
-      toast(`已移动 ${res.moved} 个文件到「${target}」`, 'ok')
+      toast(fmt(COPY.pdm.moved, { n: res.moved, target: target }), 'ok')
     } else {
-      toast(`移动完成 ${res.moved} 个，${res.errors.length} 个失败：${res.errors[0]}`, 'err')
+      toast(fmt(COPY.pdm.movePartial, { n: res.moved, e: res.errors.length, first: res.errors[0] }), 'err')
     }
     setSelected(new Set())
     await load()
@@ -183,7 +185,7 @@ export function PackDetailModal({
 
   const openFile = async (p: string): Promise<void> => {
     const r = await window.api.openFile(p)
-    if (!r.ok) toast(r.error ?? '打开失败', 'err')
+    if (!r.ok) toast(r.error ?? COPY.toast.packOpenFailed, 'err')
   }
 
   const reveal = (p: string): void => {
@@ -204,7 +206,7 @@ export function PackDetailModal({
               </span>
             </>
           ) : (
-            '加载中…'
+            COPY.common.loading
           )}
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
@@ -217,7 +219,7 @@ export function PackDetailModal({
               <div className="detail-head">
                 <div className="info">
                   <div className="row">
-                    <span className="k">所属项目：</span>
+                    <span className="k">{COPY.pdm.projectLabel}</span>
                     {detail.pack.projectName ? (
                       <span
                         className="tag proj"
@@ -234,32 +236,33 @@ export function PackDetailModal({
                         className="tag"
                         style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}
                       >
-                        未指定项目
+                        
+                        {COPY.card.noProject}
                       </span>
                     )}
-                    <span className="k">类别：</span>
+                    <span className="k">{COPY.pdm.categoryLabel}</span>
                     <span className="tag">{detail.pack.category}</span>
                   </div>
                   <div className="row">
-                    <span className="k">共 {total} 个文件 ·</span>
+                    <span className="k"><Rich tpl={COPY.pdm.fileCount} v={{ n: total }} /></span>
                     <span>{fmtSize(allItems.reduce((s, i) => s + i.size, 0))}</span>
-                    <span className="k">· 创建于</span>
+                    <span className="k">{COPY.pdm.createdAt}</span>
                     <span>{new Date(detail.pack.created_at).toLocaleString('zh-CN')}</span>
                   </div>
                 </div>
                 <button className="btn" onClick={() => onEdit && onEdit()} disabled={!onEdit}>
                   {detail.pack.project_id === null ? (
                     <>
-                      <Icon name="inbox" size={13} /> 归位到项目
+                      <Icon name="inbox" size={13} />  {COPY.editPack.titleLoose}
                     </>
                   ) : (
                     <>
-                      <Icon name="edit" size={13} /> 编辑包信息
+                      <Icon name="edit" size={13} />  {COPY.editPack.title}
                     </>
                   )}
                 </button>
                 <button className="btn" onClick={() => window.api.openFolder(detail.pack.folder_path)}>
-                  <Icon name="folder" size={13} /> 打开文件夹
+                  <Icon name="folder" size={13} />  {COPY.common.openFolder}
                 </button>
               </div>
 
@@ -277,8 +280,8 @@ export function PackDetailModal({
 
               {selected.size > 0 && (
                 <div className="claimbar">
-                  <span className="txt">已选中 {selected.size} 个文件</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>移动到</span>
+                  <span className="txt"><Rich tpl={COPY.claim.selected} v={{ n: selected.size }} /></span>
+                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{COPY.pdm.moveTo}</span>
                   <select value={target} onChange={(e) => setTarget(e.target.value)}>
                     {subFolders.map((f) => (
                       <option key={f} value={f}>
@@ -287,10 +290,11 @@ export function PackDetailModal({
                     ))}
                   </select>
                   <button className="btn primary" onClick={moveSelected} disabled={busy}>
-                    {busy ? '移动中…' : '确定移动'}
+                    {busy ? COPY.pdm.moving : COPY.pdm.confirmMove}
                   </button>
                   <button className="btn" onClick={() => setSelected(new Set())}>
-                    取消选择
+                    
+                    {COPY.pdm.deselect}
                   </button>
                 </div>
               )}
@@ -300,12 +304,12 @@ export function PackDetailModal({
                 const isUnassignedGroup = role === '未归属'
                 const label =
                   role === '成品'
-                    ? '成品'
+                    ? COPY.pdm.groupDone
                     : role === '素材'
-                      ? '素材'
+                      ? COPY.pdm.groupMaterial
                       : role === '工程'
-                        ? '工程文件'
-                        : '未归属的文件'
+                        ? COPY.pdm.groupProject
+                        : COPY.pdm.groupUnassigned
                 return (
                   <div className="group" key={role}>
                     <h5>
@@ -313,7 +317,8 @@ export function PackDetailModal({
                       <span className="n">（{items.length}）</span>
                       {isUnassignedGroup && items.length > 0 && (
                         <span style={{ fontSize: 11, color: 'var(--warn)', fontWeight: 400 }}>
-                          丢在包根目录、没进子文件夹的文件，可选中后移动进对应组
+                          
+                          {COPY.pdm.unassignedHint}
                         </span>
                       )}
                       {items.length > 0 && (
@@ -328,12 +333,12 @@ export function PackDetailModal({
                             })
                           }
                         >
-                          {items.every((i) => selected.has(i.id)) ? '取消全选' : '全选本组'}
+                          {items.every((i) => selected.has(i.id)) ? COPY.pdm.deselectAll : COPY.pdm.selectAllGroup}
                         </button>
                       )}
                     </h5>
                     {items.length === 0 ? (
-                      <div className="group-empty">暂无文件</div>
+                      <div className="group-empty">{COPY.pdm.empty}</div>
                     ) : (
                       <div className="thumb-grid">
                         {items.map((it) => (

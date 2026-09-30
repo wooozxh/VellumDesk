@@ -1,3 +1,4 @@
+import { COPY, fmt } from '../shared/copy'
 import { ipcMain, shell, app, dialog } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
@@ -234,22 +235,22 @@ export function registerIpc(): void {
 
     const box = await dialog.showMessageBox({
       type: 'question',
-      buttons: ['改成现在的位置', '取消'],
+      buttons: [COPY.ipc.relocateBtn, COPY.common.cancel],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
-      title: '这个目录里有一个搬过来的素材库',
-      message: '库里的记录还指向原来的位置',
+      title: COPY.ipc.movedLibTitle,
+      message: COPY.ipc.movedLibMsg,
       detail:
-        `记录指向：${first.oldRoot}\n` +
-        `要改成：${root}\n\n` +
-        '点「改成现在的位置」后，软件会先把数据库备份一份，再把记录里的路径改过来。' +
-        '磁盘上的素材文件一个都不会动。'
+        fmt(COPY.ipc.movedLibOld, { old: first.oldRoot }) +
+        fmt(COPY.ipc.movedLibNew, { root: root }) +
+        COPY.ipc.movedLibNoteA +
+        COPY.ipc.movedLibNoteB
     })
     if (box.response !== 0) return { ok: false, canceled: true }
 
     const second = addWorkspace(appData, root, { rewrite: true })
-    if (!second.ok) return { ok: false, error: second.error || '改写库里的路径失败' }
+    if (!second.ok) return { ok: false, error: second.error || COPY.ipc.rewriteFailed }
     return {
       ok: true,
       workspaceRoot: second.entry?.root ?? root,
@@ -267,9 +268,9 @@ export function registerIpc(): void {
    * 老版本这里漏了关数据库（closeDb 全项目从未被调用），切换后进程内仍读写旧库 —— 已修。
    */
   ipcMain.handle('ws:setRoot', (_e, root: string) => {
-    if (!root) return { ok: false, workspaceRoot: root, error: '路径不能为空' }
+    if (!root) return { ok: false, workspaceRoot: root, error: COPY.ipc.pathEmpty }
     const r = addWorkspace(appData, root, { rewrite: true })
-    if (!r.ok) return { ok: false, workspaceRoot: root, error: r.error || '切换失败' }
+    if (!r.ok) return { ok: false, workspaceRoot: root, error: r.error || COPY.ipc.switchFailed }
     return { ok: true, workspaceRoot: r.entry?.root ?? root }
   })
 
@@ -281,8 +282,8 @@ export function registerIpc(): void {
    */
   ipcMain.handle('ws:pickRoot', async () => {
     const r = await dialog.showOpenDialog({
-      title: '选择素材工作区位置',
-      buttonLabel: '用这里',
+      title: COPY.ipc.pickWsTitle,
+      buttonLabel: COPY.ipc.useHere,
       properties: ['openDirectory', 'createDirectory']
     })
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
@@ -296,8 +297,8 @@ export function registerIpc(): void {
     let root = opts?.root
     if (!root) {
       const r = await dialog.showOpenDialog({
-        title: '添加素材工作区 —— 选一个文件夹',
-        buttonLabel: '用这个文件夹',
+        title: COPY.ipc.addWsTitle,
+        buttonLabel: COPY.ipc.useThisFolder,
         properties: ['openDirectory', 'createDirectory']
       })
       if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
@@ -320,8 +321,8 @@ export function registerIpc(): void {
     let parent = opts?.targetParentDir
     if (!parent) {
       const r = await dialog.showOpenDialog({
-        title: '把工作区搬到哪个磁盘 / 文件夹',
-        buttonLabel: '搬到这里',
+        title: COPY.ipc.moveWsTitle,
+        buttonLabel: COPY.ipc.moveHere,
         properties: ['openDirectory', 'createDirectory']
       })
       if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
@@ -334,16 +335,16 @@ export function registerIpc(): void {
       // 跨盘不做软件内复制（方案 07 第 10 节）：给出能照着做的引导
       await dialog.showMessageBox({
         type: 'info',
-        buttons: ['知道了'],
+        buttons: [COPY.common.know],
         noLink: true,
-        title: '目标在另一个磁盘',
-        message: '软件不搬跨盘',
+        title: COPY.ipc.crossDiskTitle,
+        message: COPY.ipc.crossDiskMsg,
         detail:
-          '跨盘搬几百 GB 要很久，中途断了还容易出问题，所以这一步交给更可靠的工具做。\n\n' +
-          `1. 用资源管理器把整个「${basename(res.from || '')}」文件夹复制到新盘（先别删原来那份）\n` +
-          '2. 回到软件，点「＋ 添加工作区」，选新盘里那个文件夹\n' +
-          '3. 软件会自动把库里的路径改成新位置\n\n' +
-          '确认新位置没问题之后，再删原来那份。'
+          COPY.ipc.crossDiskNoteA +
+          fmt(COPY.ipc.crossDiskNote1, { folder: basename(res.from || '') }) +
+          COPY.ipc.crossDiskNote2 +
+          COPY.ipc.crossDiskNote3 +
+          COPY.ipc.crossDiskNote4
       })
     }
     return res
@@ -351,7 +352,7 @@ export function registerIpc(): void {
 
   ipcMain.handle('ws:openRoot', async () => {
     const root = getWorkspaceRoot(appData)
-    if (!existsSync(root)) return { ok: false, error: '工作区目录不存在' }
+    if (!existsSync(root)) return { ok: false, error: COPY.ipc.wsDirMissing }
     const err = await shell.openPath(root)
     return err ? { ok: false, error: err } : { ok: true }
   })
@@ -595,19 +596,19 @@ export function registerIpc(): void {
 
   // ---------- A-11 双击打开 ----------
   ipcMain.handle('file:open', async (_e, absPath: string) => {
-    if (!existsSync(absPath)) return { ok: false, error: '文件不存在：' + basename(absPath) }
+    if (!existsSync(absPath)) return { ok: false, error: COPY.ipc.fileMissingColon + basename(absPath) }
     const err = await shell.openPath(absPath)
     return err ? { ok: false, error: err } : { ok: true }
   })
 
   ipcMain.handle('file:reveal', (_e, absPath: string) => {
-    if (!existsSync(absPath)) return { ok: false, error: '文件不存在' }
+    if (!existsSync(absPath)) return { ok: false, error: COPY.ipc.fileMissing }
     shell.showItemInFolder(absPath)
     return { ok: true }
   })
 
   ipcMain.handle('shell:openPath', async (_e, p: string) => {
-    if (!existsSync(p)) return { ok: false, error: '路径不存在' }
+    if (!existsSync(p)) return { ok: false, error: COPY.ipc.pathMissing }
     const err = await shell.openPath(p)
     return err ? { ok: false, error: err } : { ok: true }
   })
@@ -621,8 +622,8 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const r = await dialog.showOpenDialog({
-      title: '指出这个文件现在在哪里',
-      buttonLabel: '就是它',
+      title: COPY.ipc.findFileTitle,
+      buttonLabel: COPY.ipc.thisOne,
       properties: ['openFile']
     })
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
@@ -632,8 +633,8 @@ export function registerIpc(): void {
   /** 批量第一步：选一个目录（"整个文件夹被搬走了"的场景） */
   ipcMain.handle('asset:pickRelocateDir', async () => {
     const r = await dialog.showOpenDialog({
-      title: '这些文件被搬到哪个文件夹了（选它们上一层或更上面）',
-      buttonLabel: '就在这里找',
+      title: COPY.ipc.findFilesTitle,
+      buttonLabel: COPY.ipc.searchHere,
       properties: ['openDirectory']
     })
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }

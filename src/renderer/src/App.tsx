@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../shared/copy'
+import { Rich } from './components/Rich'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AssetItem,
@@ -297,10 +299,10 @@ export default function App(): React.JSX.Element {
     const r = await window.api.relocateAsset(assetId)
     if (r.canceled) return
     if (!r.ok) {
-      toast(r.error ?? '没能定位到文件', 'err')
+      toast(r.error ?? COPY.toast.locateFailed, 'err')
       return
     }
-    toast(`已找回：${r.relPath ?? ''}`, 'ok')
+    toast(fmt(COPY.toast.located, { path: r.relPath ?? '' }), 'ok')
     await reloadAll()
   }
 
@@ -310,7 +312,7 @@ export default function App(): React.JSX.Element {
   const doRetryWorkspace = async (): Promise<void> => {
     const i = await loadWs(true)
     if (!i.workspaceOk) {
-      toast('还是连不上，检查一下磁盘或移动硬盘', 'err')
+      toast(COPY.toast.wsStillOffline, 'err')
       return
     }
     await loadTags(tagScope(projectFilter))
@@ -318,7 +320,7 @@ export default function App(): React.JSX.Element {
     setUnassignedOnly(false)
     setMissingOnly(false)
     await loadAssets('', false, [], false)
-    toast('工作区已恢复', 'ok')
+    toast(COPY.toast.wsRestored, 'ok')
   }
 
   /** 更改位置：选一个新目录当工作区（选到已有素材的旧工作区，数据会直接读出来） */
@@ -327,13 +329,13 @@ export default function App(): React.JSX.Element {
       const r = await window.api.wsPickRoot()
       if (r.canceled) return
       if (!r.ok) {
-        toast(r.error || '没能切换工作区', 'err')
+        toast(r.error || COPY.toast.wsSwitchFailed, 'err')
         return
       }
       await reloadAll()
-      toast(`工作区已切到：${r.workspaceRoot}`, 'ok')
+      toast(fmt(COPY.toast.wsSwitched, { root: r.workspaceRoot }), 'ok')
     } catch (e) {
-      toast('切换工作区失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.wsSwitchError + (e as Error).message, 'err')
     }
   }
 
@@ -348,7 +350,7 @@ export default function App(): React.JSX.Element {
     try {
       const r = await window.api.wsSwitch(id)
       if (!r.ok) {
-        toast(r.error || '切换工作区失败', 'err')
+        toast(r.error || COPY.toast.wsSwitchFailedPlain, 'err')
         return
       }
       setSelectedTagIds([])
@@ -356,9 +358,9 @@ export default function App(): React.JSX.Element {
       setKeyword('')
       setUnassignedOnly(false)
       await reloadAll()
-      toast(`已切到工作区「${r.name ?? ''}」`, 'ok')
+      toast(fmt(COPY.toast.wsActivated, { name: r.name ?? '' }), 'ok')
     } catch (e) {
-      toast('切换工作区失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.wsSwitchError + (e as Error).message, 'err')
     }
   }
 
@@ -368,43 +370,43 @@ export default function App(): React.JSX.Element {
       const r = await window.api.wsAdd()
       if (r.canceled) return
       if (!r.ok) {
-        toast(r.error || '添加工作区失败', 'err')
+        toast(r.error || COPY.toast.wsAddFailed, 'err')
         return
       }
       setSelectedTagIds([])
       setSelected(new Set())
       await reloadAll()
       if (r.rewritten) {
-        toast(`已切过去，并把 ${r.rewritten} 条记录的位置改好了`, 'ok')
+        toast(fmt(COPY.toast.wsAddRewritten, { n: r.rewritten }), 'ok')
       } else {
-        toast(`工作区已添加：${r.workspaceRoot}`, 'ok')
+        toast(fmt(COPY.toast.wsAdded, { root: r.workspaceRoot }), 'ok')
       }
       if (r.missing && r.missing > 0) {
-        toast(`另有 ${r.missing} 个文件在磁盘上找不到（只影响预览）`, 'info')
+        toast(fmt(COPY.toast.wsMissingFiles, { n: r.missing }), 'info')
       }
     } catch (e) {
-      toast('添加工作区失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.wsAddError + (e as Error).message, 'err')
     }
   }
 
   /** 从列表移除工作区 —— 只是去掉记录，磁盘上的东西一个都不动 */
   const doRemoveWs = async (w: WorkspaceEntry): Promise<void> => {
     const yes = window.confirm(
-      `把工作区「${w.name}」从列表里去掉？\n\n` +
-        `只是从软件列表里去掉，磁盘上的文件夹和素材一个字节都不会动：\n${w.root}\n\n` +
-        `以后想用回来，点「＋ 添加工作区」选它就行。`
+      fmt(COPY.toast.wsRemoveConfirmA, { name: w.name }) +
+        fmt(COPY.toast.wsRemoveConfirmB, { root: w.root }) +
+        COPY.toast.wsRemoveConfirmC
     )
     if (!yes) return
     try {
       const r = await window.api.wsRemove(w.id)
       if (!r.ok) {
-        toast(r.error || '移除失败', 'err')
+        toast(r.error || COPY.toast.wsRemoveFailed, 'err')
         return
       }
       await reloadAll()
-      toast('已从列表移除（磁盘上的文件没动）', 'ok')
+      toast(COPY.toast.wsRemoved, 'ok')
     } catch (e) {
-      toast('移除失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.wsRemoveError + (e as Error).message, 'err')
     }
   }
 
@@ -414,11 +416,11 @@ export default function App(): React.JSX.Element {
     if (!cur) return
 
     const yes = window.confirm(
-      `把工作区「${cur.name}」搬到别的位置？\n\n` +
-        `当前：${cur.root}\n\n` +
-        `下一步让你选一个目标文件夹，软件会把整个工作区搬过去。\n` +
-        `同一个磁盘内是瞬间完成的（不是重新复制）。\n\n` +
-        `搬完后原位置不再保留副本。`
+      fmt(COPY.toast.wsMoveConfirmA, { name: cur.name }) +
+        fmt(COPY.toast.wsMoveConfirmB, { root: cur.root }) +
+        COPY.toast.wsMoveConfirmC +
+        COPY.toast.wsMoveConfirmD +
+        COPY.toast.wsMoveConfirmE
     )
     if (!yes) return
 
@@ -427,16 +429,16 @@ export default function App(): React.JSX.Element {
       if (r.canceled) return
       if (!r.ok) {
         // 跨盘时主进程已经弹出引导说明，这里不重复报错
-        if (!r.crossDisk) toast(r.error || '搬移失败', 'err')
+        if (!r.crossDisk) toast(r.error || COPY.toast.wsMoveFailed, 'err')
         return
       }
       await reloadAll()
-      toast(`已搬到：${r.to}`, 'ok')
+      toast(fmt(COPY.toast.wsMoved, { to: r.to }), 'ok')
       if (r.missing && r.missing > 0) {
-        toast(`另有 ${r.missing} 个文件在磁盘上找不到（只影响预览）`, 'info')
+        toast(fmt(COPY.toast.wsMissingFiles, { n: r.missing }), 'info')
       }
     } catch (e) {
-      toast('搬移失败：' + (e as Error).message, 'err')
+      toast(fmt(COPY.wsErr.moveFailed, { msg: (e as Error).message }), 'err')
     }
   }
 
@@ -446,7 +448,7 @@ export default function App(): React.JSX.Element {
    */
   const requireWs = (): boolean => {
     if (info?.workspaceOk) return true
-    toast('素材工作区当前连不上，先点上方提示条里的「重试」或「更改位置」', 'err')
+    toast(COPY.toast.wsOffline, 'err')
     return false
   }
 
@@ -459,25 +461,25 @@ export default function App(): React.JSX.Element {
       const r = await window.api.refreshScan()
       await reloadAll()
       toast(
-        `扫描完成：${r.packs} 个包 · ${r.files} 个文件` +
-          (r.newFiles ? ` · 新增 ${r.newFiles} 条` : '') +
-          (r.thumbs ? ` · 生成 ${r.thumbs} 张缩略图` : ''),
+        fmt(COPY.toast.scanDone, { packs: r.packs, files: r.files }) +
+          (r.newFiles ? fmt(COPY.toast.scanNewFiles, { n: r.newFiles }) : '') +
+          (r.thumbs ? fmt(COPY.toast.scanThumbs, { n: r.thumbs }) : ''),
         'ok'
       )
       // 第 7 批 ①：磁盘上已经没有的包，记录也摘掉了（信息留在 _system/backup）
       if (r.cleanedPacks) {
         toast(
-          `已清理 ${r.cleanedPacks} 条失效的包记录（文件本来就不在了，清单留存在 _system/backup）`,
+          fmt(COPY.toast.scanCleaned, { n: r.cleanedPacks }),
           'info'
         )
       }
       // 第 9 批（M6）：自动认出的稿 + 编号冲突
       if (r.newVersions) {
-        toast(`认出了 ${r.newVersions} 个新的版本文件夹（V1/V2 这种名字）`, 'ok')
+        toast(fmt(COPY.toast.scanNewVersions, { n: r.newVersions }), 'ok')
       }
       for (const c of r.versionConflicts ?? []) toast(c, 'err')
     } catch (e) {
-      toast('扫描失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.scanFailed + (e as Error).message, 'err')
     } finally {
       setScanning(false)
     }
@@ -495,14 +497,14 @@ export default function App(): React.JSX.Element {
       const r = await window.api.createPack(v)
       if (!r.ok) {
         // 出错时**不关弹窗**，让用户能改选项目或改名再来一次
-        toast(r.error ?? '创建失败', 'err')
+        toast(r.error ?? COPY.toast.packCreateFailed, 'err')
         return
       }
       setShowNew(false)
       await reloadAll()
-      toast(`包「${r.pack?.name ?? v.name}」已创建，文件夹已建好`, 'ok')
+      toast(fmt(COPY.toast.packCreated, { name: r.pack?.name ?? v.name }), 'ok')
     } catch (e) {
-      toast('创建失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.packCreateError + (e as Error).message, 'err')
     }
   }
 
@@ -521,9 +523,9 @@ export default function App(): React.JSX.Element {
       toast(
         editingProject
           ? renamed
-            ? '项目已改名，工作区里的文件夹也跟着改了（文件都还在）'
-            : `项目「${v.name}」已保存`
-          : `项目「${v.name}」已创建，工作区里建好了同名文件夹`,
+            ? COPY.toast.projectRenamed
+            : fmt(COPY.toast.projectSaved, { name: v.name })
+          : fmt(COPY.toast.projectCreated, { name: v.name }),
         'ok'
       )
       setShowProjectModal(false)
@@ -546,7 +548,7 @@ export default function App(): React.JSX.Element {
 
     const r = await window.api.moveProject(p.id, direction)
     if (!r.ok) {
-      toast(r.error ?? '调整顺序失败', 'err')
+      toast(r.error ?? COPY.toast.reorderFailed, 'err')
       await loadWs()
       return
     }
@@ -557,7 +559,7 @@ export default function App(): React.JSX.Element {
     moveTo: number | null
     toTrash?: boolean
   }): Promise<{ ok: boolean; error?: string }> => {
-    if (!deletingProject) return { ok: false, error: '没有待删除的项目' }
+    if (!deletingProject) return { ok: false, error: COPY.toast.noDeletingProject }
     const name = deletingProject.name
     const n = deletingProject.packCount
     const r = await window.api.removeProject(deletingProject.id, action)
@@ -568,14 +570,19 @@ export default function App(): React.JSX.Element {
       await reloadAll()
       if (action.toTrash) {
         toast(
-          `项目「${name}」已删进回收站：软件里不再显示，${r.deletedPacks ?? 0} 个包的文件夹原封不动躺在 _回收站 里`,
+          fmt(COPY.toast.projectTrashed, { name: name, n: r.deletedPacks ?? 0 }),
           'info'
         )
       } else {
         toast(
           n > 0
-            ? `项目「${name}」已删除，${r.moved} 个包已${action.moveTo !== null ? '转移' : '变为待归类'}`
-            : `项目「${name}」已删除`,
+            ? fmt(
+                action.moveTo !== null
+                  ? COPY.toast.projectDeletedMove
+                  : COPY.toast.projectDeletedLoose,
+                { name: name, n: r.moved }
+              )
+            : fmt(COPY.toast.projectDeleted, { name: name }),
           'ok'
         )
       }
@@ -592,7 +599,7 @@ export default function App(): React.JSX.Element {
   const submitPackEdit = async (
     patch: UpdatePackPatch
   ): Promise<{ ok: boolean; error?: string }> => {
-    if (editingPackId === null) return { ok: false, error: '没有待编辑的包' }
+    if (editingPackId === null) return { ok: false, error: COPY.toast.noEditingPack }
     try {
       const r = await window.api.updatePack(editingPackId, patch)
       if (!r.ok) return { ok: false, error: r.error }
@@ -601,8 +608,8 @@ export default function App(): React.JSX.Element {
       await reloadAll()
       toast(
         r.moved
-          ? '已保存，文件夹也跟着改名 / 搬家了（文件一个没动）'
-          : '已保存（只改了信息，磁盘上的文件夹没动）',
+          ? COPY.toast.packSavedMoved
+          : COPY.toast.packSavedOnly,
         'ok'
       )
       return { ok: true }
@@ -616,27 +623,27 @@ export default function App(): React.JSX.Element {
   /** 解绑项目：结项留底 —— 软件里不显示，本地文件全保留 */
   const doUnbind = async (p: ProjectWithCount): Promise<void> => {
     const yes = window.confirm(
-      `解绑项目「${p.name}」？\n\n` +
-        `· 软件里（包括包视图、文件视图、统计）不再显示它\n` +
-        `· 项目文件夹会搬到工作区的「_已解绑的项目」里，文件一个不少\n` +
-        `· 想回来时在左栏「已解绑」入口点一下就能还原\n\n` +
-        `确认解绑？`
+      fmt(COPY.toast.projectUnbindConfirmA, { name: p.name }) +
+        COPY.toast.projectUnbindConfirmB +
+        COPY.toast.projectUnbindConfirmC +
+        COPY.toast.projectUnbindConfirmD +
+        COPY.toast.projectUnbindConfirmE
     )
     if (!yes) return
     try {
       const r = await window.api.unbindProject(p.id)
       if (!r.ok) {
-        toast(r.error || '解绑失败', 'err')
+        toast(r.error || COPY.toast.projectUnbindFailed, 'err')
         return
       }
       if (projectFilter === p.id) setProjectFilter('全部')
       await reloadAll()
       toast(
-        `项目「${p.name}」已解绑，${r.packs} 个包跟着搬进 _已解绑的项目（文件都在）`,
+        fmt(COPY.toast.projectUnbound, { name: p.name, n: r.packs }),
         'ok'
       )
     } catch (e) {
-      toast('解绑失败：' + (e as Error).message, 'err')
+      toast(COPY.toast.projectUnbindError + (e as Error).message, 'err')
     }
   }
 
@@ -648,7 +655,7 @@ export default function App(): React.JSX.Element {
       const r = await window.api.restoreProject(p.id)
       if (!r.ok) return { ok: false, error: r.error }
       await reloadAll()
-      toast(`项目「${p.name}」已还原，文件都还在`, 'ok')
+      toast(fmt(COPY.toast.projectRestored, { name: p.name }), 'ok')
       return { ok: true }
     } catch (e) {
       return { ok: false, error: (e as Error).message }
@@ -661,8 +668,8 @@ export default function App(): React.JSX.Element {
     if (!claimPackId || selected.size === 0) return
     const paths = assets.filter((a) => selected.has(a.id)).map((a) => a.abs_path)
     const r = await window.api.claim({ paths, packId: claimPackId, subFolder: claimTarget })
-    if (r.ok) toast(`已认领 ${r.moved} 个文件到目标包`, 'ok')
-    else toast(`认领 ${r.moved} 个，${r.errors.length} 个失败`, 'err')
+    if (r.ok) toast(fmt(COPY.toast.claimed, { n: r.moved }), 'ok')
+    else toast(fmt(COPY.toast.claimPartial, { n: r.moved, e: r.errors.length }), 'err')
     setSelected(new Set())
     setClaimPackId(null)
     await reloadAll()
@@ -690,13 +697,13 @@ export default function App(): React.JSX.Element {
   }): Promise<void> => {
     const r = await window.api.applyTags(args)
     if (!r.ok) {
-      toast(r.error ?? '打标签失败', 'err')
+      toast(r.error ?? COPY.toast.tagFailed, 'err')
       return
     }
     setTagPickerIds(null)
     setSelected(new Set())
     await reloadAll()
-    toast(`已给 ${args.assetIds.length} 个文件贴上 ${args.tagIds.length} 个标签`, 'ok')
+    toast(fmt(COPY.toast.tagged, { a: args.assetIds.length, b: args.tagIds.length }), 'ok')
   }
 
   /** 从当前勾选的素材上摘掉某个标签（在文件行上点标签的小叉） */
@@ -709,7 +716,7 @@ export default function App(): React.JSX.Element {
 
   const openFile = async (p: string): Promise<void> => {
     const r = await window.api.openFile(p)
-    if (!r.ok) toast(r.error ?? '打开失败', 'err')
+    if (!r.ok) toast(r.error ?? COPY.toast.packOpenFailed, 'err')
   }
 
   // ---------------- 左栏宽度拖拽 ----------------
@@ -786,7 +793,7 @@ export default function App(): React.JSX.Element {
 
   const currentProjectLabel = useMemo(() => {
     if (projectFilter === '全部') return '全部'
-    if (projectFilter === null) return '待归类'
+    if (projectFilter === null) return COPY.side.loose
     const p = projects.find((x) => x.id === projectFilter)
     return p ? p.name : ''
   }, [projectFilter, projects])
@@ -797,7 +804,8 @@ export default function App(): React.JSX.Element {
       <div className="topbar">
         <div className="brand">
           <span className="dot" />
-          素材管家
+          
+          {COPY.app.name}
         </div>
 
         <div className="search-wrap">
@@ -807,7 +815,7 @@ export default function App(): React.JSX.Element {
           <input
             type="text"
             value={keyword}
-            placeholder={view === 'packs' ? '搜索包名称…' : '搜索文件名…'}
+            placeholder={view === 'packs' ? COPY.top.searchPack : COPY.top.searchFile}
             onChange={(e) => setKeyword(e.target.value)}
           />
         </div>
@@ -816,25 +824,27 @@ export default function App(): React.JSX.Element {
 
         <div className="tabs">
           <button className={view === 'packs' ? 'on' : ''} onClick={() => setView('packs')}>
-            包视图
+            
+            {COPY.top.viewPacks}
           </button>
           <button className={view === 'files' ? 'on' : ''} onClick={() => setView('files')}>
-            文件视图
+            
+            {COPY.top.viewFiles}
           </button>
         </div>
 
-        <button className="btn" onClick={doRefresh} disabled={scanning} title="重新扫描素材工作区">
+        <button className="btn" onClick={doRefresh} disabled={scanning} title={COPY.top.rescanTip}>
           {scanning ? (
-            '扫描中…'
+            COPY.top.rescanning
           ) : (
             <>
-              <Icon name="refresh" size={13} /> 刷新扫描
+              <Icon name="refresh" size={13} />  {COPY.top.rescan}
             </>
           )}
         </button>
 
         <button className="btn primary" onClick={() => setShowNew(true)}>
-          <Icon name="plus" size={13} strokeWidth={2} /> 新建任务包
+          <Icon name="plus" size={13} strokeWidth={2} />  {COPY.top.newPack}
         </button>
       </div>
 
@@ -856,14 +866,14 @@ export default function App(): React.JSX.Element {
           <div className="divider" />
 
           <h4 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>项目</span>
+            <span>{COPY.side.projects}</span>
             <button
               className="tp-manage-btn"
               onClick={() => {
                 setEditingProject(null)
                 setShowProjectModal(true)
               }}
-              title="新建项目"
+              title={COPY.side.newProjectTip}
             >
               <Icon name="plus" size={13} strokeWidth={2} />
             </button>
@@ -873,7 +883,7 @@ export default function App(): React.JSX.Element {
             className={`item${projectFilter === '全部' ? ' on' : ''}`}
             onClick={() => setProjectFilter('全部')}
           >
-            <span>全部</span>
+            <span>{COPY.side.filterAll}</span>
           </button>
 
           {projects.map((p, pi) => {
@@ -894,7 +904,7 @@ export default function App(): React.JSX.Element {
                   title={[
                     p.note || p.name,
                     info?.workspaceRoot && p.folder_name
-                      ? `磁盘位置：${info.workspaceRoot}\\${p.folder_name}`
+                      ? fmt(COPY.side.packDiskPath, { root: info.workspaceRoot, folder: p.folder_name })
                       : ''
                   ]
                     .filter(Boolean)
@@ -910,7 +920,7 @@ export default function App(): React.JSX.Element {
                   <span className="proj-acts">
                     <button
                       className="mini"
-                      title="上移一位"
+                      title={COPY.side.moveUp}
                       disabled={isFirst}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -921,7 +931,7 @@ export default function App(): React.JSX.Element {
                     </button>
                     <button
                       className="mini"
-                      title="下移一位"
+                      title={COPY.side.moveDown}
                       disabled={isLast}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -932,7 +942,7 @@ export default function App(): React.JSX.Element {
                     </button>
                     <button
                       className="mini"
-                      title="编辑名称 / 颜色"
+                      title={COPY.side.editProjectTip}
                       onClick={(e) => {
                         e.stopPropagation()
                         setEditingProject(p)
@@ -943,7 +953,7 @@ export default function App(): React.JSX.Element {
                     </button>
                     <button
                       className="mini"
-                      title="解绑项目（结项留底：软件里不显示，本地文件全保留）"
+                      title={COPY.side.unbindProjectTip}
                       onClick={(e) => {
                         e.stopPropagation()
                         void doUnbind(p)
@@ -953,7 +963,7 @@ export default function App(): React.JSX.Element {
                     </button>
                     <button
                       className="mini danger"
-                      title="删除项目"
+                      title={COPY.side.delProjectTip}
                       onClick={(e) => {
                         e.stopPropagation()
                         setDeletingProject(p)
@@ -971,9 +981,9 @@ export default function App(): React.JSX.Element {
             <button
               className={`item${projectFilter === null ? ' on' : ''}`}
               onClick={() => setProjectFilter(null)}
-              title="这些包的文件夹直接躺在工作区根目录，还没选项目 —— 点包卡片右上角的入库按钮就能归位"
+              title={COPY.side.looseTip}
             >
-              <span>待归类</span>
+              <span>{COPY.side.loose}</span>
             </button>
           )}
 
@@ -982,17 +992,17 @@ export default function App(): React.JSX.Element {
             <button
               className="item unbound-entry"
               onClick={() => setShowUnbound(true)}
-              title="结项留底的项目：软件里不显示，本地文件全在 _已解绑的项目 里，可一键还原"
+              title={COPY.side.unboundTip}
             >
               <span>
-                <Icon name="archive" size={13} /> 已解绑 {info?.unboundProjects?.length} 个项目
+                <Icon name="archive" size={13} />  {COPY.side.unbound} {info?.unboundProjects?.length}  {COPY.side.unboundCount}
               </span>
             </button>
           )}
 
           <div className="divider" />
 
-          <h4>筛选</h4>
+          <h4>{COPY.side.filterTitle}</h4>
           <button
             className={`item${view === 'files' && unassignedOnly && !missingOnly ? ' on' : ''}`}
             onClick={() => {
@@ -1002,7 +1012,7 @@ export default function App(): React.JSX.Element {
             }}
           >
             <span>
-              <Icon name="inbox" size={13} /> 未归属
+              <Icon name="inbox" size={13} />  {COPY.side.unassigned}
             </span>
             <span className="n">{stats.unassigned}</span>
           </button>
@@ -1015,10 +1025,10 @@ export default function App(): React.JSX.Element {
                 setUnassignedOnly(false)
                 setMissingOnly(true)
               }}
-              title="这些素材的原文件被删除或挪走了。软件不会因此删掉记录 —— 点行尾的定位按钮指到文件的新位置就能找回来"
+              title={COPY.side.missingTip}
             >
               <span>
-                <Icon name="warning" size={13} /> 文件已丢失
+                <Icon name="warning" size={13} />  {COPY.side.missing}
               </span>
               <span className="n">{stats.missing}</span>
             </button>
@@ -1031,13 +1041,13 @@ export default function App(): React.JSX.Element {
               setMissingOnly(false)
             }}
           >
-            <span>全部文件</span>
+            <span>{COPY.side.allFiles}</span>
             <span className="n">{stats.files}</span>
           </button>
 
           <div className="divider" />
 
-          <h4>工作区</h4>
+          <h4>{COPY.side.workspace}</h4>
           {(info?.workspaces ?? []).map((w) => {
             const isActive = w.id === info?.activeId
             return (
@@ -1047,18 +1057,18 @@ export default function App(): React.JSX.Element {
                 onClick={() => {
                   if (!isActive) void doSwitchWs(w.id)
                 }}
-                title={isActive ? w.root : `${w.root}\n点一下切到这个工作区`}
+                title={isActive ? w.root : fmt(COPY.side.wsSwitchTip, { root: w.root })}
               >
                 <div className="wrow">
                   <span className="wname">
                     <Icon name={isActive ? 'folder' : 'archive'} size={13} /> {w.name}
                   </span>
                   {isActive ? (
-                    <span className="wtag">当前</span>
+                    <span className="wtag">{COPY.common.current}</span>
                   ) : (
                     <button
                       className="wx"
-                      title="从列表移除（只去掉记录，磁盘上的文件一个字节都不动）"
+                      title={COPY.side.wsRemoveTip}
                       onClick={(e) => {
                         e.stopPropagation()
                         void doRemoveWs(w)
@@ -1077,7 +1087,8 @@ export default function App(): React.JSX.Element {
                         void window.api.wsOpenRoot()
                       }}
                     >
-                      打开文件夹
+                      
+                      {COPY.common.openFolder}
                     </button>
                     <button
                       onClick={(e) => {
@@ -1085,7 +1096,8 @@ export default function App(): React.JSX.Element {
                         void doMoveWs()
                       }}
                     >
-                      搬移位置
+                      
+                      {COPY.side.moveWs}
                     </button>
                   </div>
                 )}
@@ -1095,10 +1107,10 @@ export default function App(): React.JSX.Element {
           <button
             className="item addws"
             onClick={() => void doAddWs()}
-            title="选一个文件夹作为工作区：空的就新建，有素材库的直接接进来"
+            title={COPY.side.addWsTip}
           >
             <span>
-              <Icon name="plus" size={13} strokeWidth={2} /> 添加工作区
+              <Icon name="plus" size={13} strokeWidth={2} />  {COPY.side.addWs}
             </span>
           </button>
         </div>
@@ -1106,7 +1118,7 @@ export default function App(): React.JSX.Element {
         {/* 左栏宽度拖拽条：按住左右拖，双击复位 */}
         <div
           className={`side-resizer${resizing ? ' dragging' : ''}`}
-          title="拖动调整左栏宽度，双击恢复默认"
+          title={COPY.side.resizeTip}
           onMouseDown={startResize}
           onDoubleClick={resetSideWidth}
         />
@@ -1119,7 +1131,8 @@ export default function App(): React.JSX.Element {
               </span>
               <div className="txt">
                 <div className="t">
-                  工作区「{activeWs?.name ?? '未知'}」连不上，里面的东西一件没动
+                  
+                  {COPY.banner.wsOfflineA}{activeWs?.name ?? COPY.banner.wsUnknown}{COPY.banner.wsOfflineB}
                 </div>
                 <div className="s">
                   {info.workspaceRoot}
@@ -1127,10 +1140,12 @@ export default function App(): React.JSX.Element {
                 </div>
               </div>
               <button className="btn" onClick={doRetryWorkspace}>
-                重试
+                
+                {COPY.banner.retry}
               </button>
               <button className="btn primary" onClick={doPickRoot}>
-                更改位置
+                
+                {COPY.banner.changeLoc}
               </button>
             </div>
           )}
@@ -1141,14 +1156,15 @@ export default function App(): React.JSX.Element {
                 <Icon name="archive" size={16} />
               </span>
               <div className="txt">
-                <div className="t">目录结构已升级：工作区 / 项目 / 包</div>
+                <div className="t">{COPY.banner.layoutUpgraded}</div>
                 <div className="s">
-                  {layoutNotice.packs} 个包已归入各自的项目文件夹，文件一个没动
-                  {info.workspaceRoot ? ` —— 位置：${info.workspaceRoot}` : ''}
+                  <Rich tpl={COPY.banner.layoutMoved} v={{ n: layoutNotice.packs }} />
+                  {info.workspaceRoot ? fmt(COPY.banner.layoutLoc, { root: info.workspaceRoot }) : ''}
                 </div>
               </div>
               <button className="btn" onClick={dismissLayoutNotice}>
-                知道了
+                
+                {COPY.common.know}
               </button>
             </div>
           )}
@@ -1161,13 +1177,15 @@ export default function App(): React.JSX.Element {
                   </div>
                   <div className="t">
                     {projectFilter === '全部'
-                      ? '还没有任何任务包'
-                      : `「${currentProjectLabel}」下还没有包`}
+                      ? COPY.empty.noPacks
+                      : fmt(COPY.empty.noPacksInProject, { name: currentProjectLabel })}
                   </div>
                   <div className="s">
-                    点右上角「＋ 新建任务包」建第一个包，
+                    
+                    {COPY.empty.createFirstA}
                     <br />
-                    软件会自动在工作区建好文件夹和三个子文件夹。
+                    
+                    {COPY.empty.createFirstB}
                   </div>
                 </div>
               ) : (
@@ -1200,28 +1218,29 @@ export default function App(): React.JSX.Element {
                 </div>
                 <div className="t">
                   {unassignedOnly
-                    ? '未归属池是空的'
+                    ? COPY.empty.unassigned
                     : missingOnly
-                      ? '没有文件丢失，全都在'
+                      ? COPY.empty.noMissing
                       : keyword
-                        ? '没找到匹配的文件'
-                        : '还没有登记任何文件'}
+                        ? COPY.empty.noMatch
+                        : COPY.empty.noAssets}
                 </div>
                 <div className="s">
-                  往工作区里的包文件夹丢文件，然后点右上角「刷新扫描」。
+                  
+                  {COPY.empty.dropHint}
                 </div>
               </div>
             ) : (
               <>
                 {selected.size > 0 && (
                   <div className="claimbar">
-                    <span className="txt">已选中 {selected.size} 个文件</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-2)' }}>认领进</span>
+                    <span className="txt"><Rich tpl={COPY.claim.selected} v={{ n: selected.size }} /></span>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{COPY.claim.into}</span>
                     <select
                       value={claimPackId ?? ''}
                       onChange={(e) => setClaimPackId(Number(e.target.value) || null)}
                     >
-                      <option value="">— 选择任务包 —</option>
+                      <option value="">{COPY.claim.pickPack}</option>
                       {packs.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}
@@ -1239,15 +1258,17 @@ export default function App(): React.JSX.Element {
                       className="btn primary"
                       onClick={doClaim}
                       disabled={!claimPackId}
-                      title={!claimPackId ? '请先选择目标包' : '把文件搬进目标包'}
+                      title={!claimPackId ? COPY.claim.needTarget : COPY.claim.moveInto}
                     >
-                      确定认领
+                      
+                      {COPY.claim.confirm}
                     </button>
-                    <button className="btn" onClick={openTagPicker} title="给选中的文件批量打标签">
-                      <Icon name="tag" size={13} /> 打标签
+                    <button className="btn" onClick={openTagPicker} title={COPY.claim.tagTip}>
+                      <Icon name="tag" size={13} />  {COPY.claim.tagBtn}
                     </button>
                     <button className="btn" onClick={() => setSelected(new Set())}>
-                      取消
+                      
+                      {COPY.common.cancel}
                     </button>
                   </div>
                 )}
@@ -1277,19 +1298,21 @@ export default function App(): React.JSX.Element {
                       setSelected(all ? new Set() : new Set(shownAssets.map((a) => a.id)))
                     }}
                   />
-                  全选（双击文件名可直接打开文件）
+                  
+                  {COPY.stat.selectAll}
                   {/* 第 9 批（M6）：文件视图默认全显示（铁则：不藏用户的东西），
                       打开这个开关只留各包「当前版本」那一稿的文件 */}
                   <label
                     className="cur-only"
-                    title="只显示各包「当前版本」那一稿的文件；未分版本的老文件也会被过滤掉"
+                    title={COPY.stat.currentOnlyTip}
                   >
                     <input
                       type="checkbox"
                       checked={currentOnly}
                       onChange={(e) => setCurrentOnly(e.target.checked)}
                     />
-                    只看当前稿
+                    
+                    {COPY.stat.currentOnly}
                   </label>
                   {/* 第 8 批：一批文件被整体挪走时的批量找回入口 */}
                   {stats.missing > 0 && (
@@ -1297,10 +1320,10 @@ export default function App(): React.JSX.Element {
                       className="btn"
                       style={{ marginLeft: 'auto', padding: '2px 10px' }}
                       onClick={() => setShowRelocate(true)}
-                      title="一批文件被整体挪走了？选它现在所在的文件夹，软件按原目录结构替你先配一遍，你确认后才改"
+                      title={COPY.stat.relocateTip}
                     >
-                      <Icon name="locate" size={12} /> 批量重新定位
-                      {missingOnly ? `（共 ${stats.missing} 条丢失）` : ''}
+                      <Icon name="locate" size={12} />  {COPY.stat.relocateBtn}
+                      {missingOnly ? fmt(COPY.stat.missingCount, { n: stats.missing }) : ''}
                     </button>
                   )}
                 </div>
@@ -1333,38 +1356,40 @@ export default function App(): React.JSX.Element {
           <div className="statusbar">
             {view === 'packs' ? (
               <>
-                <span>共 {shownPacks.length} 个包</span>
+                <span><Rich tpl={COPY.stat.packsCount} v={{ n: shownPacks.length }} /></span>
                 <span>·</span>
-                <span>共 {stats.files} 条素材</span>
+                <span><Rich tpl={COPY.stat.assetsCount} v={{ n: stats.files }} /></span>
                 {stats.missing > 0 && (
-                  <span style={{ color: 'var(--warn)' }}>其中 {stats.missing} 条文件已丢失</span>
+                  <span style={{ color: 'var(--warn)' }}><Rich tpl={COPY.stat.missingPart} v={{ n: stats.missing }} /></span>
                 )}
               </>
             ) : (
               <>
                 <span>
-                  共 {shownAssets.length} 条素材
-                  {unassignedOnly ? '（未归属）' : ''}
-                  {missingOnly ? '（文件已丢失）' : ''}
-                  {currentOnly ? '（只看当前稿）' : ''}
+                  <Rich tpl={COPY.stat.assetsCount} v={{ n: shownAssets.length }} />
+                  {unassignedOnly ? COPY.stat.suffixUnassigned : ''}
+                  {missingOnly ? COPY.stat.suffixMissing : ''}
+                  {currentOnly ? COPY.stat.suffixCurrent : ''}
                 </span>
                 <span>·</span>
                 <span>{fmtSize(shownSize)}</span>
               </>
             )}
-            {selected.size > 0 && <span className="pick">已选中 {selected.size}</span>}
+            {selected.size > 0 && <span className="pick"><Rich tpl={COPY.stat.selectedShort} v={{ n: selected.size }} /></span>}
             {stats.unassigned > 0 && view === 'packs' && (
-              <span style={{ color: 'var(--warn)' }}>未归属 {stats.unassigned} 个待整理</span>
+              <span style={{ color: 'var(--warn)' }}><Rich tpl={COPY.stat.unassignedPart} v={{ n: stats.unassigned }} /></span>
             )}
             <span style={{ marginLeft: 'auto' }}>
-              当前：{currentProjectLabel}
+              
+              {COPY.stat.currentProject}{currentProjectLabel}
               <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
-              工作区{' '}
+              
+              {COPY.side.workspace}{' '}
               <span className="path">
                 {activeWs ? `${activeWs.name}（${activeWs.root}）` : info?.workspaceRoot}
               </span>
               <span style={{ margin: '0 8px', opacity: 0.4 }}>|</span>
-              <span title="软件版本号（出处：package.json 的 version）">
+              <span title={COPY.app.versionTip}>
                 v{info?.appVersion ?? '—'}
               </span>
             </span>

@@ -1,3 +1,5 @@
+import { COPY } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useState } from 'react'
 import type { ProjectWithCount } from '../types'
 import { Icon } from './Icon'
@@ -43,14 +45,14 @@ export function DeleteProjectModal({
         ? await onConfirm({ moveTo: null, toTrash: true })
         : await onConfirm({ moveTo: mode === 'move' ? target : null })
     setBusy(false)
-    if (!r.ok) setErr(r.error ?? '删除失败')
+    if (!r.ok) setErr(r.error ?? COPY.tagErr.deleteFailed)
   }
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          <Icon name="warning" size={15} /> 删除项目
+          <Icon name="warning" size={15} />  {COPY.side.delProjectTip}
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -58,8 +60,9 @@ export function DeleteProjectModal({
 
         <div className="content">
           <div style={{ fontSize: 13, lineHeight: 1.9 }}>
-            确定删除项目
-            <b style={{ color: project.color }}>「{project.name}」</b>吗？
+            
+            {COPY.delProj.confirmAskA}
+            <b style={{ color: project.color }}>「{project.name}」</b>{COPY.delProj.confirmAskB}
           </div>
 
           <div
@@ -76,11 +79,10 @@ export function DeleteProjectModal({
           >
             {hasPacks ? (
               <>
-                该项目下有 <b>{project.packCount}</b> 个包。包和里面的文件都不会被删除，
-                但请先选一个去处：
+                <Rich tpl={COPY.delProj.packCount} v={{ n: project.packCount }} />
               </>
             ) : (
-              <>该项目下没有包。删除后不影响任何文件，要重名再用可以随时新建。</>
+              <>{COPY.delProj.noPacks}</>
             )}
           </div>
 
@@ -92,7 +94,7 @@ export function DeleteProjectModal({
                 disabled={others.length === 0}
                 onChange={() => setMode('move')}
               />
-              <span>转移到其他项目</span>
+              <span>{COPY.delProj.moveToProject}</span>
             </label>
             {mode === 'move' && others.length > 0 && (
               <select
@@ -102,7 +104,7 @@ export function DeleteProjectModal({
               >
                 {others.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}（现有 {p.packCount} 个包）
+                    <Rich tpl={COPY.delProj.existingCount} v={{ name: p.name, n: p.packCount }} />
                   </option>
                 ))}
               </select>
@@ -116,25 +118,23 @@ export function DeleteProjectModal({
                 checked={mode === 'orphan'}
                 onChange={() => setMode('orphan')}
               />
-              <span>不指定项目（变成待归类）</span>
+              <span>{COPY.delProj.noProject}</span>
             </label>
             <div className="hint" style={{ marginLeft: 22 }}>
-              这 {project.packCount || 0} 个包还留在硬盘上、文件一个不少，
-              只是不再挂在任何项目下，之后可以再指定
+              <Rich tpl={COPY.delProj.keep} v={{ n: project.packCount || 0 }} />
             </div>
           </div>
 
           <div className="field" style={{ marginBottom: 0 }}>
             <label className="radio-line">
               <input type="radio" checked={mode === 'trash'} onChange={() => setMode('trash')} />
-              <span style={{ color: 'var(--danger)' }}>删进回收站（项目连同包一起隐去）</span>
+              <span style={{ color: 'var(--danger)' }}>{COPY.delProj.trash}</span>
             </label>
             <div className="hint" style={{ marginLeft: 22, lineHeight: 1.8 }}>
-              整个项目文件夹会搬到工作区的
-              <span className="path"> _回收站 </span>
-              里，<b>文件一个都不会消失</b>，只是从软件里不再显示。
+              <Rich tpl={COPY.delProj.trashKeep} />
               <br />
-              真要彻底清掉，自己去 `_回收站` 里删 —— 那才是"不要了"的正确姿势。
+              
+              {COPY.delProj.trashNote}
             </div>
           </div>
 
@@ -147,7 +147,8 @@ export function DeleteProjectModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           <button
             className="btn"
@@ -155,7 +156,7 @@ export function DeleteProjectModal({
             onClick={confirm}
             disabled={busy || (mode === 'move' && hasPacks && target === null)}
           >
-            {busy ? '处理中…' : mode === 'trash' ? '删进回收站' : '确认删除'}
+            {busy ? COPY.delProj.processing : mode === 'trash' ? COPY.delProj.trashBtn : COPY.common.confirmDelete}
           </button>
         </div>
       </div>

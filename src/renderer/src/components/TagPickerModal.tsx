@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useMemo, useState } from 'react'
 import type { DimensionGroup } from '../types'
 import { Icon } from './Icon'
@@ -68,7 +70,7 @@ export function TagPickerModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 620 }}>
         <h3>
-          <Icon name="tag" size={15} /> 给 {assetIds.length} 个文件打标签
+          <Icon name="tag" size={15} /> <Rich tpl={COPY.tagPick.title} v={{ n: assetIds.length }} />
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -76,16 +78,18 @@ export function TagPickerModal({
 
         <div className="content">
           <div className="hint" style={{ marginBottom: 8 }}>
-            同一维度内点多个 = 一次贴多个；同一个标签维度内每张素材保留最后选中的（批量整理更顺手）。
+            
+            {COPY.tagPick.hint}
           </div>
 
           {suggestedIds.size > 0 && (
             <div className="tp-sug-bar">
               <span>
-                <Icon name="bulb" size={13} /> 按文件名猜出 {suggestedIds.size} 个可能的标签
+                <Icon name="bulb" size={13} /> <Rich tpl={COPY.tagPick.suggest} v={{ n: suggestedIds.size }} />
               </span>
               <button className="linky" onClick={pickAllSuggested}>
-                全部选中
+                
+                {COPY.tagPick.selectAll}
               </button>
             </div>
           )}
@@ -95,10 +99,10 @@ export function TagPickerModal({
               <div className="tp-pick-dim" key={dim.key}>
                 <div className="tp-pick-label">
                   {dim.label}
-                  <span className="tp-pick-mode">{dim.mode === 'single' ? '单选' : '多选'}</span>
+                  <span className="tp-pick-mode">{dim.mode === 'single' ? COPY.tagPick.single : COPY.tagPick.multi}</span>
                 </div>
                 <div className="tp-tags">
-                  {dim.tags.length === 0 && <span className="tp-empty">暂无标签</span>}
+                  {dim.tags.length === 0 && <span className="tp-empty">{COPY.tagPick.empty}</span>}
                   {dim.tags.map((t) => {
                     const on = picked.has(t.id)
                     const sug = suggestedIds.has(t.id)
@@ -107,7 +111,7 @@ export function TagPickerModal({
                         key={t.id}
                         className={`tp-tag${on ? ' on' : ''}${sug ? ' sug' : ''}`}
                         onClick={() => toggle(dim, t.id)}
-                        title={sug ? `${t.name}（文件名可能匹配）` : t.name}
+                        title={sug ? fmt(COPY.tagPick.suggestTip, { name: t.name }) : t.name}
                         style={
                           on
                             ? { background: t.color, borderColor: t.color, color: '#fff' }
@@ -116,7 +120,7 @@ export function TagPickerModal({
                       >
                         {!on && <i className="cdot" style={{ background: t.color }} />}
                         <span className="tp-tag-name">{t.name}</span>
-                        {sug && <span className="tp-star" title="自动建议">
+                        {sug && <span className="tp-star" title={COPY.tagPick.suggestTitle}>
                           <Icon name="star" size={10} />
                         </span>}
                       </button>
@@ -129,18 +133,20 @@ export function TagPickerModal({
 
           {overwrite && picked.size > 0 && (
             <div className="hint" style={{ color: 'var(--warn)' }}>
-              注意：已选维度上的旧标签会被这批新标签替换掉
+              
+              {COPY.tagPick.replaceNote}
             </div>
           )}
         </div>
 
         <div className="foot">
-          <span className="tp-picked-n">已选 {picked.size} 个标签</span>
+          <span className="tp-picked-n"><Rich tpl={COPY.tagPick.picked} v={{ n: picked.size }} /></span>
           <button className="btn" onClick={onClose}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           <button className="btn primary" onClick={apply} disabled={busy || picked.size === 0}>
-            {busy ? '正在打标签…' : `贴到 ${assetIds.length} 个文件`}
+            {busy ? COPY.tagPick.busy : fmt(COPY.tagPick.confirm, { n: assetIds.length })}
           </button>
         </div>
       </div>

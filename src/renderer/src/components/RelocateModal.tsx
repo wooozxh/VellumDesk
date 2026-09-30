@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useState } from 'react'
 import type { RelocateSuggestion } from '../types'
 import { Icon } from './Icon'
@@ -59,7 +61,7 @@ export function RelocateModal({
         : []
     )
     if (!targets.length) {
-      toast('一条都没勾上', 'err')
+      toast(COPY.relocate.nonePicked, 'err')
       return
     }
     setBusy(true)
@@ -67,9 +69,9 @@ export function RelocateModal({
     setBusy(false)
     await onDone()
     if (r.errors.length) {
-      toast(`找回 ${r.moved} 条，${r.errors.length} 条没成：${r.errors[0]}`, 'err')
+      toast(fmt(COPY.relocate.partial, { n: r.moved, e: r.errors.length, first: r.errors[0] }), 'err')
     } else {
-      toast(`找回 ${r.moved} 条文件`, 'ok')
+      toast(fmt(COPY.relocate.done, { n: r.moved }), 'ok')
     }
     onClose()
   }
@@ -82,7 +84,7 @@ export function RelocateModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal relocate">
         <div className="head">
-          <h3>批量重新定位</h3>
+          <h3>{COPY.stat.relocateBtn}</h3>
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -90,25 +92,24 @@ export function RelocateModal({
         <div className="content">
           <div className="field">
             <div className="hint">
-              文件被整批挪走时用这个：选它们<b>现在所在的文件夹</b>，软件按原来的目录结构一层层试配。
-              <b>你先看结果、勾选之后才会动记录。</b>
+              <Rich tpl={COPY.relocate.hint} />
             </div>
             <button className="btn" onClick={pickDir} disabled={busy}>
-              <Icon name="folder" size={13} /> 选择文件夹
+              <Icon name="folder" size={13} />  {COPY.relocate.pickFolder}
             </button>
             {dir && <div className="path">{dir}</div>}
           </div>
 
-          {busy && <div className="hint">正在这个文件夹里找…</div>}
+          {busy && <div className="hint">{COPY.relocate.searching}</div>}
 
           {scanned && !busy && (
             <>
               <div className="hint" style={{ color: okItems.length ? 'var(--accent)' : 'var(--warn)' }}>
-                配上 {okItems.length} 条
-                {badItems.length > 0 ? `　·　没配上 ${badItems.length} 条` : ''}
+                <Rich tpl={COPY.relocate.matched} v={{ n: okItems.length }} />
+                {badItems.length > 0 ? fmt(COPY.relocate.unmatched, { n: badItems.length }) : ''}
               </div>
               {items.length === 0 && (
-                <div className="hint">当前没有「文件已丢失」的素材，不需要重新定位。</div>
+                <div className="hint">{COPY.relocate.none}</div>
               )}
               <div className="relocate-list">
                 {items.map((i) => (
@@ -125,7 +126,7 @@ export function RelocateModal({
                         {i.matchedPath ?? i.reason}
                       </div>
                     </div>
-                    <span className="rr-tag">{i.matchedPath ? i.reason : '没配上'}</span>
+                    <span className="rr-tag">{i.matchedPath ? i.reason : COPY.relocate.unmatchedTag}</span>
                   </label>
                 ))}
               </div>
@@ -134,10 +135,11 @@ export function RelocateModal({
         </div>
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            关闭
+            
+            {COPY.common.close}
           </button>
           <button className="btn primary" onClick={apply} disabled={busy || pickedCount === 0}>
-            找回勾选的 {pickedCount} 条
+            <Rich tpl={COPY.relocate.restore} v={{ n: pickedCount }} />
           </button>
         </div>
       </div>

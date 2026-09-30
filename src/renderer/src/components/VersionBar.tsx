@@ -1,3 +1,5 @@
+import { COPY } from '../../../shared/copy'
+import { Rich } from './Rich'
 import type { PackVersion } from '../types'
 import { fmtSize } from './FileRow'
 import { Icon } from './Icon'
@@ -43,16 +45,17 @@ export function VersionBar({
           >
             <div className="vh">
               <span className="vn">V{v.seq}</span>
-              {v.is_current === 1 && <span className="vflag cur">当前</span>}
+              {v.is_current === 1 && <span className="vflag cur">{COPY.common.current}</span>}
               {!v.folderExists && (
-                <span className="vflag gone" title="这个文件夹已经不在磁盘上了（被改名或删了）">
-                  文件夹不在
+                <span className="vflag gone" title={COPY.verBar.goneTip}>
+                  
+                  {COPY.verBar.gone}
                 </span>
               )}
             </div>
-            <div className="vnote">{v.note || '（没写这一稿改了什么）'}</div>
+            <div className="vnote">{v.note || COPY.verBar.noNote}</div>
             <div className="vmeta">
-              {v.fileCount} 个文件 · {fmtSize(v.totalSize)}
+              <Rich tpl={COPY.card.fileSize} v={{ n: v.fileCount, size: fmtSize(v.totalSize) }} />
               {v.missingCount > 0 && <span className="vmiss">
                 {' · '}
                 <Icon name="warning" size={11} /> {v.missingCount}
@@ -62,24 +65,26 @@ export function VersionBar({
               {v.is_current !== 1 && (
                 <button
                   className="vbtn"
-                  title="把这一稿设为当前版本（回滚）——只改指针，不删任何文件"
+                  title={COPY.verBar.setCurrentTip}
                   onClick={(e) => {
                     e.stopPropagation()
                     onSetCurrent(v)
                   }}
                 >
-                  设为当前
+                  
+                  {COPY.verBar.setCurrent}
                 </button>
               )}
               <button
                 className="vbtn"
-                title="解除管理关系：文件夹和文件一个都不动"
+                title={COPY.verBar.unbindTip}
                 onClick={(e) => {
                   e.stopPropagation()
                   onUnbind(v)
                 }}
               >
-                解绑
+                
+                {COPY.verBar.unbind}
               </button>
             </div>
           </div>
@@ -89,13 +94,13 @@ export function VersionBar({
           <div
             className={`ver-cell none${selected === null ? ' sel' : ''}`}
             onClick={() => onSelect(null)}
-            title="还没归到任何一稿里的文件（不在 V1/V2 这些文件夹里）"
+            title={COPY.verBar.unassignedTip}
           >
             <div className="vh">
-              <span className="vn">未分版本</span>
+              <span className="vn">{COPY.verBar.unassigned}</span>
             </div>
-            <div className="vnote">不在任何一稿的文件夹里</div>
-            <div className="vmeta">{unassignedCount} 个文件</div>
+            <div className="vnote">{COPY.verBar.unassignedNote}</div>
+            <div className="vmeta"><Rich tpl={COPY.common.fileCount} v={{ n: unassignedCount }} /></div>
           </div>
         )}
       </div>
@@ -104,16 +109,16 @@ export function VersionBar({
         <button
           className="btn primary"
           onClick={onCreate}
-          title="在包文件夹里建一个新版本文件夹（V1 / V2 / V3…）"
+          title={COPY.verBar.newTip}
         >
-          <Icon name="plus" size={13} strokeWidth={2} /> 新建版本
+          <Icon name="plus" size={13} strokeWidth={2} />  {COPY.verBar.newVer}
         </button>
         <button
           className="btn"
           onClick={onBind}
-          title="你自己在资源管理器里建好了文件夹？在这儿绑定一下就能纳入管理"
+          title={COPY.verBar.bindTip}
         >
-          <Icon name="clip" size={13} /> 绑定文件夹
+          <Icon name="clip" size={13} />  {COPY.verBar.bind}
         </button>
       </div>
     </div>

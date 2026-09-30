@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useMemo, useState } from 'react'
 import type { DimensionGroup, TagWithCount } from '../types'
 import { Icon } from './Icon'
@@ -60,11 +62,11 @@ export function TagManagerModal({
     const r = await window.api.createTag({ dimension: dim.key, name })
     setBusy(false)
     if (!r.ok) {
-      toast(r.error ?? '新建失败', 'err')
+      toast(r.error ?? COPY.tagMgr.addFailed, 'err')
       return
     }
     setNewName('')
-    toast(`标签「${name}」已加到「${dim.label}」`, 'ok')
+    toast(fmt(COPY.tagMgr.added, { name: name, dim: dim.label }), 'ok')
     await onChanged()
   }
 
@@ -76,18 +78,18 @@ export function TagManagerModal({
     }
     const r = await window.api.updateTag(tag.id, { name })
     if (!r.ok) {
-      toast(r.error ?? '改名失败', 'err')
+      toast(r.error ?? COPY.tagErr.renameFailed, 'err')
       return
     }
     setEditingId(null)
-    toast('标签已改名', 'ok')
+    toast(COPY.tagErr.renamed, 'ok')
     await onChanged()
   }
 
   const recolor = async (tag: TagWithCount, color: string): Promise<void> => {
     const r = await window.api.updateTag(tag.id, { color })
     if (!r.ok) {
-      toast(r.error ?? '改色失败', 'err')
+      toast(r.error ?? COPY.tagErr.colorFailed, 'err')
       return
     }
     await onChanged()
@@ -104,14 +106,14 @@ export function TagManagerModal({
     const r = await window.api.removeTag(tag.id)
     setConfirmDel(null)
     if (!r.ok) {
-      toast(r.error ?? '删除失败', 'err')
+      toast(r.error ?? COPY.tagErr.deleteFailed, 'err')
       return
     }
     const packs = r.packsAffected ?? 0
     toast(
-      `标签「${tag.name}」已删除` +
-        (r.deleted > 0 ? `，${r.deleted} 条素材的该标签已摘掉` : '') +
-        (packs > 0 ? `，${packs} 个包的类别已归到「未分类」` : ''),
+      fmt(COPY.tagMgr.deleted, { name: tag.name }) +
+        (r.deleted > 0 ? fmt(COPY.tagMgr.deletedAssets, { n: r.deleted }) : '') +
+        (packs > 0 ? fmt(COPY.tagMgr.deletedPacks, { n: packs }) : ''),
       'ok'
     )
     await onChanged()
@@ -121,7 +123,7 @@ export function TagManagerModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 560 }}>
         <h3>
-          <Icon name="tag" size={15} /> 标签管理
+          <Icon name="tag" size={15} />  {COPY.tagMgr.title}
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -147,7 +149,7 @@ export function TagManagerModal({
 
           <div className="hint" style={{ marginBottom: 10 }}>
             {dim?.hint}
-            {dim?.mode === 'single' && ' · 该维度每张素材只能有一个标签'}
+            {dim?.mode === 'single' && COPY.tagMgr.singleNote}
           </div>
 
           {/* 新增 */}
@@ -155,20 +157,20 @@ export function TagManagerModal({
             <input
               type="text"
               value={newName}
-              placeholder={`给「${dim?.label ?? ''}」加一个新标签…`}
+              placeholder={fmt(COPY.tagMgr.addPlaceholder, { dim: dim?.label ?? '' })}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') add()
               }}
             />
             <button className="btn primary" onClick={add} disabled={busy || !newName.trim()}>
-              <Icon name="plus" size={13} strokeWidth={2} /> 添加
+              <Icon name="plus" size={13} strokeWidth={2} />  {COPY.tagMgr.addBtn}
             </button>
           </div>
 
           {/* 列表 */}
           <div className="tm-list">
-            {dim?.tags.length === 0 && <div className="tm-empty">这个维度还没有标签</div>}
+            {dim?.tags.length === 0 && <div className="tm-empty">{COPY.tagMgr.empty}</div>}
             {dim?.tags.map((t) => (
               <div className="tm-row" key={t.id}>
                 {editingId === t.id ? (
@@ -183,10 +185,10 @@ export function TagManagerModal({
                         if (e.key === 'Escape') setEditingId(null)
                       }}
                     />
-                    <button className="mini ok" onClick={() => saveEdit(t)} title="保存">
+                    <button className="mini ok" onClick={() => saveEdit(t)} title={COPY.common.save}>
                       <Icon name="check" size={13} strokeWidth={2} />
                     </button>
-                    <button className="mini" onClick={() => setEditingId(null)} title="取消">
+                    <button className="mini" onClick={() => setEditingId(null)} title={COPY.common.cancel}>
                       <Icon name="close" size={14} />
                     </button>
                   </>
@@ -194,7 +196,12 @@ export function TagManagerModal({
                   <>
                     <span className="tm-dot" style={{ background: t.color }} />
                     <span className="tm-name">{t.name}</span>
-                    <span className="tm-cnt" title={`使用该标签的素材数（当前范围：${scopeLabel === '全部' ? '全库' : scopeLabel}）`}>
+                    <span
+                      className="tm-cnt"
+                      title={fmt(COPY.tagMgr.countTip, {
+                        scope: scopeLabel === '全部' ? COPY.tagMgr.scopeAllLib : scopeLabel
+                      })}
+                    >
                       {t.assetCount}
                     </span>
                     <input
@@ -202,11 +209,11 @@ export function TagManagerModal({
                       type="color"
                       value={t.color}
                       onChange={(e) => recolor(t, e.target.value)}
-                      title="改颜色"
+                      title={COPY.tagMgr.colorTip}
                     />
                     <button
                       className="mini"
-                      title="改名"
+                      title={COPY.tagMgr.renameTip}
                       onClick={() => {
                         setEditingId(t.id)
                         setEditName(t.name)
@@ -214,7 +221,7 @@ export function TagManagerModal({
                     >
                       <Icon name="edit" size={13} />
                     </button>
-                    <button className="mini danger" title="删除标签" onClick={() => askDelete(t)}>
+                    <button className="mini danger" title={COPY.tagMgr.delTip} onClick={() => askDelete(t)}>
                       <Icon name="trash" size={13} />
                     </button>
                   </>
@@ -226,7 +233,8 @@ export function TagManagerModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            关闭
+            
+            {COPY.common.close}
           </button>
         </div>
       </div>
@@ -235,28 +243,30 @@ export function TagManagerModal({
       {confirmDel && (
         <div className="mask" onMouseDown={(e) => e.stopPropagation()}>
           <div className="modal" style={{ width: 400, zIndex: 2 }}>
-            <h3>删除标签</h3>
+            <h3>{COPY.tagMgr.delTip}</h3>
             <div className="content">
               <div className="hint" style={{ color: 'var(--text)', fontSize: 13 }}>
-                确定删除标签「<b>{confirmDel.tag.name}</b>」？
+                <Rich tpl={COPY.tagMgr.delConfirm} v={{ name: confirmDel.tag.name }} />
               </div>
               <div className="hint">
                 {confirmDel.usage > 0
-                  ? `全库共 ${confirmDel.usage} 条素材在用这个标签（含已解绑项目里的），删除后这些素材会失去这个标签（素材文件本身不会被删）。`
-                  : '全库还没有任何素材用过这个标签。'}
+                  ? fmt(COPY.tagMgr.delUsage, { n: confirmDel.usage })
+                  : COPY.tagMgr.delNoUsage}
               </div>
               {confirmDel.packCount > 0 && (
                 <div className="hint" style={{ color: 'var(--danger)' }}>
-                  目前有 <b>{confirmDel.packCount}</b> 个包正在使用这个类别，删除后这些包的类别也会一并去掉（归为「未分类」）。
+                  <Rich tpl={COPY.tagMgr.delPackCount} v={{ n: confirmDel.packCount }} />
                 </div>
               )}
             </div>
             <div className="foot">
               <button className="btn" onClick={() => setConfirmDel(null)}>
-                取消
+                
+                {COPY.common.cancel}
               </button>
               <button className="btn danger" onClick={doDelete}>
-                确认删除
+                
+                {COPY.common.confirmDelete}
               </button>
             </div>
           </div>

@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useState } from 'react'
 import type { PackCard as PackCardType } from '../types'
 import { Icon } from './Icon'
@@ -29,7 +31,7 @@ export function PackCard({
       {onEdit && (
         <button
           className="pact"
-          title={isLoose ? '归位到某个项目' : '编辑包信息（名称 / 类别 / 项目）'}
+          title={isLoose ? COPY.card.relocateTip : COPY.card.editTip}
           onClick={(e) => {
             e.stopPropagation()
             onEdit()
@@ -48,7 +50,7 @@ export function PackCard({
         {(pack.missingCount ?? 0) > 0 && (
           <span
             className="miss-flag"
-            title={`这个包里有 ${pack.missingCount} 个文件已丢失（原文件被删除或挪走了，记录还在，可重新定位）`}
+            title={fmt(COPY.card.missingTip, { n: pack.missingCount })}
           >
             <Icon name="warning" size={12} /> {pack.missingCount}
           </span>
@@ -59,14 +61,14 @@ export function PackCard({
           {pack.name}
         </div>
         <div className="sub">
-          {pack.fileCount} 个文件 · {fmtSize(pack.totalSize)}
+          <Rich tpl={COPY.card.fileSize} v={{ n: pack.fileCount, size: fmtSize(pack.totalSize) }} />
           {pack.versionCount > 0 && (
             <span
               className="ver-chip"
-              title={`这个包有 ${pack.versionCount} 稿；卡片上的文件数和容量算的是全部（历史稿也占硬盘）`}
+              title={fmt(COPY.card.verTip, { n: pack.versionCount })}
             >
               {' · '}
-              {pack.currentSeq ? `V${pack.currentSeq} 当前` : '有版本'} · {pack.versionCount} 稿
+              {pack.currentSeq ? fmt(COPY.card.currentVer, { n: pack.currentSeq }) : COPY.card.hasVer} · <Rich tpl={COPY.card.verCount} v={{ n: pack.versionCount }} />
             </span>
           )}
         </div>
@@ -86,9 +88,10 @@ export function PackCard({
             <span
               className="tag"
               style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}
-              title="这个包没有指定项目"
+              title={COPY.card.noProjectTip}
             >
-              未指定项目
+              
+              {COPY.card.noProject}
             </span>
           )}
           <span className="tag">{pack.category}</span>
@@ -128,13 +131,14 @@ export function UnassignedCard({
         </div>
       </div>
       <div className="meta">
-        <div className="name">未归属</div>
+        <div className="name">{COPY.side.unassigned}</div>
         <div className="sub">
-          {count} 个文件 · {fmtSize(size)}
+          <Rich tpl={COPY.card.fileSize} v={{ n: count, size: fmtSize(size) }} />
         </div>
         <div className="tags">
           <span className="tag" style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}>
-            待整理
+            
+            {COPY.card.pending}
           </span>
         </div>
       </div>

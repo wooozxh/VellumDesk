@@ -1,3 +1,4 @@
+import { COPY, fmt } from '../../../shared/copy'
 import { useState } from 'react'
 import type { PackCard, ProjectWithCount, UpdatePackPatch } from '../types'
 import { Icon } from './Icon'
@@ -44,7 +45,7 @@ export function EditPackModal({
   const submit = async (): Promise<void> => {
     if (busy) return
     if (!name.trim()) {
-      setErr('包名称不能为空')
+      setErr(COPY.packErr.nameEmpty)
       return
     }
     setBusy(true)
@@ -55,7 +56,7 @@ export function EditPackModal({
       projectId
     })
     setBusy(false)
-    if (!r.ok) setErr(r.error ?? '保存失败')
+    if (!r.ok) setErr(r.error ?? COPY.editPack.saveFailed)
   }
 
   // 类别 chips 就是左栏标签维度「物料类别」那一套（App 派生后传进来）。
@@ -69,11 +70,11 @@ export function EditPackModal({
         <h3>
           {isLoose ? (
             <>
-              <Icon name="inbox" size={15} /> 归位到项目
+              <Icon name="inbox" size={15} />  {COPY.editPack.titleLoose}
             </>
           ) : (
             <>
-              <Icon name="edit" size={15} /> 编辑包信息
+              <Icon name="edit" size={15} />  {COPY.editPack.title}
             </>
           )}
           <button className="close" onClick={onClose}>
@@ -83,7 +84,7 @@ export function EditPackModal({
 
         <div className="content">
           <div className="field">
-            <label>包名称</label>
+            <label>{COPY.editPack.nameLabel}</label>
             <input
               type="text"
               value={name}
@@ -96,13 +97,14 @@ export function EditPackModal({
             />
             {nameChanged && (
               <div className="hint" style={{ color: 'var(--accent)' }}>
-                名称改了 → 工作区里的包文件夹会一起改名（里面的文件一个不动）
+                
+                {COPY.editPack.nameHint}
               </div>
             )}
           </div>
 
           <div className="field">
-            <label>所属项目</label>
+            <label>{COPY.editPack.projectLabel}</label>
             <select
               value={projectId ?? ''}
               onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
@@ -112,24 +114,25 @@ export function EditPackModal({
                   {p.name}
                 </option>
               ))}
-              <option value="">— 不指定项目（待归类）—</option>
+              <option value="">{COPY.editPack.noProject}</option>
             </select>
             {isLoose && !projectChanged && (
               <div className="hint" style={{ color: 'var(--warn)' }}>
-                这个包现在没有项目：文件夹直接躺在工作区根目录。选一个项目就能归位。
+                
+                {COPY.editPack.looseHint}
               </div>
             )}
             {projectChanged && (
               <div className="hint" style={{ color: 'var(--accent)' }}>
                 {targetProject
-                  ? `包文件夹会搬进「${targetProject.name}」的项目文件夹`
-                  : '包文件夹会搬回工作区根目录（待归类）'}
+                  ? fmt(COPY.editPack.moveInto, { name: targetProject.name })
+                  : COPY.editPack.moveBack}
               </div>
             )}
           </div>
 
           <div className="field">
-            <label>物料类别</label>
+            <label>{COPY.dim.category}</label>
             <div className="chips">
               {chips.map((c) => (
                 <button
@@ -142,7 +145,8 @@ export function EditPackModal({
               ))}
             </div>
             <div className="hint">
-              跟左栏筛选里的「物料类别」是同一套清单（左栏「管理」里增删，这里跟着变；改名 / 删除会连带改到已有包）
+              
+              {COPY.editPack.categoryHint}
             </div>
           </div>
 
@@ -155,15 +159,16 @@ export function EditPackModal({
               lineHeight: 1.9
             }}
           >
-            当前文件夹：
+            
+            {COPY.editPack.currentFolder}
             <br />
             <span className="path">{pack.folder_path}</span>
             <br />
             {willMove
-              ? '保存后文件夹会立刻改名 / 搬家（本地磁盘上的操作，不复制、不删除）。'
+              ? COPY.editPack.saveHintMove
               : categoryChanged
-                ? '只改类别，磁盘上的文件夹一个字节都不动。'
-                : '还没有改动。'}
+                ? COPY.editPack.saveHintCategory
+                : COPY.editPack.noChange}
           </div>
 
           {err && (
@@ -175,10 +180,11 @@ export function EditPackModal({
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           <button className="btn primary" onClick={submit} disabled={busy}>
-            {busy ? '保存中…' : '保存'}
+            {busy ? COPY.common.saving : COPY.common.save}
           </button>
         </div>
       </div>

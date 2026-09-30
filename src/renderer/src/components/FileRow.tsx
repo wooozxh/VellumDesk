@@ -1,3 +1,4 @@
+import { COPY, fmt } from '../../../shared/copy'
 import { useMemo } from 'react'
 import type { AssetItem } from '../types'
 import { Icon } from './Icon'
@@ -55,7 +56,7 @@ export function buildMetaLine(item: AssetItem): string {
   if (dur) parts.push(dur)
   if (item.video_codec) parts.push(item.video_codec)
   const pages = pdfPages(item.probe_info ?? null)
-  if (pages) parts.push(`${pages} 页`)
+  if (pages) parts.push(fmt(COPY.file.pages, { n: pages }))
   parts.push(fmtSize(item.size))
   const t = fmtTime(item.modified_at)
   if (t) parts.push(t)
@@ -64,7 +65,7 @@ export function buildMetaLine(item: AssetItem): string {
 
 function FileThumb({ item }: { item: AssetItem }): React.JSX.Element {
   if (item.thumb) return <img src={item.thumb} alt={item.file_name} />
-  return <div className="ext">{item.ext || '文件'}</div>
+  return <div className="ext">{item.ext || COPY.file.extFallback}</div>
 }
 
 /** 单个文件行。A-11：双击文件名调系统默认程序打开；右侧按钮可打开所在文件夹 */
@@ -97,8 +98,8 @@ export function FileRow({
   const metaLine = useMemo(() => buildMetaLine(item), [item])
   const tags = item.tags ?? []
   const lostTitle = missing
-    ? `文件已丢失（${item.missing_at} 发现）：${item.abs_path}\n原文件被删除或移走了。点「重新定位」把它找回来。`
-    : '双击/单击打开文件'
+    ? fmt(COPY.file.missingTip, { at: item.missing_at, path: item.abs_path })
+    : COPY.file.openTip
 
   return (
     <div className={cls} onDoubleClick={missing ? undefined : onOpen}>
@@ -122,8 +123,8 @@ export function FileRow({
               className={`ver-badge${item.versionCurrent ? ' cur' : ''}`}
               title={
                 item.versionCurrent
-                  ? `当前版本 V${item.versionSeq}（在包详情里能切换看别的稿）`
-                  : `历史版本 V${item.versionSeq}`
+                  ? fmt(COPY.file.currentVerTip, { n: item.versionSeq })
+                  : fmt(COPY.file.historyVerTip, { n: item.versionSeq })
               }
             >
               V{item.versionSeq}
@@ -131,7 +132,7 @@ export function FileRow({
           ) : null}
           {missing && (
             <span className="miss-badge" title={lostTitle}>
-              <Icon name="warning" size={12} /> 文件已丢失
+              <Icon name="warning" size={12} />  {COPY.side.missing}
             </span>
           )}
         </div>
@@ -153,7 +154,7 @@ export function FileRow({
                 {onDropTag && (
                   <button
                     className="row-tag-x"
-                    title="摘掉这个标签"
+                    title={COPY.file.removeTagTip}
                     onClick={(e) => {
                       e.stopPropagation()
                       onDropTag(t.id)
@@ -172,17 +173,17 @@ export function FileRow({
         {missing ? (
           <button
             className="icon-btn relocate"
-            title="重新定位：文件被删掉或挪走了，指到它的新位置"
+            title={COPY.file.relocateTip}
             onClick={onRelocate}
           >
             <Icon name="locate" size={14} />
           </button>
         ) : (
-          <button className="icon-btn" title="打开文件" onClick={onOpen}>
+          <button className="icon-btn" title={COPY.file.openFileTip} onClick={onOpen}>
             <Icon name="external" size={13} />
           </button>
         )}
-        <button className="icon-btn" title="打开所在文件夹" onClick={onReveal}>
+        <button className="icon-btn" title={COPY.file.revealTip} onClick={onReveal}>
           <Icon name="folder" size={14} />
         </button>
       </div>

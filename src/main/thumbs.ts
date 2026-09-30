@@ -1,3 +1,4 @@
+import { COPY } from '../shared/copy'
 import { join, extname, basename } from 'path'
 import { existsSync, mkdirSync, readFileSync } from 'fs'
 import { spawn } from 'child_process'
@@ -204,7 +205,7 @@ function readableColorMode(space: string | undefined, channels: number | undefin
   if (s.includes('cmyk')) return 'CMYK'
   if (s.includes('srgb')) return channels === 4 ? 'RGBA' : 'RGB'
   if (s.includes('rgb')) return channels === 4 ? 'RGBA' : 'RGB'
-  if (s.includes('b-w') || s.includes('bw') || s.includes('grey') || s.includes('gray')) return '灰度'
+  if (s.includes('b-w') || s.includes('bw') || s.includes('grey') || s.includes('gray')) return COPY.meta.grayscale
   if (s.includes('scrgb')) return 'RGB'
   if (s.includes('lab')) return 'Lab'
   if (s.includes('cmyk')) return 'CMYK'
@@ -390,13 +391,13 @@ export async function enrichAllVideoMeta(): Promise<number> {
 /** PSD 文件头色彩模式代码 → 可读文本 */
 function psdColorMode(code: number): string | null {
   switch (code) {
-    case 0: return '位图'
-    case 1: return '灰度'
-    case 2: return '索引'
+    case 0: return COPY.meta.bitmap
+    case 1: return COPY.meta.grayscale
+    case 2: return COPY.meta.indexed
     case 3: return 'RGB'
     case 4: return 'CMYK'
-    case 7: return '多通道'
-    case 8: return '双色调'
+    case 7: return COPY.meta.multichannel
+    case 8: return COPY.meta.duotone
     case 9: return 'Lab'
     default: return null
   }

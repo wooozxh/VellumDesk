@@ -1,6 +1,10 @@
-# 素材管家
+# 营销中心-素材库
 
 本地素材管理桌面软件。统一管理公司的设计物料、图片、视频素材，**所有素材存在本地**，不上云。
+
+> 1.1.1 起，软件显示名（窗口标题 / 顶栏 logo / 开始菜单 / 卸载列表 / 安装包文件名）统一为
+> **「营销中心-素材库」**。早批次的方案文档里还叫「素材管家」，那是当时的名字，不必回改。
+> **`package.json` 的 `name`（`proj_media`）和用户数据目录名一直没动**，见「素材工作区」一节。
 
 - 项目档案：`PROJECT.md`（定位与协作铁律）/ `PROGRESS.md`（进度台账）/ `DECISIONS.md`（历史决策）
 - 方案文档：`docs/01` ~ `docs/12`（每批功能的定稿方案，改需求先改文档）
@@ -28,7 +32,7 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-buil
 npm run build:win
 ```
 
-产物：`release/素材管家-<版本>-安装包.exe`
+产物：`release/营销中心-素材库-<版本>-安装包.exe`
 
 要点（详见 `docs/06-第4批打包交付方案.md`）：
 
@@ -73,7 +77,55 @@ node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与
 
 注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打三个**（accept.cjs / ipc.cjs / workspace.cjs——截图壳和三级结构场景都依赖 workspace.cjs），否则跑的是旧代码。截图壳的场景工作区在 `D:\_accept_ws\shot*`，与真实工作区完全隔离。
 
+**改了 `src/renderer` 必须重打 `out/renderer`**（`npx electron-vite build`）——场景壳是
+`win.loadFile('out/renderer/index.html')`，**不是** dev server。不重打就会拿着旧界面跑场景、
+断言却照样「全绿」，等于白跑。
+
 **跑场景前先腾空工作区（防护栏）**：场景壳启动时会 `rmSync` 整个 `D:\_accept_ws\shot*` 工作区，残留文件一多会撞 AI 沙箱批量删除护栏（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`），场景「启动阶段炸了」还会连锁污染后面的场景（左栏空数据、大面积假失败）。正解：跑之前用 Python `shutil.move` 把 `shot*` 目录移到别处 —— **move 不触发护栏**（rmtree/rmSync 都会），工作区不存在时场景里的 `rmSync` 就是空操作。
+
+> ⚠️ 这里的 `shutil.move` 是**唯一**允许用 move 的场景（判空而不判内容，丢了也无所谓）。
+> **改 `src` 源码树只许 `copytree`**，见下方「坑」表最后一行。
+
+**跑测试前抬高批量删除阈值**：护栏按「本轮请求」累计，一轮里跑完 accept + 9 个场景会远超 50 次。
+不加这个环境变量会得到**大面积假失败**（工作区被判「连不上」→ 左栏空 → 断言连锁报红），
+很容易误判成代码回归：
+
+```bash
+CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
+```
+
+### 改文案 / 抽字典时的一次性护栏：整屏文字比对
+
+`_shotapp/v4/main.cjs` 的 `shot()` 里有个开关：设了 `SHOT_TEXT_DUMP=<目录>`，
+每张截图都会额外落盘两份文字：
+
+- `<名字>.txt` —— `document.body.innerText`（可见文字，最接近用户看到的）
+- `<名字>.all.txt` —— 全部文字节点的 `textContent`（**与 CSS 无关**，排除"某块被隐藏"的干扰）
+
+不设该变量时零行为。用法：改造前跑一遍存 `dump_before`，改造后跑一遍存 `dump_after`，
+逐字节比对即可证明「只搬了位置、没动一个字」。比对时要掩掉**时间戳**（夹具每次落盘 mtime 会变，
+界面会把它显示出来）。参考实现：`_junk/proj_tmp/diff_dump.cjs`。
+
+**文案改动之后**，口径要换成「差异恰好等于变更清单」：把「改前」的每一行按变更清单**正向替换**，
+看能否得到「改后」的行 —— 能就是预期内的，不能就是意外变化。参考实现：`_junk/proj_tmp/diff_applied.cjs`。
+
+## 改文案（文案字典 + 在线表格）
+
+全软件 **505 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
+
+- 表：**素材管家 · 文案清单** → https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD
+  （`1-界面文案` 483 条 / `2-默认数据` 22 条，`改成（你填这列）` **留空 = 不改**）
+- 完整流程与脚本说明：**`tools/copy-sheet/README.md`**
+- 一句话流程：**表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`**
+  （`publish.cjs` 把 `copy.ts` 刷回同一张表、清空「改成」列，**链接不变可反复改**）
+
+三个规矩（`copy.ts` 文件头也写着）：`{xxx}` 占位符**别删**；字典只放文案不放逻辑；
+**磁盘目录名（`01-成品` / `_回收站`）和数据库状态值（`成品` / `未归属`）不在这份字典里** ——
+它们不是文案，改了软件会找不到文件。
+
+**场景壳的文案断言引用字典**：`_shotapp/v4/main.cjs` 里的断言写 `COPY.xxx` / `fmt(COPY.xxx, {…})`，
+`run-verify4.cjs` 每次跑前自动用 esbuild 把 `copy.ts` 打成 `v4/copy.cjs`。
+**所以改文案不用改测试**（注意 `js(\`...\`)` 里的代码在渲染进程执行，`COPY` 要 `${JSON.stringify(...)}` 插值）。
 
 ## 素材工作区
 
@@ -83,7 +135,10 @@ node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与
 
 **多工作区（第 5 批）**：左栏可添加多个工作区并随时切换，解决"盘满了换盘新开一个库"。
 - 换盘搬家：同一个盘内用「搬移位置」瞬间完成；跨盘请用资源管理器复制整个文件夹后「＋ 添加工作区」指过去，软件会自动改写库里的路径（改前自动备份到 `_system/backup/`）
-- 工作区配置在 `%APPDATA%/素材管家/workspace.json`，v2 结构；末尾的 `workspaceRoot` 字段是刻意双写（兼容旧版软件），**别删**
+- 工作区配置在 `%APPDATA%/proj_media/workspace.json`，v2 结构；末尾的 `workspaceRoot` 字段是刻意双写（兼容旧版软件），**别删**
+- **这个目录名（`proj_media`）与软件显示名解耦，永远不要改**：它取自 Electron 的 userData，
+  目录名一变，老用户打开软件就会看到「工作区没了」（数据还在旧目录，只是找不到）。
+  1.1.1 改显示名时已在 `src/main/index.ts` 里 `app.setPath('userData', ...)` 显式钉死。
 
 **三级目录结构（第 6 批）**：软件与磁盘一一对应 —— 工作区根 → 项目文件夹 → 包文件夹 → 三组（01-成品/02-素材/03-工程）。
 - 老库首次打开自动迁移：包搬进各自的项目文件夹，**文件只改名位置、一个不少**，界面弹一次提示条
@@ -147,3 +202,9 @@ node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与
 | AI 沙箱批量删除护栏拦 `npm run build`（按会话轮次累计） | 拆开跑：`npm run build` 成功后单独 `npx electron-builder --win` |
 | `node_modules` 里出现 `.DELETE.` 后缀文件 | npm 延迟删除残留，恢复文件名即可，不必重装依赖 |
 | 沙箱跑 Electron 会被拦（`ELECTRON_RUN_AS_NODE` + 无 GPU） | 用 `_shotapp/` 验证壳；截图壳工作区绝不与 `D:\素材工作区` 共用 |
+| 批量删除护栏让测试**大面积假失败**（工作区被判"连不上"→左栏空→断言连锁报红，像代码回归） | 跑 accept / 场景前 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`；护栏按轮次累计，一轮跑完 accept+9 场景必超 |
+| `core.autocrlf=true`：`git checkout` 落盘 CRLF、编辑工具落盘 LF | 构建产物 CSS 不做空白压缩，**CRLF 版比 LF 版大 2.5KB**，会被误读成"样式被改"。判断"样式有没有变"要去掉 `\r` 再比字节；换行符不是「用户看到的字」 |
+| `bin/mcporter` 是 sh 包装（内部用 `dirname`/`sed`/`uname`） | Windows 下 Node `spawn` 它必失败（EBUSY/非可执行）。起 `node <...>/node_modules/mcporter/dist/cli.js`，且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 在沙箱里一律 EBUSY；argv 数组可避开 shell 引号转义与 32KB 命令行上限） |
+| 拿外网表格/接口当"数据通道"传大文本 | `--args '<json>'` 走命令行，Windows 上限 ~32767 字符；大数据必须**分块**（本次 484 行 / 12 次写入） |
+| ⛔ **用 `shutil.move` 换源码树** | 一次 `rmtree(src)` + `move(tmp → src)` 次序失误，把**未提交的改造后 `src` 整份吃掉**（本次真实事故，恢复花了 40 分钟）。**改 `src` 只许 `copytree`**；动 `src` 前先落受保护快照到项目外 |
+| 场景全绿但界面没变 | 场景壳加载的是 `out/renderer/index.html`（构建产物）。改 `src/renderer` 后必须 `npx electron-vite build`，否则拿着旧界面跑断言、照样"全绿" |

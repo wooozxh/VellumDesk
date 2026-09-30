@@ -1,3 +1,5 @@
+import { COPY, fmt } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useMemo, useState } from 'react'
 import type { DimensionGroup } from '../types'
 import { Icon } from './Icon'
@@ -39,7 +41,10 @@ export function TagPanel({
   scopeLabel?: string
 }): React.JSX.Element {
   const selectedSet = useMemo(() => new Set(selected), [selected])
-  const scopeText = scopeLabel === '全部' ? '全库' : `「${scopeLabel}」范围内`
+  const scopeText =
+    scopeLabel === '全部'
+      ? COPY.tagMgr.scopeAllLib
+      : fmt(COPY.tagPanel.scopeIn, { name: scopeLabel })
 
   /** 每个维度已选了几个 —— 用于标题徽标与自动展开 */
   const pickedByDim = useMemo(() => {
@@ -76,10 +81,10 @@ export function TagPanel({
   return (
     <div className="tag-panel">
       <div className="tp-head">
-        <h4 style={{ padding: 0 }}>筛选标签</h4>
+        <h4 style={{ padding: 0 }}>{COPY.tagPanel.title}</h4>
         {totalPicked > 0 && (
-          <button className="tp-clear" onClick={() => onChange([])} title="清除全部已选标签">
-            清除 {totalPicked}
+          <button className="tp-clear" onClick={() => onChange([])} title={COPY.tagPanel.clearTip}>
+            <Rich tpl={COPY.tagPanel.clear} v={{ n: totalPicked }} />
           </button>
         )}
       </div>
@@ -99,7 +104,7 @@ export function TagPanel({
               </span>
               <span className="tp-dim-label">{dim.label}</span>
               {picked.length > 0 && <span className="tp-badge">{picked.length}</span>}
-              <span className="tp-dim-n" title={`这个维度下有 ${dim.tags.length} 个标签`}>
+              <span className="tp-dim-n" title={fmt(COPY.tagPanel.dimCount, { n: dim.tags.length })}>
                 {dim.tags.length}
               </span>
             </button>
@@ -108,7 +113,7 @@ export function TagPanel({
               <div className="tp-tags">
                 {dim.tags.length === 0 && (
                   <span className="tp-empty">
-                    {dim.editable ? '还没有标签，点「管理」加一个' : '暂无'}
+                    {dim.editable ? COPY.tagPanel.emptyEditable : COPY.tagPanel.empty}
                   </span>
                 )}
                 {dim.tags.map((t) => {
@@ -121,8 +126,8 @@ export function TagPanel({
                       onClick={() => toggle(dim, t.id)}
                       title={
                         zero
-                          ? `${t.name} · ${scopeText}暂时没有贴这个标签的素材`
-                          : `${t.name} · ${scopeText}有 ${t.assetCount} 条素材`
+                          ? fmt(COPY.tagPanel.usageNone, { name: t.name, scope: scopeText })
+                          : fmt(COPY.tagPanel.usage, { name: t.name, scope: scopeText, n: t.assetCount })
                       }
                       style={
                         on
@@ -138,7 +143,7 @@ export function TagPanel({
                 })}
                 {dim.editable && (
                   <button className="tp-add" onClick={() => onManage(dim.key)}>
-                    <Icon name="plus" size={11} strokeWidth={2} /> 管理
+                    <Icon name="plus" size={11} strokeWidth={2} />  {COPY.tagPanel.manage}
                   </button>
                 )}
               </div>

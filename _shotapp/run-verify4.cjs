@@ -9,12 +9,40 @@ const path = require('path')
 const ROOT = path.join(__dirname, '..')
 const scen = process.argv[2] || 'banner'
 
-const env = { ...process.env, SHOT_SCENARIO: scen }
-delete env.ELECTRON_RUN_AS_NODE
+/**
+ * 先把 src/shared/copy.ts 打成 v4/copy.cjs —— 场景壳的断言引用的是它。
+ * 少了这一步，改完文案的场景断言会拿着旧字典去比对（天天假失败）。
+ */
+function rebuildCopyBridge() {
+  return new Promise((resolve) => {
+    const out = path.join(__dirname, 'v4', 'copy.cjs')
+    const p = spawn(
+      process.execPath,
+      [
+        path.join(ROOT, 'node_modules/esbuild/bin/esbuild'),
+        path.join(ROOT, 'src/shared/copy.ts'),
+        '--bundle',
+        '--platform=node',
+        '--format=cjs',
+        '--outfile=' + out
+      ],
+      { stdio: 'ignore' }
+    )
+    p.on('close', () => resolve())
+    p.on('error', () => resolve())
+  })
+}
 
-const child = spawn(
-  path.join(ROOT, 'node_modules/electron/dist/electron.exe'),
-  ['--no-sandbox', '--disable-gpu', '--disable-software-rasterizer', '.'],
-  { cwd: path.join(ROOT, '_shotapp', 'v4'), stdio: 'inherit', env }
-)
-child.on('close', (code) => process.exit(code ?? 0))
+;(async () => {
+  await rebuildCopyBridge()
+
+  const env = { ...process.env, SHOT_SCENARIO: scen }
+  delete env.ELECTRON_RUN_AS_NODE
+
+  const child = spawn(
+    path.join(ROOT, 'node_modules/electron/dist/electron.exe'),
+    ['--no-sandbox', '--disable-gpu', '--disable-software-rasterizer', '.'],
+    { cwd: path.join(ROOT, '_shotapp', 'v4'), stdio: 'inherit', env }
+  )
+  child.on('close', (code) => process.exit(code ?? 0))
+})()

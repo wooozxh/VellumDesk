@@ -458,6 +458,86 @@
 
 ---
 
+### 2026-09-30（第 12 次会话：文案字典）
+
+- **用户需求**：「我需要能够修改这个软件所有的文案部分的内容，就是很多按钮儿的名称啊，提示的这个文案」
+- **拍板**（AskUserQuestion 全选推荐项）：**抽成文案字典** / 清单用**腾讯文档在线表格** / 范围**界面 + 后端提示全改**
+- **方案**：`docs/14-文案字典方案.md`（含执行记录 §12）
+- **改动**：
+  - 新增 `src/shared/copy.ts` —— **505 个条目 / 31 个分组 / 699 行**，`fmt(tpl, vars)` 占位符替换；编号规则 `区域.用途`，**只增不改**
+  - 新增 `src/renderer/src/components/Rich.tsx`（57 行）—— 把带内联标签的整句（`<b>`/`<code>`/`<em>`/`<path>`/`<span>`）当**一个编号**渲染，输出 Fragment 不额外包 DOM。**这是相对原方案 §4.2「拆成 3 段」的关键设计变更**：你在表格里看到的是完整句子
+  - 21 个源文件换引用：界面层（`App.tsx` + 12 组件）+ 后端层（`workspace/ipc/db/tags/thumbs/index`）
+  - 机械替换用 TypeScript AST codemod 完成：主替换一批 + `<Rich/>` 接入 **38 处 / 12 文件**（内建**不变量自检**：改写前后最外层 JSX 树规范串必须逐字相等，否则整文件拒绝写回）
+  - `_shotapp/v4/main.cjs` —— `shot()` 加 `SHOT_TEXT_DUMP` 开关，每张截图额外落盘 `innerText` + 全文字节点 `textContent`（不设变量零行为）
+- **验收**：typecheck 0 错；accept **619 项全过**；**9/9 场景全绿**；字典 **505/505 全部被引用（0 条悬空）**；
+  **「一字不差」硬护栏**：24 个屏幕状态 × 2 口径 = **48 份整屏文字逐字节相同**，构建产物 CSS 去换行后 43243 == 43243 字节
+- **踩坑（已回写 README）**：
+  1. **`out/renderer` 是构建产物**：场景壳 `loadFile('out/renderer/index.html')`，不重打就会拿旧界面跑断言、照样"全绿"——白跑一轮
+  2. **`core.autocrlf=true`**：`git checkout` 落 CRLF、编辑工具落 LF，构建产物 CSS 不压空白 → CRLF 版大 2.5KB，一度被误读成"样式被改"。答案：去掉 `\r` 后逐字节相等
+  3. **`bin/mcporter` 是 sh 包装**：Node 里 spawn 它必失败；要起 `node .../mcporter/dist/cli.js`，且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 沙箱里全 EBUSY）；`--args` 走命令行有 32KB 上限 → 484 行分 12 次写
+  4. ⛔ **真实数据丢失事故**：做前后对照时用 `rmtree` + `move` 换源码树，把**未提交的改造后 `src` 整份吃掉**。靠 `_junk/src_backup_before_rich` + 重跑 codemod + 重放 4 处手工编辑，**40 分钟恢复且逐字等价**（git diff 22 文件 / 648 增 / 552 删，与丢失前同量级）。**新规矩：改 `src` 只许 `copytree`，动 `src` 前先落受保护快照**
+- **交付物**：腾讯文档在线表格「素材管家 · 文案清单」`https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD`
+  —— `1-界面文案` 483 条 / `2-默认数据` 22 条 / 共 7 列（含「改成（你填这列）」）/ 首行冻结 + 表头加粗 + 列宽与自动换行
+  「出现在哪」列由源码引用点的 AST 上下文**机械推断**（如 `App.tsx · 按钮 <button .btn>`）
+- **未提交**：改动在 feature/incr 工作区
+- **下一步**：等用户在表格「改成」列填完 → 回填字典 → 按 `docs/14` §7 同步断言（输出变更清单）→ 再全量验收
+
+### 2026-09-30（第 2 次会话 · 下午）—— 文案字典：第一批回填 + 表格常驻化
+
+- **做了什么**：
+  - 从在线表读回用户填的内容（`1-界面文案` 483 行填了 **482 行** —— 用户用了批量替换，未改动的行也整列复制了一份）
+  - `diff.cjs` 逐行比对自动分三类：**与原文一致 402**（忽略）/ **真变化 80**（回填）/ **疑似误伤 0**
+  - **真变化的主体是术语统一「包」→「任务」**（`包视图`→`任务视图`、`新建任务包`→`新建任务`、`共 {n} 个包`→`共 {n} 个任务`、后端 `packErr.notFound`「包不存在」→「任务不存在」…），另有维度默认名调整（`使用渠道`→`使用场景`、`状态`→`目前状态`）
+  - ⚠ **抓出 2 处批量替换误伤**，按正确值应用：`top.viewPacks` 你填「任务**试**图」→ 应用「任务**视**图」；`toast.projectUnbindConfirmB` 你填「**任务括**任务视图」→ 应用「**包括**任务视图」（「包括」的「包」被连带替换）。旁证：回填后全字典只剩这 2 条含「包」字
+  - `apply.cjs` 用 TS AST 精确回填 **78 条**（+2 条手工修正 = 80），自带**三重自检**（条目总数不变 / 每条新值精确匹配 / 其余条目一字未动），任一条不符整份拒写
+  - **场景壳断言改成引用字典**：`_shotapp/v4/main.cjs` 原有 12 处硬编码文案断言（`'包视图'`、`'编辑包信息'`、`/工作区 \/ 项目 \/ 包/` …），统一改成 `require('./copy.cjs')` 的 `COPY.xxx`；`run-verify4.cjs` 每次跑前自动 esbuild 重打该桥。**以后改文案不用改测试**（注意：`js(\`...\`)` 模板里的代码在渲染进程执行，`COPY` 必须 `${JSON.stringify(...)}` 插值进去）
+  - **表格升级为「常驻控制台」**：新增 `tools/copy-sheet/`（`README.md` + `export/pull/diff/apply/push/publish`），落地后跑 `publish.cjs` 把 `copy.ts` 刷回**同一张表**（`现在的文案` 更新、`改成` 清空），**链接不变可反复改**
+  - 补一个坑：`set_range_value_by_csv` **会跳过空单元格** —— 写完必须显式 `clear_range_cells`，否则上一轮「改成」列残留、下次被当成新改动读回来（已在 `push.cjs` 里做掉）
+- **改了哪些文件**：`src/shared/copy.ts`（80 条值）、`_shotapp/v4/main.cjs`（断言改引用字典 + 新增 `copy.cjs` 桥）、`_shotapp/run-verify4.cjs`、新增 `tools/copy-sheet/*`、`docs/14` §12.7~12.9、本文件
+- **验收（全绿）**：typecheck **0 错**；accept **619 项全过**；**9/9 场景 0 FAIL**；
+  **整屏文字比对 48/48「差异全部属预期」，未预期 0、缺文件 0**（共 404 行发生清单内替换）
+  —— 判定方式是「把回填前的行按变更清单**正向替换**，看能否得到回填后的行」，不是靠眼看截图
+- **下一步**：① 等拍板是否提交（`feature/incr`）② 确认要不要把 `package.json` 的 `productName`/`shortcutName`/`uninstallDisplayName`/`artifactName` 也改成「营销中心-素材库」（**不在字典里**，改了要重打包）③ 后续改文案直接走表格 + `tools/copy-sheet` 流程
+
+### 2026-09-30（第 3 次会话 · 晚）—— 统一软件名「营销中心-素材库」+ 出 1.2.0 包
+
+- **做了什么**（用户拍板原话：「打包吧，名称也跟这更新就行」）：
+  - `package.json`：`version` `1.1.0` → **`1.2.0`**（按 `NEXT.md` 的约定往下走，别和已发同事的 1.1.0 重号）；
+    `productName` / `nsis.shortcutName` / `nsis.uninstallDisplayName` / `nsis.artifactName` 四处 → **「营销中心-素材库」**
+  - **刻意不动的两处**：`appId`（`com.mediabutler`，与主进程 `setAppUserModelId` 绑死；一改 NSIS 就认不出
+    这是"同一应用的升级"，会并存两套）、`win.executableName`（`MediaButler`，ASCII 的 exe 名更稳）
+  - ⛔ **顺手拆掉一个真雷**：Electron 的 userData 目录是按应用名推导的，改产品名会让老用户
+    `%APPDATA%\proj_media\workspace.json`（指向 `D:\素材工作区`）**看起来丢了**。
+    已在 `src/main/index.ts` 用 `app.setPath('userData', join(app.getPath('appData'), 'proj_media'))`
+    在 ready 之前钉死（先 `mkdirSync` 兜底，失败退回默认值不让启动挂掉）——**目录名与显示名从此解耦**
+  - 窗口标题：`src/renderer/index.html` 的 `<title>Electron</title>`（脚手架默认值，**会覆盖窗口标题**，
+    任务栏上其实写着 Electron）改成产品名；并在主进程拦 `page-title-updated` → `setTitle(COPY.app.name)`，
+    **窗口标题唯一来源 = 字典**
+  - `accept.ts` 里硬编码的 `b.productName === '素材管家'` 改成**契约式断言**（三处显示名一致 +
+    安装包名以 productName 开头）→ 断言数 **619 → 620**
+  - 文档同步：`README.md`、`PROJECT.md`、`NEXT.md`、`docs/06`（追加变更说明）、`docs/14` §12.9
+- **改了哪些文件**：`package.json`、`src/main/index.ts`、`src/renderer/index.html`、`accept.ts`、
+  `README.md`、`PROJECT.md`、`NEXT.md`、`docs/06`、`docs/14`
+- **验收（全绿）**：typecheck **0 错**；accept **620 项全过**；**9/9 界面场景 0 FAIL**（重打 `out/` 后复跑一遍确认）
+- **⚠ 打包：中断，未出包**（本轮用户取消了打包任务）
+  - 现象：`npx electron-builder --win` 跑 9 分钟无任何输出；查 `%TEMP%` 发现 `eb-dl-<hash>.lock.lock`
+  - **根因**：本机 electron-builder 缓存（`%LOCALAPPDATA%\electron-builder\Cache`）里**没有 electron 的 zip**
+    （只有 7zip / nsis / nsis-resources），于是它去下载 **electron 39.8.10** —— 走 GitHub 默认源，国内龟速。
+    本次只设了 `ELECTRON_BUILDER_BINARIES_MIRROR`，**漏了 `ELECTRON_MIRROR`**
+  - 附带坑：中途 kill 过一次打包进程 → 留下**孤儿锁**（proper-lockfile stale=10 分钟），
+    第二次打包因此白等 8 分钟才报 `Lock file is already being held`。`%TEMP%\eb-*` 清掉后即可重跑
+  - **下次出包正解**：两个镜像都设 + **不要在跑的时候 kill**（要 kill 就先清 `%TEMP%\eb-*`）：
+    ```bash
+    export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+    export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+    npx electron-builder --win --config.directories.output=D:/_accept_ws/rel_out/v1.2.0
+    ```
+- **下一步**：① 按上面命令把 1.2.0 安装包出出来（`营销中心-素材库-1.2.0-安装包.exe`）
+  ② 装机冒烟三看：桌面/开始菜单名、任务栏标题、**老工作区配置还在**（`%APPDATA%\proj_media`）
+  ③ 是否提交（`feature/incr`）仍待拍板
+
+---
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

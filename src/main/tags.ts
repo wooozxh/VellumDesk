@@ -1,3 +1,4 @@
+import { COPY, fmt } from '../shared/copy'
 import { getDb, getDimension, TAG_DIMENSIONS, UNCATEGORIZED, type TagRow } from './db'
 import { VISIBLE_PACK_SQL } from './workspace'
 
@@ -116,14 +117,14 @@ export function createTag(input: {
 }): { ok: boolean; tag?: TagRow; error?: string } {
   const db = getDb()
   const dim = getDimension(input.dimension)
-  if (!dim) return { ok: false, error: '维度不存在：' + input.dimension }
+  if (!dim) return { ok: false, error: COPY.tagErr.dimNotFound + input.dimension }
   const name = (input.name ?? '').trim()
-  if (!name) return { ok: false, error: '标签名不能为空' }
+  if (!name) return { ok: false, error: COPY.tagErr.nameEmpty }
 
   const dup = db
     .prepare('SELECT id FROM tags WHERE dimension = ? AND name = ?')
     .get(input.dimension, name) as { id: number } | undefined
-  if (dup) return { ok: false, error: `「${dim.label}」下已有同名标签` }
+  if (dup) return { ok: false, error: fmt(COPY.tagErr.dupInDim, { dim: dim.label }) }
 
   const maxOrder = (
     db
@@ -155,16 +156,16 @@ export function updateTag(
 ): { ok: boolean; tag?: TagRow; packsUpdated?: number; error?: string } {
   const db = getDb()
   const cur = db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as TagRow | undefined
-  if (!cur) return { ok: false, error: '标签不存在' }
+  if (!cur) return { ok: false, error: COPY.tagErr.notFound }
 
   let packsUpdated = 0
   if (patch.name !== undefined) {
     const name = patch.name.trim()
-    if (!name) return { ok: false, error: '标签名不能为空' }
+    if (!name) return { ok: false, error: COPY.tagErr.nameEmpty }
     const dup = db
       .prepare('SELECT id FROM tags WHERE dimension = ? AND name = ? AND id <> ?')
       .get(cur.dimension, name, id) as { id: number } | undefined
-    if (dup) return { ok: false, error: '同维度下已有同名标签' }
+    if (dup) return { ok: false, error: COPY.tagErr.dupSameDim }
 
     const tx = db.transaction(() => {
       db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name, id)
@@ -218,7 +219,7 @@ export function removeTag(id: number): {
 } {
   const db = getDb()
   const cur = db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as TagRow | undefined
-  if (!cur) return { ok: false, deleted: 0, error: '标签不存在' }
+  if (!cur) return { ok: false, deleted: 0, error: COPY.tagErr.notFound }
   const affected = (
     db.prepare('SELECT COUNT(*) AS c FROM asset_tags WHERE tag_id = ?').get(id) as { c: number }
   ).c

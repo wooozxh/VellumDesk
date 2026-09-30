@@ -1,6 +1,6 @@
 {
   "name": "proj_media",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -51,7 +51,7 @@
   },
   "build": {
     "appId": "com.mediabutler",
-    "productName": "素材管家",
+    "productName": "营销中心-素材库",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -110,10 +110,10 @@
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": "always",
-      "shortcutName": "素材管家",
-      "uninstallDisplayName": "素材管家",
+      "shortcutName": "营销中心-素材库",
+      "uninstallDisplayName": "营销中心-素材库",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "素材管家-${version}-安装包.${ext}",
+      "artifactName": "营销中心-素材库-${version}-安装包.${ext}",
       "differentialPackage": false
     }
   }

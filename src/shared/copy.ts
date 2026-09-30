@@ -3,8 +3,8 @@
  *
  * 用法：
  *   import { COPY, fmt } from '../../shared/copy'
- *   COPY.top.searchPack                  →  '搜索包名称…'
- *   fmt(COPY.verModal.created, { seq: 3 })  →  '已建第 3 稿'
+ *   COPY.top.searchPack                  →  搜索框的占位文字
+ *   fmt(COPY.verModal.created, { seq: 3 })  →  把 {seq} 换成实际值
  *
  * 三条规矩：
  *   1. {xxx} 是变量占位符，改文字时**别删掉它**
@@ -29,7 +29,7 @@ export const COPY = {
   // ==================== 应用级 ====================
   app: {
     /** 窗口标题 / 顶栏 logo */
-    name: '素材管家',
+    name: '营销中心-素材库',
     /** 顶栏版本号旁的悬停说明 */
     versionTip: '软件版本号（出处：package.json 的 version）'
   },
@@ -52,23 +52,23 @@ export const COPY = {
   // ==================== 标签维度默认名 ====================
   dim: {
     category: '物料类别',
-    categoryHint: '一张海报可以同时是「海报」和「参考图」',
-    channel: '使用渠道',
-    channelHint: '同一张图可以发多个渠道',
-    status: '状态',
-    statusHint: '一条素材同一时刻只处于一种状态'
+    categoryHint: '此标签为多选类',
+    channel: '使用场景',
+    channelHint: '此标签为多选类',
+    status: '目前状态',
+    statusHint: '此标签为单选类'
   },
 
   // ==================== 顶栏 ====================
   top: {
-    searchPack: '搜索包名称…',
-    searchFile: '搜索文件名…',
-    viewPacks: '包视图',
+    searchPack: '搜索任务…',
+    searchFile: '搜索文件…',
+    viewPacks: '任务视图',
     viewFiles: '文件视图',
-    rescan: '刷新扫描',
-    rescanning: '扫描中…',
+    rescan: '刷新/扫描',
+    rescanning: '处理中...',
     rescanTip: '重新扫描素材工作区',
-    newPack: '新建任务包'
+    newPack: '新建任务'
   },
 
   // ==================== 左栏 ====================
@@ -80,10 +80,10 @@ export const COPY = {
     moveUp: '上移一位',
     moveDown: '下移一位',
     editProjectTip: '编辑名称 / 颜色',
-    unbindProjectTip: '解绑项目（结项留底：软件里不显示，本地文件全保留）',
+    unbindProjectTip: '解绑项目',
     delProjectTip: '删除项目',
     loose: '待归类',
-    looseTip: '这些包的文件夹直接躺在工作区根目录，还没选项目 —— 点包卡片右上角的入库按钮就能归位',
+    looseTip: '这些任务的文件夹直接躺在工作区根目录，还没选项目 —— 点任务卡片右上角的入库按钮就能归位',
     unbound: '已解绑',
     unboundTip: '结项留底的项目：软件里不显示，本地文件全在 _已解绑的项目 里，可一键还原',
     unboundCount: '个项目',
@@ -109,31 +109,31 @@ export const COPY = {
     wsOfflineB: '」连不上，里面的东西一件没动',
     retry: '重试',
     changeLoc: '更改位置',
-    layoutUpgraded: '目录结构已升级：工作区 / 项目 / 包',
-    layoutMoved: '{n} 个包已归入各自的项目文件夹，文件一个没动',
+    layoutUpgraded: '目录结构已升级：工作区 / 项目 / 任务',
+    layoutMoved: '{n} 个任务已归入各自的项目文件夹，文件一个没动',
     layoutLoc: ' —— 位置：{root}'
   },
 
   // ==================== 空状态 ====================
   empty: {
-    noPacks: '还没有任何任务包',
-    noPacksInProject: '「{name}」下还没有包',
-    createFirstA: '点右上角「＋ 新建任务包」建第一个包，',
+    noPacks: '还没有任何任务',
+    noPacksInProject: '「{name}」下还没有任务',
+    createFirstA: '点右上角「＋ 新建任务」建第一个任务，',
     createFirstB: '软件会自动在工作区建好文件夹和三个子文件夹。',
     unassigned: '未归属池是空的',
     noMissing: '没有文件丢失，全都在',
     noMatch: '没找到匹配的文件',
     noAssets: '还没有登记任何文件',
-    dropHint: '往工作区里的包文件夹丢文件，然后点右上角「刷新扫描」。'
+    dropHint: '往工作区里的任务文件夹丢文件，然后点右上角「刷新扫描」。'
   },
 
   // ==================== 认领条（文件视图选中后） ====================
   claim: {
     selected: '已选中 {n} 个文件',
     into: '认领进',
-    pickPack: '— 选择任务包 —',
-    needTarget: '请先选择目标包',
-    moveInto: '把文件搬进目标包',
+    pickPack: '— 选择任务 —',
+    needTarget: '请先选择目标任务',
+    moveInto: '把文件搬进目标任务',
     confirm: '确定认领',
     tagBtn: '打标签',
     tagTip: '给选中的文件批量打标签'
@@ -143,11 +143,11 @@ export const COPY = {
   stat: {
     selectAll: '全选（双击文件名可直接打开文件）',
     currentOnly: '只看当前稿',
-    currentOnlyTip: '只显示各包「当前版本」那一稿的文件；未分版本的老文件也会被过滤掉',
+    currentOnlyTip: '只显示各任务「当前版本」那一稿的文件；未分版本的老文件也会被过滤掉',
     relocateBtn: '批量重新定位',
     relocateTip: '一批文件被整体挪走了？选它现在所在的文件夹，软件按原目录结构替你先配一遍，你确认后才改',
     missingCount: '（共 {n} 条丢失）',
-    packsCount: '共 {n} 个包',
+    packsCount: '共 {n} 个任务',
     assetsCount: '共 {n} 条素材',
     missingPart: '其中 {n} 条文件已丢失',
     suffixUnassigned: '（未归属）',
@@ -194,22 +194,22 @@ export const COPY = {
 
     // ---- 扫描 ----
     scanFailed: '扫描失败：',
-    scanDone: '扫描完成：{packs} 个包 · {files} 个文件',
+    scanDone: '扫描完成：{packs} 个任务 · {files} 个文件',
     scanNewFiles: ' · 新增 {n} 条',
     scanThumbs: ' · 生成 {n} 张缩略图',
-    scanCleaned: '已清理 {n} 条失效的包记录（文件本来就不在了，清单留存在 _system/backup）',
+    scanCleaned: '已清理 {n} 条失效的任务记录（文件本来就不在了，清单留存在 _system/backup）',
     scanNewVersions: '认出了 {n} 个新的版本文件夹（V1/V2 这种名字）',
 
     // ---- 包 ----
     packCreateFailed: '创建失败',
     packCreateError: '创建失败：',
-    packCreated: '包「{name}」已创建，文件夹已建好',
+    packCreated: '任务「{name}」已创建，文件夹已建好',
     packSavedMoved: '已保存，文件夹也跟着改名 / 搬家了（文件一个没动）',
     packSavedOnly: '已保存（只改了信息，磁盘上的文件夹没动）',
-    noEditingPack: '没有待编辑的包',
+    noEditingPack: '没有待编辑的任务',
     packOpenFailed: '打开失败',
     reorderFailed: '调整顺序失败',
-    claimed: '已认领 {n} 个文件到目标包',
+    claimed: '已认领 {n} 个文件到目标任务',
     claimPartial: '认领 {n} 个，{e} 个失败',
     tagFailed: '打标签失败',
     tagged: '已给 {a} 个文件贴上 {b} 个标签',
@@ -220,29 +220,29 @@ export const COPY = {
     projectSaved: '项目「{name}」已保存',
     projectCreated: '项目「{name}」已创建，工作区里建好了同名文件夹',
     projectTrashed:
-      '项目「{name}」已删进回收站：软件里不再显示，{n} 个包的文件夹原封不动躺在 _回收站 里',
-    projectDeletedMove: '项目「{name}」已删除，{n} 个包已转移',
-    projectDeletedLoose: '项目「{name}」已删除，{n} 个包已变为待归类',
+      '项目「{name}」已删进回收站：软件里不再显示，{n} 个任务的文件夹原封不动躺在 _回收站 里',
+    projectDeletedMove: '项目「{name}」已删除，{n} 个任务已转移',
+    projectDeletedLoose: '项目「{name}」已删除，{n} 个任务已变为待归类',
     projectDeleted: '项目「{name}」已删除',
     projectUnbindConfirmA: '解绑项目「{name}」？\n\n',
-    projectUnbindConfirmB: '· 软件里（包括包视图、文件视图、统计）不再显示它\n',
+    projectUnbindConfirmB: '· 软件里（包括任务视图、文件视图、统计）不再显示它\n',
     projectUnbindConfirmC: '· 项目文件夹会搬到工作区的「_已解绑的项目」里，文件一个不少\n',
     projectUnbindConfirmD: '· 想回来时在左栏「已解绑」入口点一下就能还原\n\n',
     projectUnbindConfirmE: '确认解绑？',
     projectUnbindFailed: '解绑失败',
     projectUnbindError: '解绑失败：',
-    projectUnbound: '项目「{name}」已解绑，{n} 个包跟着搬进 _已解绑的项目（文件都在）',
+    projectUnbound: '项目「{name}」已解绑，{n} 个任务跟着搬进 _已解绑的项目（文件都在）',
     projectRestored: '项目「{name}」已还原，文件都还在'
   },
 
   // ==================== 包卡片 ====================
   card: {
     relocateTip: '归位到某个项目',
-    editTip: '编辑包信息（名称 / 类别 / 项目）',
+    editTip: '编辑任务信息（名称 / 类别 / 项目）',
     noProject: '未指定项目',
-    noProjectTip: '这个包没有指定项目',
-    missingTip: '这个包里有 {n} 个文件已丢失（原文件被删除或挪走了，记录还在，可重新定位）',
-    verTip: '这个包有 {n} 稿；卡片上的文件数和容量算的是全部（历史稿也占硬盘）',
+    noProjectTip: '这个任务没有指定项目',
+    missingTip: '这个任务里有 {n} 个文件已丢失（原文件被删除或挪走了，记录还在，可重新定位）',
+    verTip: '这个任务有 {n} 稿；卡片上的文件数和容量算的是全部（历史稿也占硬盘）',
     fileSize: '{n} 个文件 · {size}',
     currentVer: 'V{n} 当前',
     hasVer: '有版本',
@@ -256,7 +256,7 @@ export const COPY = {
     extFallback: '文件',
     missingTip: '文件已丢失（{at} 发现）：{path}\n原文件被删除或移走了。点「重新定位」把它找回来。',
     openTip: '双击/单击打开文件',
-    currentVerTip: '当前版本 V{n}（在包详情里能切换看别的稿）',
+    currentVerTip: '当前版本 V{n}（在任务详情里能切换看别的稿）',
     historyVerTip: '历史版本 V{n}',
     removeTagTip: '摘掉这个标签',
     relocateTip: '重新定位：文件被删掉或挪走了，指到它的新位置',
@@ -284,7 +284,7 @@ export const COPY = {
     groupMaterial: '素材',
     groupProject: '工程文件',
     groupUnassigned: '未归属的文件',
-    unassignedHint: '丢在包根目录、没进子文件夹的文件，可选中后移动进对应组',
+    unassignedHint: '丢在任务根目录、没进子文件夹的文件，可选中后移动进对应组',
     deselectAll: '取消全选',
     selectAllGroup: '全选本组',
     empty: '暂无文件'
@@ -294,16 +294,16 @@ export const COPY = {
   editPack: {
     saveFailed: '保存失败',
     titleLoose: '归位到项目',
-    title: '编辑包信息',
-    nameLabel: '包名称',
-    nameHint: '名称改了 → 工作区里的包文件夹会一起改名（里面的文件一个不动）',
+    title: '编辑任务信息',
+    nameLabel: '任务名称',
+    nameHint: '名称改了 → 工作区里的任务文件夹会一起改名（里面的文件一个不动）',
     projectLabel: '所属项目',
     noProject: '— 不指定项目（待归类）—',
-    looseHint: '这个包现在没有项目：文件夹直接躺在工作区根目录。选一个项目就能归位。',
-    moveInto: '包文件夹会搬进「{name}」的项目文件夹',
-    moveBack: '包文件夹会搬回工作区根目录（待归类）',
+    looseHint: '这个任务现在没有项目：文件夹直接躺在工作区根目录。选一个项目就能归位。',
+    moveInto: '任务文件夹会搬进「{name}」的项目文件夹',
+    moveBack: '任务文件夹会搬回工作区根目录（待归类）',
     categoryHint:
-      '跟左栏筛选里的「物料类别」是同一套清单（左栏「管理」里增删，这里跟着变；改名 / 删除会连带改到已有包）',
+      '跟左栏筛选里的「物料类别」是同一套清单（左栏「管理」里增删，这里跟着变；改名 / 删除会连带改到已有任务）',
     currentFolder: '当前文件夹：',
     saveHintMove: '保存后文件夹会立刻改名 / 搬家（本地磁盘上的操作，不复制、不删除）。',
     saveHintCategory: '只改类别，磁盘上的文件夹一个字节都不动。',
@@ -316,10 +316,10 @@ export const COPY = {
     nameHint: '留空也可以，软件会自动取名',
     projectHint: '项目在左栏「所属项目 → ＋ 新建项目」里维护（可自己新增）',
     noCategory:
-      '左栏「物料类别」里还没有标签 —— 去左栏那个维度的「管理」里加一个，这里马上就能选。 现在建包先记成「未分类」，以后在包详情里随时能改。',
+      '左栏「物料类别」里还没有标签 —— 去左栏那个维度的「管理」里加一个，这里马上就能选。 现在建任务先记成「未分类」，以后在任务详情里随时能改。',
     categoryHint: '跟左栏筛选里的「物料类别」是同一套清单（左栏「管理」里增删，这里跟着变）',
-    folderHint: '创建后软件会在素材工作区自动建好这个包的文件夹，并<b>自带第 1 稿 V1</b>：',
-    folderPath: '包名\\V1\\01-成品　02-素材　03-工程',
+    folderHint: '创建后软件会在素材工作区自动建好这个任务的文件夹，并<b>自带第 1 稿 V1</b>：',
+    folderPath: '<path>任务名\\V1\\01-成品　02-素材　03-工程</path>',
     folderHint2: 'V1 自动成为当前版本，之后把文件丢进对应的子文件夹就行，软件会自动归位。',
     creating: '创建中…'
   },
@@ -328,15 +328,17 @@ export const COPY = {
   delProj: {
     confirmAskA: '确定删除项目',
     confirmAskB: '吗？',
-    packCount: '该项目下有 <b>{n}</b> 个包。包和里面的文件都不会被删除， 但请先选一个去处：',
-    noPacks: '该项目下没有包。删除后不影响任何文件，要重名再用可以随时新建。',
+    packCount: '该项目下有 <b>{n}</b> 个任务。任务和里面的文件都不会被删除， 但请先选一个去处：',
+    noPacks: '该项目下没有任务。删除后不影响任何文件，要重名再用可以随时新建。',
     moveToProject: '转移到其他项目',
-    existingCount: '{name}（现有 {n} 个包）',
+    existingCount: '{name}（现有 {n} 个任务）',
     noProject: '不指定项目（变成待归类）',
-    keep: '这 {n} 个包还留在硬盘上、文件一个不少， 只是不再挂在任何项目下，之后可以再指定',
-    trash: '删进回收站（项目连同包一起隐去）',
+    keep: '这 {n} 个任务还留在硬盘上、文件一个不少， 只是不再挂在任何项目下，之后可以再指定',
+    trash: '删进回收站（项目连同任务一起隐去）',
+    // 注意 <path> 标记内外的空格位置是照源码写的（空格在<span>里面），
+    // 改了位置虽然肉眼一样，但会让「字典值 == 界面实际渲染的字符串」这条自检失真。
     trashKeep:
-      '整个项目文件夹会搬到工作区的 <path>_回收站</path> 里，<b>文件一个都不会消失</b>，只是从软件里不再显示。',
+      '整个项目文件夹会搬到工作区的<path> _回收站 </path>里，<b>文件一个都不会消失</b>，只是从软件里不再显示。',
     trashNote: '真要彻底清掉，自己去 `_回收站` 里删 —— 那才是"不要了"的正确姿势。',
     processing: '处理中…',
     trashBtn: '删进回收站'
@@ -351,10 +353,10 @@ export const COPY = {
     titleEdit: '编辑项目',
     nameLabel: '项目名称',
     namePlaceholder: '例：抖音短视频运营',
-    renameHint: '改名会连带把工作区里的项目文件夹一起改名 —— 里面的包和文件跟着走，不会丢',
+    renameHint: '改名会连带把工作区里的项目文件夹一起改名 —— 里面的任务和文件跟着走，不会丢',
     createHint: '公司开了新业务、内部孵化了新项目，就在这里加一个',
     colorLabel: '标签颜色',
-    colorHint: '包卡片和左栏的项目标签用这个色，一排包摆出来能一眼看出哪些同属一个项目',
+    colorHint: '任务卡片和左栏的项目标签用这个色，一排任务摆出来能一眼看出哪些同属一个项目',
     noteLabel: '备注（可选）',
     notePlaceholder: '这个项目是干什么的',
     notePresets: '参考：'
@@ -365,8 +367,9 @@ export const COPY = {
     failed: '还原失败',
     title: '已解绑的项目（{n}）',
     empty: '没有已解绑的项目',
-    hint: '这些项目已经结项留底，软件里不显示，但本地文件一个都没动 —— 都在 <path>{path}</path> 里。点「还原」就搬回工作区、重新显示在左栏。',
-    meta: '{packs} 个包 · {files} 个文件 · {size}',
+    // 前后两个空格在源码里是写在 <span> 内的（表达式自带），所以标记贴着文字
+    hint: '这些项目已经结项留底，软件里不显示，但本地文件一个都没动 —— 都在<path>{path}</path>里。点「还原」就搬回工作区、重新显示在左栏。',
+    meta: '{packs} 个任务 · {files} 个文件 · {size}',
     restoring: '还原中…',
     restore: '还原'
   },
@@ -394,7 +397,7 @@ export const COPY = {
     added: '标签「{name}」已加到「{dim}」',
     deleted: '标签「{name}」已删除',
     deletedAssets: '，{n} 条素材的该标签已摘掉',
-    deletedPacks: '，{n} 个包的类别已归到「未分类」',
+    deletedPacks: '，{n} 个任务的类别已归到「未分类」',
     title: '标签管理',
     singleNote: ' · 该维度每张素材只能有一个标签',
     addPlaceholder: '给「{dim}」加一个新标签…',
@@ -409,7 +412,7 @@ export const COPY = {
     delUsage:
       '全库共 {n} 条素材在用这个标签（含已解绑项目里的），删除后这些素材会失去这个标签（素材文件本身不会被删）。',
     delNoUsage: '全库还没有任何素材用过这个标签。',
-    delPackCount: '目前有 <b>{n}</b> 个包正在使用这个类别，删除后这些包的类别也会一并去掉（归为「未分类」）。'
+    delPackCount: '目前有 <b>{n}</b> 个任务正在使用这个类别，删除后这些任务的类别也会一并去掉（归为「未分类」）。'
   },
 
   // ==================== 标签面板（左栏） ====================
@@ -438,7 +441,7 @@ export const COPY = {
     unassignedTip: '还没归到任何一稿里的文件（不在 V1/V2 这些文件夹里）',
     unassigned: '未分版本',
     unassignedNote: '不在任何一稿的文件夹里',
-    newTip: '在包文件夹里建一个新版本文件夹（V1 / V2 / V3…）',
+    newTip: '在任务文件夹里建一个新版本文件夹（V1 / V2 / V3…）',
     newVer: '新建版本',
     bindTip: '你自己在资源管理器里建好了文件夹？在这儿绑定一下就能纳入管理',
     bind: '绑定文件夹'
@@ -454,18 +457,19 @@ export const COPY = {
     bound: '已把「{name}」绑成 V{seq}',
     titleNew: '新建版本 V{n}',
     titleBind: '绑定已有文件夹',
+    // <code> 里的前后空格也是照源码（空格在标签内）
     newHint:
-      '软件会在<b>这个包的文件夹</b>里建一个 <code>V{n}</code> 文件夹，里面自动长好 <code>01-成品 / 02-素材 / 03-工程</code> 三个空文件夹 —— 资源管理器里立刻能看到，往里丢东西就行。',
+      '软件会在<b>这个任务的文件夹</b>里建一个 <code>V{n}</code> 文件夹，里面自动长好<code> 01-成品 / 02-素材 / 03-工程 </code>三个空文件夹 —— 资源管理器里立刻能看到，往里丢东西就行。',
     noteLabel: '这一稿改了什么（版本说明）',
     notePlaceholder: '例：客户反馈——主标题太小，整体调亮',
-    collectHint: '把包里现在这 {n} 个文件收进第 1 稿 <span>（只搬已经躺在 01-成品 / 02-素材 / 03-工程 里的；直接丢在包根目录的不动）</span>',
+    collectHint: '把任务里现在这 {n} 个文件收进第 1 稿<em>（只搬已经躺在 01-成品 / 02-素材 / 03-工程 里的；直接丢在任务根目录的不动）</em>',
     copyHint: '把 V{n} 的文件复制一份进来',
     copyHintNote: '（改稿时省事，但会多占一份硬盘空间——默认不勾）',
     bindHintA: '你自己在资源管理器里建好的文件夹（名字随便叫），在这儿绑定一下就归软件管了。 编号由软件按你说的算，',
     bindHintBold: '文件夹名和里面的文件一个都不动',
     bindHintB: '。',
-    scanningFolders: '正在看包里有啥文件夹…',
-    noFolders: '这个包文件夹里没有可绑定的文件夹了（都已认领，或者你还没建）',
+    scanningFolders: '正在看任务里有啥文件夹…',
+    noFolders: '这个任务文件夹里没有可绑定的文件夹了（都已认领，或者你还没建）',
     seqLabel: '算第几稿',
     noteLabel2: '这一稿改了什么（可留空）',
     notePlaceholder2: '例：第二稿——按客户意见改了配色',
@@ -588,9 +592,9 @@ export const COPY = {
   wsErr: {
     badLocationNote: '该位置当前不可用（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）',
     noWritableNote: '既定位置与「文档」目录都无法创建，请点「更改位置」手动指定一个可写目录',
-    projectMissingForPack: '指定的项目不存在，无法建包',
+    projectMissingForPack: '指定的项目不存在，无法建任务',
     noProjectYet: '还没有任何项目，请先新建一个项目',
-    folderTaken: '包里有个文件夹叫「{name}」，但第 {seq} 稿已经绑给「{taken}」了',
+    folderTaken: '任务里有个文件夹叫「{name}」，但第 {seq} 稿已经绑给「{taken}」了',
     fileNotExist: '这个文件不存在',
     outsideWorkspace: '这个文件在工作区外面 —— 请指到工作区里的文件（外面的文件软件管不着）',
     nameMismatch: '文件名对不上：这条记录是「{record}」，选中的是「{picked}」',
@@ -600,15 +604,15 @@ export const COPY = {
     assetGone: '这条素材记录不存在了（可能刚被清理过）',
     writeFailed: '写入失败：',
     unknown: '未知错误',
-    targetPackMissing: '目标包不存在',
+    targetPackMissing: '目标任务不存在',
     badSubFolder: '目标分组不合法',
     targetVerMissing: '目标版本不存在',
     fileGone: '{name}：文件已不存在',
     scanPackGoneNote:
-      '扫描时发现包文件夹已不在磁盘上，包记录与包内素材记录已一并摘除（磁盘文件本来就没有了）',
+      '扫描时发现任务文件夹已不在磁盘上，任务记录与任务内素材记录已一并摘除（磁盘文件本来就没有了）',
     multiRoot: '库里的素材路径指向 {n} 个不同位置，数据异常，已拒绝自动改动',
     inconsistent: '库里有 {skipped}/{total} 条记录的路径自相矛盾，已拒绝自动改动',
-    multiPackRoot: '包目录分布在 {n} 个不同位置，数据异常，已拒绝自动改动',
+    multiPackRoot: '任务目录分布在 {n} 个不同位置，数据异常，已拒绝自动改动',
     backupFailedMigrate: '备份数据库失败，已中止迁移（磁盘与库都未改动）',
     moveRollback: '搬移「{name}」失败，已全部回滚：{msg}',
     writeDbRollback: '写库失败，已回滚文件夹：{msg}',
@@ -654,11 +658,11 @@ export const COPY = {
     keepAtLeastOne: '至少要保留一个项目，无法删除最后一个',
     moveToSelf: '不能转移到自己',
     targetMissing: '目标项目不存在',
-    movePackFailed: '搬移包文件夹失败：{msg}',
+    movePackFailed: '搬移任务文件夹失败：{msg}',
     deleteRollback: '删除项目失败，已尽量回滚：{msg}',
     deletedToTrash: '删除项目「{name}」：记录已删，文件夹已移入 {dir}',
     trashFailed: '搬进回收站失败，什么都没动：{msg}',
-    archivedNoPack: '目标项目已解绑，不能往里放包',
+    archivedNoPack: '目标项目已解绑，不能往里放任务',
     alreadyUnbound: '该项目已经解绑过了',
     keepAtLeastOneUnbind: '至少要保留一个项目，无法解绑最后一个',
     moveFailed: '搬移项目文件夹失败，什么都没动：{msg}',
@@ -670,11 +674,11 @@ export const COPY = {
 
   // ==================== 包（后端） ====================
   packErr: {
-    notFound: '包不存在',
-    nameEmpty: '包名称不能为空',
-    moveFailed: '搬移包文件夹失败，什么都没动：{msg}',
-    editRollback: '改包信息失败，已尽量回滚：{msg}',
-    folderGone: '包文件夹不在磁盘上了，先刷新扫描',
+    notFound: '任务不存在',
+    nameEmpty: '任务名称不能为空',
+    moveFailed: '搬移任务文件夹失败，什么都没动：{msg}',
+    editRollback: '改任务信息失败，已尽量回滚：{msg}',
+    folderGone: '任务文件夹不在磁盘上了，先刷新扫描',
     folderExists: '「{name}」文件夹已经存在了，用「绑定文件夹」把它纳入管理',
     createVerFolderFailed: '建版本文件夹失败：{msg}',
     moveFileRollback: '搬文件失败，已尽量还原：{msg}',
@@ -684,8 +688,8 @@ export const COPY = {
   // ==================== 版本（后端） ====================
   verErr: {
     folderNameEmpty: '文件夹名为空',
-    onlyInPack: '只能绑定包文件夹里的文件夹',
-    folderNotInPack: '包里没有「{name}」这个文件夹',
+    onlyInPack: '只能绑定任务文件夹里的文件夹',
+    folderNotInPack: '任务里没有「{name}」这个文件夹',
     seqInvalid: '编号必须是大于 0 的整数',
     alreadyBound: '「{name}」已经绑定过了',
     seqTaken: '第 {seq} 稿已经绑给「{taken}」了',

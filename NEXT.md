@@ -16,14 +16,16 @@
   - `D:\_accept_ws\backup\素材管家-1.1.0-安装包.exe`（179.5 MB）
 - **增量功能不一定保留**（用户原话）：所以改动只往 `feature/incr` 上提，**不要 merge 回 main**，等用户拍板
 - **来回切**：`git switch main`（代码回 1.1.0）/ `git switch feature/incr`（回增量开发）
-- **出新包时把 `package.json` 版本号改成 1.2.0** —— 1.1.0 已经发给同事了，别重号
+- **版本号往下走，别重号**：`1.1.0` 已发同事；`1.2.0` 于 2026-09-30 出（文案字典 + 全软件改名，
+  `D:\_accept_ws\rel_out\v1.2.0\营销中心-素材库-1.2.0-安装包.exe`）→ 下次出包用 `1.2.1` 或 `1.3.0`
 
 ---
 
 ## 一、标准启动词（直接复制）
 
 ```
-开工。项目在 D:\proj_media（素材管家，Electron + React + TS 桌面素材管理软件）。
+开工。项目在 D:\proj_media（项目代号 proj_media；对外显示名「营销中心-素材库」，1.2.0 起统一，
+窗口标题/快捷方式/安装包名都用它；Electron + React + TS 桌面素材管理软件）。
 
 先读这四份，读完再动手：
 1. D:\proj_media\PROJECT.md    —— 项目定位、技术栈、目录结构、协作铁律
@@ -146,3 +148,14 @@ M6 还剩三小项，都依赖别的批次或需单独立项：
 | **模拟"拔硬盘"没法靠 rename** | 工作区根上有 SQLite 打开的文件句柄，rename 整个目录 = EPERM。要验证"根目录读不到"这类门，把逻辑抽成带 `rootReadable` 参数的函数（`markMissingAssets` / `cleanupMissingPacks` 都是这个路数），单测直接喂 false |
 | **截图壳选包卡片要按名字找** | 包视图最前面有一张「未归属」虚拟卡片，`querySelector('.pack-card')` 拿到的第一张不是真包 → 后面全部连锁 FAIL（第 9 批踩过）。用 `cards.find(name 含 '…')` 定位 |
 | **版本条是 seq 倒序** | 最新稿排最左。断言一律按格子的 `V<n>` label 找，别按下标（第 9 批写完就被倒序坑过一次） |
+| **场景壳加载的是构建产物，不是 dev server** | `win.loadFile('out/renderer/index.html')`。改 `src/renderer` 后不跑 `npx electron-vite build` 就会**拿旧界面跑断言、照样"全绿"**（第 12 批踩过，白跑一轮） |
+| **跑测试前抬高批量删除阈值** | `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`。护栏按轮次累计，一轮跑完 accept + 9 场景必超 50；不加会得到**大面积假失败**（工作区被判"连不上"→左栏空→断言连锁报红），极像代码回归 |
+| ⛔ **换源码树只许 `copytree`，不许 `move`** | 第 12 批真实事故：`rmtree(src)` + `move(tmp→src)` 次序失误，把**未提交的改造后 `src` 整份吃掉**，恢复花 40 分钟。动 `src` 前先落受保护快照到项目外 |
+| **构建产物 CSS 的换行符会变尺寸** | `core.autocrlf=true` → `git checkout` 落 CRLF、编辑工具落 LF；CSS 产物不压空白，CRLF 版比 LF 版大 2.5KB，会被误读成"样式被改"。判断样式有没有变：去掉 `\r` 再比字节 |
+| **`bin/mcporter` 是 sh 包装，Node 里 spawn 不了** | 起 `node <...>/node_modules/mcporter/dist/cli.js`；且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 沙箱里全 EBUSY）。`--args '<json>'` 走命令行有 ~32KB 上限，大文本要分块（本次 484 行分 12 次） |
+| **改文案后的连锁影响** | accept 与场景里有一批断言**直接检查某句话出现过**。改文案会让它们集体报红 —— 这不是改坏了，是断言没跟上。处理：逐条更新断言字面值（**保持断言强度，绝不改成"永远通过"**）+ 输出变更清单给用户过目；断言**数量只增不减**（当前 619） |
+| **文案断言一律引用字典，别硬编码** | 场景壳原有的 12 处 `'包视图'` / `'编辑包信息'` 已全改成 `COPY.xxx`（`run-verify4.cjs` 每次跑前自动 esbuild 重打 `v4/copy.cjs`）。新写断言时照这个来 —— 硬编码就得每次改文案都改测试 |
+| **`js(\`...\`)` 里取不到主进程变量** | 那段代码在**渲染进程**执行，`COPY` 不存在。必须 `${JSON.stringify(COPY.xxx)}` 插值进模板。批量替换断言时最容易在这埋雷（改完必须 `node --check _shotapp/v4/main.cjs`） |
+| **`set_range_value_by_csv` 跳过空单元格** | 想清空某列不能靠"写空值"，得调 `clear_range_cells`。否则上一轮表格里填的「改成」列残留，下次被当成新改动读回来（`push.cjs` 已内置这一步） |
+| **表格「改成」列可以整列复制** | 用户习惯用批量替换 → 未改动的行也会复制一遍。`diff.cjs` 只认「真变化」，其余自动忽略；**别要求用户"只填改动行"**。同时它会把"批量替换误伤"（标签配对/占位符结构变了但裸文字没变）单独列出来人工确认 |
+| **改文案走表格，别再手改 `copy.ts`** | 流程在 `tools/copy-sheet/README.md`：表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`（刷新表，链接不变） |

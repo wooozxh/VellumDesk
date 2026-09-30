@@ -1,3 +1,5 @@
+import { COPY } from '../../../shared/copy'
+import { Rich } from './Rich'
 import { useState } from 'react'
 import type { ProjectWithCount } from '../types'
 import { Icon } from './Icon'
@@ -51,7 +53,7 @@ export function NewPackModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          <Icon name="plus" size={15} strokeWidth={2} /> 新建任务包
+          <Icon name="plus" size={15} strokeWidth={2} />  {COPY.top.newPack}
           <button className="close" onClick={onClose}>
             <Icon name="close" size={14} />
           </button>
@@ -59,23 +61,23 @@ export function NewPackModal({
 
         <div className="content">
           <div className="field">
-            <label>包名称</label>
+            <label>{COPY.editPack.nameLabel}</label>
             <input
               type="text"
               value={name}
               autoFocus
-              placeholder="例：海南招生海报-2026秋季"
+              placeholder={COPY.newPack.namePlaceholder}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submit()
                 if (e.key === 'Escape') onClose()
               }}
             />
-            <div className="hint">留空也可以，软件会自动取名</div>
+            <div className="hint">{COPY.newPack.nameHint}</div>
           </div>
 
           <div className="field">
-            <label>所属项目</label>
+            <label>{COPY.editPack.projectLabel}</label>
             <select
               value={projectId ?? ''}
               onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
@@ -87,16 +89,17 @@ export function NewPackModal({
               ))}
             </select>
             <div className="hint">
-              项目在左栏「所属项目 → ＋ 新建项目」里维护（可自己新增）
+              
+              {COPY.newPack.projectHint}
             </div>
           </div>
 
           <div className="field">
-            <label>物料类别</label>
+            <label>{COPY.dim.category}</label>
             {categories.length === 0 ? (
               <div className="hint" style={{ color: 'var(--warn)' }}>
-                左栏「物料类别」里还没有标签 —— 去左栏那个维度的「管理」里加一个，这里马上就能选。
-                现在建包先记成「未分类」，以后在包详情里随时能改。
+                
+                {COPY.newPack.noCategory}
               </div>
             ) : (
               <div className="chips">
@@ -112,7 +115,8 @@ export function NewPackModal({
               </div>
             )}
             <div className="hint">
-              跟左栏筛选里的「物料类别」是同一套清单（左栏「管理」里增删，这里跟着变）
+              
+              {COPY.newPack.categoryHint}
             </div>
           </div>
 
@@ -125,20 +129,22 @@ export function NewPackModal({
               lineHeight: 1.9
             }}
           >
-            创建后软件会在素材工作区自动建好这个包的文件夹，并<b>自带第 1 稿 V1</b>：
+            <Rich tpl={COPY.newPack.folderHint} />
             <br />
-            <span className="path">包名\V1\01-成品　02-素材　03-工程</span>
+            <Rich tpl={COPY.newPack.folderPath} />
             <br />
-            V1 自动成为当前版本，之后把文件丢进对应的子文件夹就行，软件会自动归位。
+            
+            {COPY.newPack.folderHint2}
           </div>
         </div>
 
         <div className="foot">
           <button className="btn" onClick={onClose}>
-            取消
+            
+            {COPY.common.cancel}
           </button>
           <button className="btn primary" onClick={submit} disabled={busy}>
-            {busy ? '创建中…' : '创建'}
+            {busy ? COPY.newPack.creating : COPY.common.create}
           </button>
         </div>
       </div>

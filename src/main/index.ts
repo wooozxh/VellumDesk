@@ -1,6 +1,7 @@
+import { COPY } from '../shared/copy'
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
@@ -37,12 +38,20 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#15161a',
-    title: '素材管家',
+    title: COPY.app.name,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
+  })
+
+  // 窗口标题的唯一来源是字典（COPY.app.name）：页面 <title> 会在加载后覆盖窗口标题，
+  // 一旦 index.html 里那个标题漂了（脚手架默认值是「Electron」），任务栏上就是另一个名字。
+  // 这里把覆盖拦下来，改名字只改字典一处。
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+    mainWindow.setTitle(COPY.app.name)
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -64,6 +73,18 @@ function createWindow(): void {
 // 禁用 GPU 硬件加速：本工具的缩略图走 sharp（CPU），界面软件渲染足够；
 // 换来的好处是任何显卡驱动有问题的办公机都能稳定启动（演示不翻车）
 app.disableHardwareAcceleration()
+
+// 用户数据目录锁定（B-11）：安装包的显示名会随版本调整（当前「营销中心-素材库」），
+// 而工作区配置就放在 userData/workspace.json 里。目录名一旦跟着产品名变，
+// 老用户打开软件就会看到「工作区没了」——数据其实还在旧目录，只是找不到。
+// 历史上该目录一直是 proj_media，这里显式钉死，不再依赖 Electron 按应用名的推导。
+const userDataDir = join(app.getPath('appData'), 'proj_media')
+try {
+  mkdirSync(userDataDir, { recursive: true })
+} catch {
+  // 极端情况（如盘只读）下保持 Electron 默认路径，不让启动失败
+}
+app.setPath('userData', userDataDir)
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mediabutler')
