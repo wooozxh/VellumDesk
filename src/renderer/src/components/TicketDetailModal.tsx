@@ -33,8 +33,10 @@ export function TicketDetailModal({
   }, [load])
 
   const openApproval = async (): Promise<void> => {
-    if (!d?.approvalUrl && !d?.sourceUrl) return
-    await window.api.ticketOpenApproval(d.approvalUrl ?? d.sourceUrl ?? '')
+    // 只放行 http/https —— 非网址的值在 Windows 上会兜底打开资源管理器（验收实测）
+    const url = d?.approvalUrl ?? d?.sourceUrl ?? ''
+    if (!/^https?:\/\//i.test(url)) return
+    await window.api.ticketOpenApproval(url)
   }
 
   const createTask = async (): Promise<void> => {
@@ -43,7 +45,7 @@ export function TicketDetailModal({
     try {
       const r = await window.api.ticketCreateTask(ticketNo)
       if (r.ok) {
-        onToast?.(fmt(COPY.ticket.linkedTask, { name: '' }).replace('：', '已建：'))
+        onToast?.(fmt(COPY.ticket.createTaskOk, { name: r.packName ?? '' }))
         await load()
         await onChanged?.()
       } else {
@@ -61,9 +63,11 @@ export function TicketDetailModal({
     </div>
   )
 
+  const urlOk = /^https?:\/\//i.test(d?.approvalUrl ?? d?.sourceUrl ?? '')
+
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal wide">
+      <div className="modal wide tk-modal">
         <h3>
           <Icon name="doc" size={15} /> {d ? d.title ?? d.ticketNo : COPY.common.loading}
           <button className="close" onClick={onClose}>
@@ -74,6 +78,7 @@ export function TicketDetailModal({
         {!d ? (
           <div className="tk-empty-small">{COPY.common.loading}</div>
         ) : (
+          <div className="content">
           <div className="tk-detail">
             <div className="tk-detail-tags">
               <span className={`tk-type ${d.ticketType}`}>
@@ -120,7 +125,7 @@ export function TicketDetailModal({
 
             {d.ticketType === 'digital' && (
               <>
-                <h4>{COPY.ticket.basicSection}</h4>
+                <h4>{COPY.ticket.digitalSection}</h4>
                 <div className="tk-fields">
                   {row('物料使用场景', d.useScene)}
                   {row('物料类别', d.materialCategory)}
@@ -157,7 +162,11 @@ export function TicketDetailModal({
                           ? '还没建任务（同步时自动建；项目对不上会等对齐后补建）'
                           : COPY.ticket.noTaskOther}
                 </span>
-                {!d.isHistory && !d.needConfirm && (
+                {/*
+                  补建任务按钮：历史单 / 驳回撤销 / 项目未匹配 都给（人点的按钮，容错出口）；
+                  唯独待确认单不给 —— 那批要走「确认这批新单」的确认闸，单按钮会绕过它
+                */}
+                {!d.needConfirm && (
                   <button className="btn" disabled={busy} onClick={() => void createTask()}>
                     {COPY.ticket.createTask}
                   </button>
@@ -169,7 +178,8 @@ export function TicketDetailModal({
               <button
                 className="btn"
                 onClick={() => void openApproval()}
-                disabled={!d.approvalUrl && !d.sourceUrl}
+                disabled={!urlOk}
+                title={!urlOk ? COPY.ticket.linkInvalidTitle : undefined}
               >
                 {COPY.ticket.openApproval}
               </button>
@@ -177,6 +187,7 @@ export function TicketDetailModal({
                 {COPY.common.close}
               </button>
             </div>
+          </div>
           </div>
         )}
       </div>

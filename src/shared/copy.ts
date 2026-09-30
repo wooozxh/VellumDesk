@@ -724,12 +724,21 @@ export const COPY = {
     noTaskPending: '待确认',
     /** 建任务 / 补建 */
     createTask: '建任务',
+    createTaskOk: '任务已创建：{name}',
     confirmBatch: '确认这批新单',
+    /** 列表空态 / 加载 */
+    emptyList: '该分类下暂无工单',
+    /** 「异常」筛选的说明（悬停提示 + 选中时列表上方一行） */
+    abnormalHint:
+      '异常 = ① 编号在表里出现了两行（撞号，请去表里修正）；② 业务归属填了但软件里没有同名项目（项目名对齐后，下轮同步会自动补建任务）',
+    /** 审批链接无效时的按钮悬停提示 */
+    linkInvalidTitle: '审批链接无效：表格里该列存的不是网址（重新同步一次可修复）',
     /** 详情弹窗 */
     detailTitle: '工单详情',
     openApproval: '打开审批（含附件）',
     basicSection: '基本信息',
     printSection: '印刷信息',
+    digitalSection: '电子物料信息',
     taskSection: '关联任务',
     /** 设置弹窗 */
     settingsTitle: '工单同步设置',

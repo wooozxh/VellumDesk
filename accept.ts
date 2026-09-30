@@ -84,6 +84,7 @@ import {
   detectStructure,
   confirmPendingTickets,
   createTaskForTicketManually,
+  takeLink,
   META_KEYS,
   writeTicketSheets,
   type SheetPayload,
@@ -3421,6 +3422,13 @@ async function main(): Promise<void> {
 
   // ============ 第 13 批 T-02：同步引擎（方案 15 §4，全部喂假数据，不碰真企微） ============
   log('\n[31] 第 13 批：同步引擎 applySync（幂等 / 快照 / 条件链 / 改派 / 删行 / 撞号 / 重拉表）')
+  // 第 13 批验收返修（2026-10-01 晨）：链接取值 —— 超链接单元格必须拿真实网址，不是显示文字
+  ok(
+    takeLink([{ text: '点击查看', link: 'https://example.com/a' }]) === 'https://example.com/a',
+    'takeLink：超链接单元格取 link 不取显示文字'
+  )
+  ok(takeLink([{ text: '点击查看' }]) === null, 'takeLink：没有合法网址 → null（按钮置灰）')
+  ok(takeLink('https://doc.weixin.qq.com/x') === 'https://doc.weixin.qq.com/x', 'takeLink：纯文本网址照收')
   {
     const kRoot = join('D:\\_accept_ws', `wstest13b_${RUN_ID}`)
     const kWs = join(kRoot, 'ws')

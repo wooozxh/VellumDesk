@@ -619,7 +619,9 @@ export interface Api {
   /** 「确认这批新单」批量放行（§2.2④） */
   ticketConfirmBatch: () => Promise<{ confirmed: number; tasksCreated: number; warnings: string[] }>
   /** 历史单/异常单的手动「补建任务」兜底按钮 */
-  ticketCreateTask: (ticketNo: string) => Promise<{ ok: boolean; packId?: number; msg?: string }>
+  ticketCreateTask: (
+    ticketNo: string
+  ) => Promise<{ ok: boolean; packId?: number; packName?: string; msg?: string }>
   /** 打开审批链接（浏览器） */
   ticketOpenApproval: (url: string) => Promise<{ ok: boolean; error?: string }>
 }

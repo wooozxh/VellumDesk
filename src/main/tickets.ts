@@ -202,8 +202,29 @@ function takeText(v: unknown): string | null {
   return null
 }
 
-/** 人员单元格 → userid + 姓名（成员类型列存 {userId, userName}） */
-function takeUser(v: unknown): { userid: string | null; name: string | null } {
+/** 超链接单元格 → 真实网址。只收 http/https 开头的值：
+ * 超链接单元格是 [{text: 显示文字, link: 网址}] —— takeText 会错拿显示文字（如「点击查看」），
+ * 拿去 shell.openExternal 在 Windows 上会兜底打开资源管理器（第 13 批验收实测）。
+ * 优先 link 字段；text 只有本身长得像网址才收。
+ * （导出供验收断言：拿显示文字去 openExternal 会打开资源管理器）
+ */
+export function takeLink(v: unknown): string | null {
+  if (Array.isArray(v)) {
+    if (v.length === 0) return null
+    const first = v[0]
+    if (first && typeof first === 'object') {
+      const o = first as Record<string, unknown>
+      if (typeof o.link === 'string' && /^https?:\/\//i.test(o.link)) return o.link
+      if (typeof o.text === 'string' && /^https?:\/\//i.test(o.text)) return o.text
+      return null
+    }
+    return takeLink(first)
+  }
+  if (typeof v === 'string') return /^https?:\/\//i.test(v) ? v : null
+  return null
+}
+
+/** 人员单元格 → userid + 姓名（成员类型列存 {userId, userName}） */function takeUser(v: unknown): { userid: string | null; name: string | null } {
   if (Array.isArray(v)) {
     if (v.length === 0) return { userid: null, name: null }
     const first = v[0]
@@ -266,8 +287,8 @@ function extractRow(rec: TicketRawRecord): {
       submit_time: takeDate(v[COL.submit]),
       done_time: takeDate(v[COL.done]),
       remark: takeText(v[COL.remark]),
-      source_url: takeText(v[COL.source]),
-      approval_url: takeText(v[COL.link]),
+      source_url: takeLink(v[COL.source]),
+      approval_url: takeLink(v[COL.link]),
       receiver_name: takeText(v[COL.recvName]),
       receiver_phone: takeText(v[COL.recvPhone]),
       deliver_date: takeDate(v[COL.deliver]),
@@ -623,7 +644,7 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
 export function createTaskForTicketManually(
   ticket_no: string,
   workspaceRoot: string
-): { ok: boolean; packId?: number; msg?: string } {
+): { ok: boolean; packId?: number; packName?: string; msg?: string } {
   const db = getDb()
   const t = db
     .prepare('SELECT pack_id, project_name, title, material_category FROM tickets WHERE ticket_no = ?')
@@ -649,7 +670,7 @@ export function createTaskForTicketManually(
       workspaceRoot
     })
     db.prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack.id, ticket_no)
-    return { ok: true, packId: pack.id }
+    return { ok: true, packId: pack.id, packName: t.title ?? ticket_no }
   } catch (e) {
     return { ok: false, msg: (e as Error).message }
   }

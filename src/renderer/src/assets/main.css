@@ -2408,10 +2408,26 @@ svg {
 
 /* ==================== 第 13 批：工单视图（docs/15 §6） ==================== */
 
-/* 工单视图独占主体区：贴边撑满，不带左栏 */
+/* 工单视图独占主体区：整区不滚（列表区自己滚），表头恒定在上 */
 .main.tk-main {
   padding: 14px 18px;
-  overflow: auto;
+  overflow: hidden;
+}
+
+/* 工单视图骨架：工具行 + 表头固定，列表吃剩余空间并独立滚动（不用 sticky，永不叠行） */
+.tk-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 「异常」筛选说明行 */
+.tk-note {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+  line-height: 1.6;
 }
 
 /* 工具行：筛选标签 + 同步按钮 */
@@ -2466,10 +2482,12 @@ svg {
   color: var(--text-3);
   font-size: 11.5px;
   border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-  z-index: 1;
+  flex-shrink: 0;
+}
+.tk-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .tk-list > .tk-row {
   cursor: pointer;
@@ -2561,6 +2579,13 @@ svg {
   font-size: 12px;
 }
 
+/* 详情弹窗：按内容自适应高度（不撑满全屏），内容长才滚（.content 自带内边距） */
+.modal.tk-modal {
+  height: auto;
+  max-height: calc(100vh - 48px);
+  max-width: 720px;
+}
+
 /* 详情弹窗 */
 .tk-detail h4 {
   margin: 14px 0 8px;
@@ -2587,7 +2612,8 @@ svg {
 }
 .tk-field .k {
   color: var(--text-3);
-  flex: 0 0 76px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .tk-field .v {
   color: var(--text);

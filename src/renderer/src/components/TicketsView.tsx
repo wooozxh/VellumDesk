@@ -40,6 +40,7 @@ function stateClass(s: string | null): string {
 export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): React.JSX.Element {
   const [status, setStatus] = useState<TicketStatus | null>(null)
   const [list, setList] = useState<TicketListItem[]>([])
+  const [listLoading, setListLoading] = useState(false)
   const [filter, setFilter] = useState<TkFilter>('mine')
   const [syncing, setSyncing] = useState(false)
   const [detailNo, setDetailNo] = useState<string | null>(null)
@@ -61,8 +62,13 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
   }, [])
 
   const loadList = useCallback(async (view: TkFilter): Promise<void> => {
-    const items = await window.api.ticketList(view)
-    setList(items)
+    setListLoading(true)
+    try {
+      const items = await window.api.ticketList(view)
+      setList(items)
+    } finally {
+      setListLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -158,6 +164,7 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
               key={f.key}
               className={`chip${filter === f.key ? ' on' : ''}`}
               onClick={() => void switchFilter(f.key)}
+              title={f.key === 'abnormal' ? COPY.ticket.abnormalHint : undefined}
             >
               {f.label}
             </button>
@@ -189,7 +196,10 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
         </div>
       )}
 
-      {/* 列表头 */}
+      {/* 「异常」不拆分：选中的时候给一行说明（悬停筛选标签也有同款提示） */}
+      {filter === 'abnormal' && <div className="tk-note">{COPY.ticket.abnormalHint}</div>}
+
+      {/* 列表头（固定不滚，列表区自己滚 —— 不用 sticky，永不叠行） */}
       <div className="tk-row tk-head">
         <span className="c-type" />
         <span className="c-no">编号</span>
@@ -201,7 +211,11 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
       </div>
 
       <div className="tk-list">
-        {list.length === 0 && <div className="tk-empty-small">（{COPY.common.loading}）</div>}
+        {list.length === 0 && (
+          <div className="tk-empty-small">
+            {listLoading ? `（${COPY.common.loading}）` : COPY.ticket.emptyList}
+          </div>
+        )}
         {list.map((t) => {
           const dim = t.approvalState === '已驳回' || t.approvalState === '已撤销'
           return (
