@@ -55,7 +55,29 @@ import {
   ackLayoutNotice,
   UNBOUND_DIR,
   TRASH_DIR,
-  LAYOUT_VERSION
+  LAYOUT_VERSION,
+  // 第 7 批：记录生命周期
+  updatePack,
+  unbindProject,
+  restoreProject,
+  listUnboundProjects,
+  cleanupMissingPacks,
+  // 第 8 批：文件已丢失标记
+  markMissingAssets,
+  relocateAsset,
+  suggestRelocateBatch,
+  applyRelocateBatch,
+  // 第 9 批：版本管理（M6）
+  createVersion,
+  listVersions,
+  listBindableFolders,
+  bindVersion,
+  unbindVersion,
+  setCurrentVersion,
+  listVersionMap,
+  ensureCurrentVersion,
+  // 第 9 批补：新建包自带的第一稿文件夹名
+  FIRST_VERSION_FOLDER
 } from './src/main/workspace'
 import {
   ensureThumbsForAssets,
@@ -77,7 +99,8 @@ import {
   applyTags,
   removeTagsFrom,
   tagsOfAssets,
-  suggestTagsForAssets
+  suggestTagsForAssets,
+  type DimensionGroup
 } from './src/main/tags'
 
 /** 每次跑用一个全新的工作区目录，避免上一次的残留污染结果 */
@@ -121,6 +144,36 @@ function hardRm(p: string): void {
       /* 忽略 */
     }
   }
+}
+
+/**
+ * 【老结构建包】
+ *
+ * 第 9 批起 `createPack` 会自动带上第一稿 V1（磁盘结构 `包\V1\01-成品`）。
+ * 但用户库里跑着的老包全是"包根直接是三组"的老结构（`version_id` 全空、
+ * 界面归「未分版本」），第 1~8 批断言考的正是这条**兼容路径** ——
+ * 不能因为改了建包行为就把它们一起改掉，那等于把老包的覆盖面偷偷丢掉。
+ *
+ * 所以这里包一层：建完包把自带的 V1 抹掉（记录 + 文件夹），补回包根三组，
+ * 得到一个与第 9 批之前**完全一样**的包。要考"新建包自带 V1"请直接用 createPack。
+ */
+function mkPack(input: {
+  name?: string
+  projectId?: number | null
+  category?: string
+  workspaceRoot: string
+}): ReturnType<typeof createPack> {
+  const p = createPack(input)
+  const db = getDb()
+  const vs = db
+    .prepare('SELECT id, folder_name FROM pack_versions WHERE pack_id = ?')
+    .all(p.id) as Array<{ id: number; folder_name: string }>
+  db.prepare('DELETE FROM pack_versions WHERE pack_id = ?').run(p.id)
+  db.prepare('DELETE FROM pack_version_ignores WHERE pack_id = ?').run(p.id)
+  // 自带的 V1 是空文件夹（包刚建好、一个文件都没有），直接摘掉不影响任何记录
+  for (const v of vs) hardRm(join(p.folder_path, v.folder_name))
+  for (const sub of SUB_FOLDERS) mkdirSync(join(p.folder_path, sub), { recursive: true })
+  return p
 }
 
 function makePng(path: string, w = 8, h = 8, rgb: [number, number, number] = [80, 140, 255]): void {
@@ -254,7 +307,7 @@ async function main(): Promise<void> {
 
   // ============ A-01 建包 ============
   log('\n[1] A-01 新建任务包')
-  const p1 = createPack({
+  const p1 = mkPack({
     name: '海南招生海报-2026秋季',
     projectId: projPlan.id,
     category: '海报',
@@ -273,12 +326,12 @@ async function main(): Promise<void> {
   }
 
   // 名称留空的兜底
-  const p2 = createPack({ name: '   ', projectId: newProjId, category: '其他', workspaceRoot: WS })
+  const p2 = mkPack({ name: '   ', projectId: newProjId, category: '其他', workspaceRoot: WS })
   ok(p2.name.startsWith('未命名任务-'), `A-01 名称为空 → 自动兜底取名：${p2.name}`)
   ok(p2.project_id === newProjId, '包归属为自建项目')
 
   // 重名自动加后缀
-  const p3 = createPack({
+  const p3 = mkPack({
     name: '海南招生海报-2026秋季',
     projectId: projPlan.id,
     category: '海报',
@@ -287,7 +340,7 @@ async function main(): Promise<void> {
   ok(p3.folder_path !== p1.folder_path, `A-01 重名不覆盖，自动区分：${p3.folder_path.replace(WS, '')}`)
 
   // 不传项目 → 落到默认（排序第一个）
-  const pDefault = createPack({ name: '默认归属测试', category: '其他', workspaceRoot: WS })
+  const pDefault = mkPack({ name: '默认归属测试', category: '其他', workspaceRoot: WS })
   ok(pDefault.project_id !== null, `不传项目时自动落到默认项目 id=${pDefault.project_id}`)
 
   // ============ 丢文件 ============
@@ -471,7 +524,14 @@ async function main(): Promise<void> {
   const stillThere = db
     .prepare('SELECT COUNT(*) AS c FROM assets WHERE file_name = ?')
     .get('分层图.psd') as { c: number }
-  ok(stillThere.c === 0, '手动删除的文件，扫描后从索引摘除')
+  // 第 8 批 M8-03 推翻第 1 批的写法：需求文档要的是「标记为文件已丢失 + 提供重新定位」，
+  // 原来的"直接从索引摘除"会让记录连同标签关联一起消失，用户根本不知道文件丢了。
+  const missingRow = db
+    .prepare('SELECT id, missing_at FROM assets WHERE file_name = ?')
+    .get('分层图.psd') as { id: number; missing_at: string | null } | undefined
+  ok(stillThere.c === 1, '手动删除的文件，记录仍在（不再从索引摘除）')
+  ok(!!missingRow && missingRow.missing_at !== null, '并且被打上「文件已丢失」标记')
+  ok(s3.markedMissing === 1, `本轮扫描标记了 ${s3.markedMissing} 条丢失`)
   ok(s3.files >= 0, `重新扫描不报错（${s3.files} 个文件）`)
 
   // ============ A-11 准备（路径有效性） ============
@@ -622,7 +682,7 @@ async function main(): Promise<void> {
   // 12.2 造一张已知尺寸的图，扫描后元信息应一致
   const knownW = 137
   const knownH = 89
-  const metaPack = createPack({ name: '元信息测试包', workspaceRoot: WS })
+  const metaPack = mkPack({ name: '元信息测试包', workspaceRoot: WS })
   const metaImg = join(metaPack.folder_path, '01-成品', 'KnownSize.png')
   makePng(metaImg, knownW, knownH, [10, 200, 90])
 
@@ -746,7 +806,7 @@ async function main(): Promise<void> {
   }
 
   // 13.2 有 FFmpeg 时：造 2 秒 320x240 测试视频（ffmpeg 自己生成，格式绝对正确）
-  const videoPack = createPack({ name: '视频测试包', workspaceRoot: WS })
+  const videoPack = mkPack({ name: '视频测试包', workspaceRoot: WS })
   const vidPath = join(videoPack.folder_path, '01-成品', 'demo.mp4')
   let videoMade = false
   if (ffmpegReady()) {
@@ -884,7 +944,7 @@ async function main(): Promise<void> {
   const hasSample = existsSync(PSD_SAMPLE)
   log(`  （真实 PSD 样本：${hasSample ? '有 —— 访学证.psd' : '无 —— 跳过真实断言'}）`)
 
-  const psdPack = createPack({ name: 'PSD测试包', workspaceRoot: WS })
+  const psdPack = mkPack({ name: 'PSD测试包', workspaceRoot: WS })
   let sampleCopied = false
   if (hasSample) {
     const { copyFileSync } = require('fs') as typeof import('fs')
@@ -965,7 +1025,7 @@ async function main(): Promise<void> {
   // ============ 第 2 批 B-03：PDF 首页缩略图与页数 ============
   log('\n[15] 第 2 批 B-03：PDF 渲染 / 页数')
 
-  const pdfPack = createPack({ name: 'PDF测试包', workspaceRoot: WS })
+  const pdfPack = mkPack({ name: 'PDF测试包', workspaceRoot: WS })
   // 造一个 3 页 PDF
   const pdfPath = join(pdfPack.folder_path, '01-成品', '三页文档.pdf')
   makePdf(pdfPath, 3)
@@ -1455,7 +1515,7 @@ async function main(): Promise<void> {
   )
 
   // (4) 在 w5A 里造真实内容：一个包 + 两个文件 + 一个标签关联
-  const w5Pack = createPack({ name: '迁移测试包', workspaceRoot: w5A })
+  const w5Pack = mkPack({ name: '迁移测试包', workspaceRoot: w5A })
   writeFileSync(join(w5Pack.folder_path, '01-成品', 'a.txt'), 'hello', 'utf-8')
   writeFileSync(join(w5Pack.folder_path, '02-素材', 'b.txt'), 'world', 'utf-8')
   scanAll(w5A)
@@ -1704,20 +1764,20 @@ async function main(): Promise<void> {
 
   // (3) 建包落在项目文件夹下
   const w6Plan = listProjectsWithCount().find((p) => p.name === '海南升学规划中心')!
-  const w6PackA = createPack({ name: '招生海报', projectId: w6Plan.id, workspaceRoot: w6Ws })
+  const w6PackA = mkPack({ name: '招生海报', projectId: w6Plan.id, workspaceRoot: w6Ws })
   ok(
     w6PackA.folder_path === join(w6Ws, w6Plan.folder_name, '招生海报'),
     `包落在项目文件夹下：…\\${w6Plan.folder_name}\\招生海报`
   )
   const w6Camp = listProjectsWithCount().find((p) => p.name === '海南升学初三集训营')!
-  const w6PackB = createPack({ name: '招生海报', projectId: w6Camp.id, workspaceRoot: w6Ws })
+  const w6PackB = mkPack({ name: '招生海报', projectId: w6Camp.id, workspaceRoot: w6Ws })
   ok(
     w6PackB.folder_path === join(w6Ws, w6Camp.folder_name, '招生海报'),
     `【三级结构白送的好处】不同项目可以有同名包：…\\${w6Camp.folder_name}\\招生海报`
   )
   let w6Throw = ''
   try {
-    createPack({ name: '不该建成', projectId: 999999, workspaceRoot: w6Ws })
+    mkPack({ name: '不该建成', projectId: 999999, workspaceRoot: w6Ws })
   } catch (e) {
     w6Throw = (e as Error).message
   }
@@ -1963,8 +2023,1294 @@ async function main(): Promise<void> {
   const w6bMig2 = ensureLayoutV3(w6bWs)
   ok(!w6bMig2.migrated && w6bMig2.packs === 0, '再跑一次迁移：零改动（幂等）')
 
-  closeDb()
+// ============ 第 7 批 G-01：记录生命周期（方案 09） ============
+  log('\n[25] 第 7 批 G-01：记录生命周期（清理 / 编辑 / 归位 / 解绑 / 回收站 / 外键）')
+
   hardRm(w6bRoot)
+
+  const w7Root = join('D:\\_accept_ws', `wstest7_${RUN_ID}`)
+  const w7Ws = join(w7Root, 'ws')
+  mkdirSync(w7Ws, { recursive: true })
+
+  /**
+   * 数文件。这次**不跳过** `_回收站` / `_已解绑的项目` ——
+   * 铁则校验就是要看"东西被挪走之后还在不在"，跳过就没意义了。
+   * 只跳过软件私有的 `_system` / `_thumbs`（备份会产生新文件）。
+   */
+  function w7CountFiles(dir: string): number {
+    if (!existsSync(dir)) return 0
+    let n = 0
+    for (const name of readdirSync(dir)) {
+      if (name === '_system' || name === '_thumbs' || name.startsWith('.')) continue
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) n += w7CountFiles(p)
+      else n += 1
+    }
+    return n
+  }
+  const w7TagCount = (): number =>
+    (getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags').get() as { c: number }).c
+  const w7OrphanCount = (): number =>
+    (
+      getDb()
+        .prepare(
+          `SELECT COUNT(*) AS c FROM asset_tags at
+            WHERE at.asset_id NOT IN (SELECT id FROM assets)
+               OR at.tag_id   NOT IN (SELECT id FROM tags)`
+        )
+        .get() as { c: number }
+    ).c
+  const w7PackCount = (): number =>
+    (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
+
+  // (1) ⑥ asset_tags 补真外键（迁移 7）
+  closeDb()
+  openDb(w7Ws)
+  initWorkspace(w7Ws)
+
+  // 先把库造回"第 6 批的老样子"：没有外键的裸关联表 + 一条历史孤儿
+  getDb().exec('DROP TABLE asset_tags')
+  getDb().exec(
+    `CREATE TABLE asset_tags (
+       asset_id INTEGER NOT NULL,
+       tag_id   INTEGER NOT NULL,
+       PRIMARY KEY (asset_id, tag_id)
+     )`
+  )
+  getDb().prepare('INSERT INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(999999, 888888)
+  const w7FkBefore = getDb().prepare('PRAGMA foreign_key_list(asset_tags)').all() as Array<unknown>
+  ok(w7FkBefore.length === 0, '造场景：老的 asset_tags 一个外键都没有（第 6 批的老样子）')
+  ok(w7OrphanCount() === 1, '造场景：库里有一条指向不存在素材的孤儿标签关联')
+
+  closeDb()
+  openDb(w7Ws) // ← 触发迁移 7
+  const w7FkAfter = getDb().prepare('PRAGMA foreign_key_list(asset_tags)').all() as Array<{
+    table: string
+    on_delete: string
+  }>
+  ok(w7FkAfter.length === 2, `迁移 7 重建了 asset_tags：${w7FkAfter.length} 个外键`)
+  ok(
+    w7FkAfter.every((f) => f.on_delete === 'CASCADE'),
+    '两个外键都带 ON DELETE CASCADE'
+  )
+  ok(w7OrphanCount() === 0, '迁移 7 把历史孤儿清干净了')
+
+  // (2) 造数据：两个项目 + 一个带文件、带标签的包
+  const w7A = createProject({ name: '生命周期-A', workspaceRoot: w7Ws })
+  const w7B = createProject({ name: '生命周期-B', workspaceRoot: w7Ws })
+  ok(w7A.ok && w7B.ok, '建两个项目（磁盘上立刻有同名文件夹）')
+  const w7ProjA = w7A.project!
+  const w7ProjB = w7B.project!
+
+  const w7Pack0 = mkPack({ name: '包甲', projectId: w7ProjA.id, workspaceRoot: w7Ws })
+  const w7PackId = w7Pack0.id
+  const w7Path0 = w7Pack0.folder_path
+  writeFileSync(join(w7Path0, '01-成品', '成品-甲.png'), 'a', 'utf-8')
+  writeFileSync(join(w7Path0, '02-素材', '素材-甲.txt'), 'b', 'utf-8')
+  writeFileSync(join(w7Path0, '随手丢.txt'), 'c', 'utf-8')
+  scanAll(w7Ws)
+  const w7PackAssets = getDb()
+    .prepare('SELECT id FROM assets WHERE pack_id = ?')
+    .all(w7PackId) as Array<{ id: number }>
+  ok(w7PackAssets.length === 3, `包甲登记了 ${w7PackAssets.length} 条素材`)
+
+  const w7Dim = listTagDimensions()[0]
+  applyTags({ assetIds: w7PackAssets.map((a) => a.id), tagIds: [w7Dim.tags[0].id] })
+  const w7Tags0 = w7TagCount()
+  ok(w7Tags0 === 3, `给 3 条素材贴了标签（asset_tags 共 ${w7Tags0} 行）`)
+
+  // 外键级联：删一条素材 → 它的标签关联跟着走
+  const w7VictimAsset = w7PackAssets[0].id
+  getDb().prepare('DELETE FROM assets WHERE id = ?').run(w7VictimAsset)
+  ok(w7TagCount() === w7Tags0 - 1, '【外键】删一条素材，它的标签关联同步消失')
+  ok(w7OrphanCount() === 0, '【外键】没有产生孤儿行')
+  // 重新贴回来，方便后面继续用
+  applyTags({ assetIds: w7PackAssets.slice(1).map((a) => a.id), tagIds: [w7Dim.tags[0].id] })
+  const w7TagsBase = w7TagCount()
+  const w7FilesBase = w7CountFiles(w7Ws)
+
+  // (3) ② 只改类别 → 纯数据，不碰磁盘
+  const w7R1 = updatePack(w7PackId, { category: '折页' }, w7Ws)
+  ok(w7R1.ok && !w7R1.moved, '只改类别：成功且没有动磁盘')
+  ok(
+    (getDb().prepare('SELECT folder_path FROM packs WHERE id = ?').get(w7PackId) as {
+      folder_path: string
+    }).folder_path === w7Path0 &&
+      existsSync(w7Path0),
+    '只改类别：文件夹还在原位'
+  )
+  ok(
+    (getDb().prepare('SELECT category FROM packs WHERE id = ?').get(w7PackId) as {
+      category: string
+    }).category === '折页',
+    '类别落库了'
+  )
+
+  // (4) ② 改名称 → 包文件夹连带改名
+  const w7R2 = updatePack(w7PackId, { name: '包甲-改名' }, w7Ws)
+  ok(w7R2.ok && !!w7R2.moved, '改名称：连带改了文件夹')
+  ok(!existsSync(w7Path0), '旧文件夹已经不在了')
+  const w7Path1 = join(w7Ws, w7ProjA.folder_name, '包甲-改名')
+  ok(existsSync(w7Path1), '新文件夹出现在项目文件夹下')
+  ok(
+    existsSync(join(w7Path1, '01-成品', '成品-甲.png')) &&
+      existsSync(join(w7Path1, '02-素材', '素材-甲.txt')),
+    '改名后文件一个不少（含子文件夹层级）'
+  )
+  const w7AssetPaths1 = getDb()
+    .prepare('SELECT abs_path FROM assets WHERE pack_id = ?')
+    .all(w7PackId) as Array<{ abs_path: string }>
+  ok(
+    w7AssetPaths1.every((a) => a.abs_path.toLowerCase().startsWith(w7Path1.toLowerCase())),
+    '库里所有素材路径都指向新文件夹'
+  )
+  ok(w7TagCount() === w7TagsBase, `改名前后标签关联条数不变（${w7TagsBase}）`)
+  ok(w7CountFiles(w7Ws) === w7FilesBase, '改名前后磁盘文件数不变')
+
+  // (5) ② 改项目 → 包文件夹搬进目标项目
+  const w7R3 = updatePack(w7PackId, { projectId: w7ProjB.id }, w7Ws)
+  ok(w7R3.ok && !!w7R3.moved, '改项目：搬了文件夹')
+  const w7Path2 = join(w7Ws, w7ProjB.folder_name, '包甲-改名')
+  ok(existsSync(w7Path2), `包搬到「${w7ProjB.name}」的项目文件夹下`)
+  ok(!existsSync(w7Path1), '原项目文件夹下已经没有了')
+  ok(
+    (getDb().prepare('SELECT project_id FROM packs WHERE id = ?').get(w7PackId) as {
+      project_id: number
+    }).project_id === w7ProjB.id,
+    'packs.project_id 已更新'
+  )
+  ok(w7TagCount() === w7TagsBase, '搬项目前后标签关联条数不变')
+  ok(w7CountFiles(w7Ws) === w7FilesBase, '搬项目前后磁盘文件数不变')
+
+  // (6) ② 目标位置重名 → 自动 -2，不覆盖
+  const w7Dup1 = mkPack({ name: '重名测试', projectId: w7ProjB.id, workspaceRoot: w7Ws })
+  const w7Dup2 = mkPack({ name: '重名测试-临时', projectId: w7ProjB.id, workspaceRoot: w7Ws })
+  const w7RDup = updatePack(w7Dup2.id, { name: '重名测试' }, w7Ws)
+  ok(w7RDup.ok && !!w7RDup.moved, '改名撞上已有同名包：照样成功')
+  ok(
+    basename(w7RDup.moved!.to) === '重名测试-2',
+    `自动加了后缀、没覆盖别人：${basename(w7RDup.moved!.to)}`
+  )
+  ok(existsSync(w7Dup1.folder_path), '原来那个同名包的文件夹还在')
+
+  // (7) ③ 待归类归位：游离包（没项目）→ 选项目 → 搬进项目文件夹
+  mkdirSync(join(w7Ws, '游离-测试', '01-成品'), { recursive: true })
+  writeFileSync(join(w7Ws, '游离-测试', '01-成品', '游离成品.txt'), 'x', 'utf-8')
+  scanAll(w7Ws)
+  const w7Loose = listPacks().find((p) => p.name === '游离-测试')!
+  ok(!!w7Loose && w7Loose.project_id === null, '根目录下游离的包被登记为「待归类」（project_id = null）')
+  const w7FilesBeforeHome = w7CountFiles(w7Ws)
+  const w7RHome = updatePack(w7Loose.id, { projectId: w7ProjA.id }, w7Ws)
+  ok(w7RHome.ok, '归位成功')
+  ok(
+    existsSync(join(w7Ws, w7ProjA.folder_name, '游离-测试')),
+    `游离包已搬进「${w7ProjA.name}」的项目文件夹`
+  )
+  ok(!existsSync(join(w7Ws, '游离-测试')), '工作区根目录下已经没有它了')
+  ok(
+    (getDb().prepare('SELECT project_id FROM packs WHERE id = ?').get(w7Loose.id) as {
+      project_id: number
+    }).project_id === w7ProjA.id,
+    '归位后 project_id 有值了'
+  )
+  ok(w7CountFiles(w7Ws) === w7FilesBeforeHome, '归位前后磁盘文件数不变')
+
+  // (8) ④ 解绑：软件里隐身、本地全留、可还原
+  const w7FilesBeforeUnbind = w7CountFiles(w7Ws)
+  const w7TagsBeforeUnbind = w7TagCount()
+  const w7PacksOfA = listPacks().filter((p) => p.project_id === w7ProjA.id).map((p) => p.id)
+  // 注意：包甲在第 (5) 步已经搬到 B 了，所以此时 A 名下只剩刚归位进来的「游离-测试」
+  ok(w7PacksOfA.length === 1, `项目「${w7ProjA.name}」下有 ${w7PacksOfA.length} 个包`)
+
+  const w7RUnbind = unbindProject(w7ProjA.id, w7Ws)
+  ok(w7RUnbind.ok && w7RUnbind.packs === 1, `解绑成功：带走了 ${w7RUnbind.packs} 个包`)
+  ok(
+    (getDb().prepare('SELECT archived FROM projects WHERE id = ?').get(w7ProjA.id) as {
+      archived: number
+    }).archived === 1,
+    '项目标记为 archived = 1'
+  )
+  ok(
+    existsSync(join(w7Ws, UNBOUND_DIR, w7ProjA.folder_name)),
+    `项目文件夹搬进了 ${UNBOUND_DIR}（本地文件全在）`
+  )
+  ok(!existsSync(join(w7Ws, w7ProjA.folder_name)), '工作区根目录下已经看不到它')
+  ok(
+    listPacks().every((p) => p.project_id !== w7ProjA.id),
+    '【隐身】包视图里看不到这个项目的包'
+  )
+  ok(
+    listAssets({ projectId: w7ProjA.id }).length === 0,
+    '【隐身】文件视图里也筛不出它的素材'
+  )
+  ok(
+    listProjectsWithCount().every((p) => p.id !== w7ProjA.id),
+    '【隐身】左栏项目列表里没有它'
+  )
+  const w7UnboundList = listUnboundProjects()
+  const w7UnboundA = w7UnboundList.find((p) => p.id === w7ProjA.id)!
+  ok(!!w7UnboundA, '「已解绑」清单里有它')
+  ok(w7UnboundA.packCount === 1, `清单里的包数对得上（${w7UnboundA.packCount}）`)
+  ok(w7UnboundA.fileCount > 0 && w7UnboundA.totalSize > 0, '清单里带了文件数与占用（左栏入口要显示）')
+  ok(w7CountFiles(w7Ws) === w7FilesBeforeUnbind, '解绑前后磁盘文件数不变（一个都没少）')
+  ok(w7TagCount() === w7TagsBeforeUnbind, '解绑前后标签关联条数不变')
+
+  // 回归钉子（界面验证抓出来的）：每个 IPC 调用前都会跑一遍 initWorkspace → syncProjectFolders，
+  // 它绝不能给已解绑的项目在根目录重建出一个空壳文件夹 ——
+  // 空壳一旦出现，「还原」就会被自己建的空壳挡住（restoreProject 见根目录同名就拒绝）。
+  initWorkspace(w7Ws)
+  ok(
+    !existsSync(join(w7Ws, w7ProjA.folder_name)),
+    '【回归】initWorkspace 之后根目录没有给已解绑项目重建空壳文件夹'
+  )
+  ok(
+    existsSync(join(w7Ws, UNBOUND_DIR, w7ProjA.folder_name)),
+    '【回归】它的文件夹仍安稳躺在 _已解绑的项目 里'
+  )
+
+  // 还原
+  const w7RRestore = restoreProject(w7ProjA.id, w7Ws)
+  ok(w7RRestore.ok, '还原成功')
+  ok(existsSync(join(w7Ws, w7ProjA.folder_name)), '项目文件夹搬回了工作区根目录')
+  ok(!existsSync(join(w7Ws, UNBOUND_DIR, w7ProjA.folder_name)), `${UNBOUND_DIR} 里已经空了`)
+  ok(
+    listPacks().filter((p) => p.project_id === w7ProjA.id).length === 1,
+    '【回来了】包视图又能看到这个项目的包'
+  )
+  ok(
+    listAssets({ projectId: w7ProjA.id }).length > 0,
+    '【回来了】文件视图又能筛出它的素材'
+  )
+  ok(w7CountFiles(w7Ws) === w7FilesBeforeUnbind, '还原前后磁盘文件数不变')
+  ok(w7TagCount() === w7TagsBeforeUnbind, '还原前后标签关联条数不变')
+
+  // 拒绝解绑最后一个项目
+  let w7Active = listProjectsWithCount()
+  while (w7Active.length > 1) {
+    const r = unbindProject(w7Active[0].id, w7Ws)
+    if (!r.ok) break
+    w7Active = listProjectsWithCount()
+  }
+  const w7LastUnbind = unbindProject(w7Active[0].id, w7Ws)
+  ok(!w7LastUnbind.ok, `拒绝解绑最后一个项目：${w7LastUnbind.error}`)
+
+  // (9) ⑤ 删除进回收站：记录删掉、文件夹进 _回收站、文件一个不少
+  const w7C = createProject({ name: '生命周期-C', workspaceRoot: w7Ws })
+  const w7ProjC = w7C.project!
+  const w7PackC = mkPack({ name: '包丙', projectId: w7ProjC.id, workspaceRoot: w7Ws })
+  writeFileSync(join(w7PackC.folder_path, '01-成品', '丙-成品.txt'), 'p', 'utf-8')
+  writeFileSync(join(w7Ws, w7ProjC.folder_name, '手工丢的说明.txt'), 'q', 'utf-8')
+  scanAll(w7Ws)
+  const w7CGroupFiles = w7CountFiles(w7Ws)
+  const w7TagsBeforeTrash = w7TagCount()
+
+  const w7RTrash = removeProject(w7ProjC.id, { moveTo: null, toTrash: true }, w7Ws)
+  ok(w7RTrash.ok && !!w7RTrash.toTrashPath, '删进回收站：成功')
+  ok(
+    existsSync(join(w7Ws, TRASH_DIR, w7ProjC.folder_name)),
+    `整个项目文件夹搬进了 ${TRASH_DIR}`
+  )
+  ok(!existsSync(join(w7Ws, w7ProjC.folder_name)), '原位已经没有它了')
+  ok(
+    listProjectsWithCount().every((p) => p.id !== w7ProjC.id),
+    '项目记录已从软件里消失'
+  )
+  ok(
+    listPacks().every((p) => p.id !== w7PackC.id),
+    `包记录也删掉了（${w7RTrash.deletedPacks} 个）`
+  )
+  ok(
+    existsSync(join(w7Ws, TRASH_DIR, w7ProjC.folder_name!, '手工丢的说明.txt')),
+    '【铁则】连没进过扫描的手工文件也跟着搬进回收站了'
+  )
+  ok(w7CountFiles(w7Ws) === w7CGroupFiles, '删除前后磁盘文件数不变（一个都没少）')
+  ok(w7TagCount() === w7TagsBeforeTrash, '删除前后标签关联条数不变')
+  ok(w7OrphanCount() === 0, '删除项目后 asset_tags 里没有孤儿行')
+
+  // 老分支行为不变：不指定项目 → 包变「待归类」，文件都在
+  const w7D = createProject({ name: '生命周期-D', workspaceRoot: w7Ws })
+  const w7ProjD = w7D.project!
+  const w7PackD = mkPack({ name: '包丁', projectId: w7ProjD.id, workspaceRoot: w7Ws })
+  writeFileSync(join(w7PackD.folder_path, '02-素材', '丁-素材.txt'), 'd', 'utf-8')
+  scanAll(w7Ws)
+  const w7DGroups = w7CountFiles(w7Ws)
+  const w7RD = removeProject(w7ProjD.id, { moveTo: null }, w7Ws)
+  ok(w7RD.ok && w7RD.movedToRoot === true, '老分支（变成待归类）行为不变')
+  ok(
+    existsSync(join(w7Ws, '包丁')) && !existsSync(join(w7Ws, w7ProjD.folder_name)),
+    '包文件夹搬回了工作区根目录 = 待归类'
+  )
+  ok(
+    (getDb().prepare('SELECT project_id FROM packs WHERE id = ?').get(w7PackD.id) as {
+      project_id: number | null
+    }).project_id === null,
+    '它的 project_id 变成 NULL 了'
+  )
+  ok(w7CountFiles(w7Ws) === w7DGroups, '磁盘文件数不变')
+
+  // (10) ① 包记录自动清理
+  // 注意：这里必须用一个**新建的、没被解绑的**项目 —— 不能复用 A（前面的拒绝解绑测试
+  // 把它解绑了，而解绑项目的包是豁免清理的，会验不到真正的清理路径）
+  const w7ProjG = createProject({ name: '生命周期-G', workspaceRoot: w7Ws }).project!
+  const w7PackE = mkPack({ name: '包戊', projectId: w7ProjG.id, workspaceRoot: w7Ws })
+  writeFileSync(join(w7PackE.folder_path, '01-成品', '戊.txt'), 'e', 'utf-8')
+  scanAll(w7Ws)
+  const w7PacksBeforeClean = w7PackCount()
+  hardRm(w7PackE.folder_path) // 模拟"用户在资源管理器里把包文件夹删了"
+  const w7Scan1 = scanAll(w7Ws)
+  ok(w7Scan1.cleanedPacks === 1, `刷新扫描摘掉了 ${w7Scan1.cleanedPacks} 条失效的包记录`)
+  ok(w7PackCount() === w7PacksBeforeClean - 1, '包记录确实少了一条')
+  ok(
+    !existsSync(w7PackE.folder_path) && listPacks().every((p) => p.id !== w7PackE.id),
+    '这个包已经不在界面数据里了'
+  )
+  const w7BackupDir = join(w7Ws, '_system', 'backup')
+  const w7PackJson = readdirSync(w7BackupDir).filter((f) => f.startsWith('packs-'))
+  ok(w7PackJson.length > 0, `清理前留了痕：_system/backup/${w7PackJson[0]}`)
+  ok(
+    readFileSync(join(w7BackupDir, w7PackJson[w7PackJson.length - 1]), 'utf-8').includes('包戊'),
+    '留痕文件里能查到被清掉的包名'
+  )
+  const w7Scan2 = scanAll(w7Ws)
+  ok(w7Scan2.cleanedPacks === 0, '再扫一次：零改动（幂等）')
+
+  // 安全阀：根目录读不到 → 一条都不清
+  const w7PacksBeforeGhost = w7PackCount()
+  const w7GhostScan = scanAll(join('D:\\_accept_ws', 'w7-not-mounted'))
+  ok(w7GhostScan.cleanedPacks === 0, '【安全阀】根目录读失败时不做清理判定')
+  ok(w7PackCount() === w7PacksBeforeGhost, '【安全阀】包记录一条没少')
+  ok(w7OrphanCount() === 0, '【安全阀】素材记录也没被牵连')
+  ok(
+    cleanupMissingPacks(w7Ws, false) === 0,
+    '【安全阀】直接把 rootReadable 传 false：清理函数一条都不清'
+  )
+
+  // 豁免：解绑项目的包，就算文件夹被人挪走也不清记录（那是留底）
+  const w7ProjF = createProject({ name: '生命周期-F', workspaceRoot: w7Ws }).project!
+  const w7PackF = mkPack({ name: '包己', projectId: w7ProjF.id, workspaceRoot: w7Ws })
+  scanAll(w7Ws)
+  unbindProject(w7ProjF.id, w7Ws)
+  hardRm(join(w7Ws, UNBOUND_DIR, w7ProjF.folder_name))
+  const w7Scan3 = scanAll(w7Ws)
+  ok(w7Scan3.cleanedPacks === 0, `【豁免】解绑项目的包文件夹没了，记录依然保留（留底）`)
+  ok(
+    getDb().prepare('SELECT id FROM packs WHERE id = ?').get(w7PackF.id) !== undefined,
+    '包「包己」的记录还在'
+  )
+
+  // (11) 第 7 批补：左栏标签计数口径
+  //      用户实测反馈两件事：① 这个数字以前是全库口径，选了项目后跟点开的条数对不上
+  //      ② 解绑项目后数字不减少 —— 属第 7 批「解绑后软件里全隐身」的漏网点
+  //      （listTagDimensions 是全项目唯一没过滤 archived 的地方）。
+  //      用户拍板：数字跟随当前项目范围；0 条的标签仍列出（置灰，界面层）。
+  log('\n[26] 第 7 批补：标签计数口径（跟随项目 / 排除已解绑）')
+  const tcA = createProject({ name: '计数-甲', workspaceRoot: w7Ws }).project!
+  const tcB = createProject({ name: '计数-乙', workspaceRoot: w7Ws }).project!
+  const tcPackA = mkPack({ name: '计数包甲', projectId: tcA.id, workspaceRoot: w7Ws })
+  const tcPackB = mkPack({ name: '计数包乙', projectId: tcB.id, workspaceRoot: w7Ws })
+  writeFileSync(join(tcPackA.folder_path, '01-成品', '甲1.png'), 'x', 'utf-8')
+  writeFileSync(join(tcPackA.folder_path, '01-成品', '甲2.png'), 'x', 'utf-8')
+  writeFileSync(join(tcPackB.folder_path, '01-成品', '乙1.png'), 'x', 'utf-8')
+  scanAll(w7Ws)
+
+  // 用一个专属标签，避免被前面几组老测试贴过的「海报」污染（否则"不重不漏"等式不成立）
+  const tcTagRes = createTag({ dimension: 'category', name: '计数专用标签' })
+  ok(tcTagRes.ok && !!tcTagRes.tag, '【布景】建了专属标签，计数不受老数据干扰')
+  const tcTagId = tcTagRes.tag!.id
+  const tcDim = (scope?: { projectId?: number | null }): DimensionGroup =>
+    listTagDimensions(scope).find((d) => d.key === 'category')!
+  const tcCount = (scope?: { projectId?: number | null }): number =>
+    tcDim(scope).tags.find((t) => t.id === tcTagId)!.assetCount
+  const tcListed = (): number => listAssets({ tagIds: [tcTagId] }).length
+
+  applyTags({
+    assetIds: listAssets({ packId: tcPackA.id }).map((a) => a.id),
+    tagIds: [tcTagId]
+  })
+  applyTags({
+    assetIds: listAssets({ packId: tcPackB.id }).map((a) => a.id),
+    tagIds: [tcTagId]
+  })
+
+  ok(
+    tcCount({ projectId: tcA.id }) === 2,
+    `【口径=素材条数·按项目】「计数-甲」下标签数字 ${tcCount({ projectId: tcA.id })}（该包 2 个文件都打了）`
+  )
+  ok(
+    tcCount({ projectId: tcB.id }) === 1,
+    `【按项目】「计数-乙」下标签数字 ${tcCount({ projectId: tcB.id })}（该包 1 个文件）`
+  )
+  // 用户当初就是这里对不上：数字是全库、点开只有本项目那几条
+  ok(
+    tcCount({ projectId: tcA.id }) ===
+      listAssets({ filterProjectIds: [tcA.id], tagIds: [tcTagId] }).length,
+    '【一致】选「计数-甲」时：标签数字 == 点开后真列出的条数'
+  )
+
+  // 「待归类」= 没挂项目的包里的素材，不能把工作区根目录的散文件（未归属池）算进来
+  const tcLooseBefore = tcCount({ projectId: null })
+  const tcLooseIds = new Set(listPacks().filter((p) => p.project_id === null).map((p) => p.id))
+  ok(
+    tcCount({ projectId: null }) ===
+      listAssets({ tagIds: [tcTagId] }).filter(
+        (a) => a.pack_id !== null && tcLooseIds.has(a.pack_id)
+      ).length,
+    '【口径=待归类】只算没挂项目的包里的素材'
+  )
+  const tcAllBefore = tcCount()
+  writeFileSync(join(w7Ws, '散落的海报.png'), 'x', 'utf-8')
+  scanAll(w7Ws)
+  const tcStray = listAssets({ keyword: '散落的海报' })
+  ok(tcStray.length === 1 && tcStray[0].pack_id === null, '散文件进了「未归属」（没挂任何包）')
+  applyTags({ assetIds: tcStray.map((a) => a.id), tagIds: [tcTagId] })
+  ok(tcCount({ projectId: null }) === tcLooseBefore, '【待归类】根目录散文件不增加「待归类」的数字')
+  ok(tcCount() === tcAllBefore + 1, `【全库】但它算进「全部」（${tcAllBefore} → ${tcCount()}）`)
+  const tcStrayCount = (): number =>
+    listAssets({ tagIds: [tcTagId] }).filter((a) => a.pack_id === null).length
+  ok(
+    tcCount() ===
+      tcCount({ projectId: tcA.id }) +
+        tcCount({ projectId: tcB.id }) +
+        tcCount({ projectId: null }) +
+        tcStrayCount(),
+    '【不重不漏】全库 = 甲 + 乙 + 待归类 + 未归属散文件'
+  )
+
+  // 【回归钉子】解绑项目后各口径数字必须立刻跟着减少（原来的 bug：数字纹丝不动）
+  const tcAllPreUnbind = tcCount()
+  const tcListedPreUnbind = tcListed()
+  unbindProject(tcB.id, w7Ws)
+  ok(
+    tcCount() === tcAllPreUnbind - 1,
+    `【回归】解绑「计数-乙」后全库数字跟着减 1（${tcAllPreUnbind} → ${tcCount()}）`
+  )
+  ok(tcListed() === tcListedPreUnbind - 1, '解绑后点开列出的条数也同步减 1')
+  ok(tcCount() === tcListed(), '【一致】解绑后：数字与列出的条数仍然相等')
+  ok(
+    tcCount({ projectId: tcB.id }) === 0,
+    '【隐身】已解绑的项目按它自己的范围查是 0（套进 scope 也不会漏出来）'
+  )
+
+  // ============ 第 8 批 H-01：文件已丢失标记（M8-03）============
+  log('\n[27] 第 8 批 H-01：文件已丢失标记 + 重新定位（M8-03）')
+
+  const w8Root = join('D:\\_accept_ws', `wstest8_${RUN_ID}`)
+  const w8Ws = join(w8Root, 'ws')
+  hardRm(w8Root)
+  mkdirSync(w8Ws, { recursive: true })
+  closeDb()
+  openDb(w8Ws)
+  initWorkspace(w8Ws)
+
+  const w8Row = <T,>(sql: string, ...args: unknown[]): T =>
+    getDb().prepare(sql).get(...args) as T
+  const w8Num = (sql: string, ...args: unknown[]): number =>
+    (getDb().prepare(sql).get(...args) as { c: number }).c
+  const w8AssetOf = (
+    name: string
+  ): { id: number; missing_at: string | null; size: number } =>
+    w8Row<{ id: number; missing_at: string | null; size: number }>(
+      'SELECT id, missing_at, size FROM assets WHERE file_name = ?',
+      name
+    )
+  const w8MissingCount = (): number =>
+    w8Num('SELECT COUNT(*) AS c FROM assets WHERE missing_at IS NOT NULL')
+  const w8TagsOf = (name: string): number =>
+    w8Num(
+      `SELECT COUNT(*) AS c FROM asset_tags at
+        JOIN assets a ON a.id = at.asset_id
+       WHERE a.file_name = ?`,
+      name
+    )
+
+  const w8ProjA = createProject({ name: '丢失-甲', workspaceRoot: w8Ws }).project!
+  const w8ProjB = createProject({ name: '丢失-乙', workspaceRoot: w8Ws }).project!
+  const w8PackA = mkPack({ name: '丢失包甲', projectId: w8ProjA.id, workspaceRoot: w8Ws })
+  const w8PackB = mkPack({ name: '丢失包乙', projectId: w8ProjB.id, workspaceRoot: w8Ws })
+
+  const w8F1 = join(w8PackA.folder_path, '01-成品', '甲-成品.png')
+  const w8F2 = join(w8PackA.folder_path, '02-素材', '甲-素材.psd')
+  const w8F3 = join(w8PackB.folder_path, '01-成品', '乙-成品.png')
+  const w8Stray = join(w8Ws, '散落.png')
+  writeFileSync(w8F1, 'AAAAAAAA', 'utf-8')
+  writeFileSync(w8F2, 'BBBB', 'utf-8')
+  writeFileSync(w8F3, 'CCCC', 'utf-8')
+  writeFileSync(w8Stray, 'DDDD', 'utf-8')
+  scanAll(w8Ws)
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets') === 4,
+    `【布景】登记 4 个文件（甲包 2 / 乙包 1 / 根目录散文件 1）`
+  )
+
+  // ---- (1) 标记：文件丢了，记录不删 ----
+  const w8TagRes = createTag({ dimension: 'category', name: '丢失专用标签' })
+  const w8TagId = w8TagRes.tag!.id
+  const w8F1Id = w8AssetOf('甲-成品.png').id
+  applyTags({ assetIds: [w8F1Id], tagIds: [w8TagId] })
+  ok(w8TagsOf('甲-成品.png') === 1, '【布景】给「甲-成品.png」贴了一个标签')
+
+  hardRm(w8F1) // 模拟"用户在资源管理器里把文件删了 / 挪走了"
+  const w8ScanA = scanAll(w8Ws)
+  ok(w8ScanA.markedMissing === 1, `删掉文件后扫描标记了 ${w8ScanA.markedMissing} 条`)
+  const w8AfterMark = w8AssetOf('甲-成品.png')
+  ok(!!w8AfterMark && w8AfterMark.id === w8F1Id, '【核心】记录仍在且 id 没变（不再删记录）')
+  ok(w8AfterMark.missing_at !== null, `【核心】打上了「文件已丢失」标记：${w8AfterMark.missing_at}`)
+  ok(
+    w8TagsOf('甲-成品.png') === 1,
+    '【核心收益】标签关联一条没少（老实现里记录一删，CASCADE 把它一起带走了）'
+  )
+  ok(w8MissingCount() === 1, '全库丢失条数 = 1，没有牵连别的文件')
+  ok(w8AssetOf('甲-素材.psd').missing_at === null, '同包其它文件正常，没被误标')
+  ok(
+    listAssets({}).length === 4,
+    '【口径】丢失的素材仍出现在列表里（记录还在，只是带标记）'
+  )
+
+  // ---- (2) 重复扫描不刷新丢失时刻 ----
+  const w8Stamp = w8AfterMark.missing_at
+  const w8ScanB = scanAll(w8Ws)
+  ok(w8ScanB.markedMissing === 0, '再扫一次：不重复标记')
+  ok(
+    w8AssetOf('甲-成品.png').missing_at === w8Stamp,
+    '【细节】丢失时刻保持不变（保留"第一次发现"的时间，不被刷新）'
+  )
+
+  // ---- (3) 文件回来 → 自动清标记 ----
+  writeFileSync(w8F1, 'AAAAAAAABBBB', 'utf-8') // 内容换了、大小也变了
+  const w8ScanC = scanAll(w8Ws)
+  ok(w8ScanC.restored === 1, `文件放回来：扫描恢复了 ${w8ScanC.restored} 条`)
+  const w8Back = w8AssetOf('甲-成品.png')
+  ok(w8Back.missing_at === null, '丢失标记自动清空（不用用户手动"取消丢失"）')
+  ok(w8Back.size === 12, `大小跟着刷新成新值 ${w8Back.size} 字节`)
+  ok(w8Back.id === w8F1Id && w8TagsOf('甲-成品.png') === 1, 'id 与标签关联都还在')
+
+  // ---- (4) 门四：包文件夹整个被删 → 走包清理，连带摘素材 ----
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w8PackA.id) === 2,
+    '【布景】「丢失包甲」名下 2 条素材记录'
+  )
+  hardRm(w8PackA.folder_path)
+  const w8ScanD = scanAll(w8Ws)
+  ok(w8ScanD.cleanedPacks === 1, '包文件夹整个删掉 → 走的是包清理（摘了 1 条包记录）')
+  ok(w8ScanD.markedMissing === 0, '【门四】包内素材不会被标成「已丢失」（用户删的是整包）')
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w8PackA.id) === 0,
+    '包内素材记录跟着一起摘掉了'
+  )
+  ok(
+    w8Num(
+      `SELECT COUNT(*) AS c FROM assets WHERE pack_id IS NULL AND role <> ?`,
+      UNASSIGNED_ROLE
+    ) === 0,
+    '【关键】没有 pack_id 悬空的孤儿素材（光删包记录会留一地）'
+  )
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets') === 2,
+    `库里只剩乙包 1 条 + 根目录散文件 1 条（当前 ${w8Num('SELECT COUNT(*) AS c FROM assets')} 条）`
+  )
+
+  const w8BackupDir = join(w8Ws, '_system', 'backup')
+  const w8BackupFiles = existsSync(w8BackupDir)
+    ? readdirSync(w8BackupDir).filter((f) => f.endsWith('.json'))
+    : []
+  ok(w8BackupFiles.length === 1, '摘记录前留痕，生成了一份备份 JSON')
+  const w8Backup = JSON.parse(
+    readFileSync(join(w8BackupDir, w8BackupFiles[0]), 'utf-8')
+  ) as { records: Array<{ files?: string[] }> }
+  ok(
+    Array.isArray(w8Backup.records?.[0]?.files) && w8Backup.records[0].files!.length === 2,
+    `【留痕】包里当时有哪两个文件，JSON 里查得到：${JSON.stringify(w8Backup.records?.[0]?.files)}`
+  )
+
+  // ---- (5) 门三：解绑项目的文件"从扫描范围消失"，但不许标丢失 ----
+  const w8Unbind = unbindProject(w8ProjB.id, w8Ws)
+  ok(w8Unbind.ok, '【布景】解绑「丢失-乙」（文件夹搬进 _已解绑的项目）')
+  const w8ScanE = scanAll(w8Ws)
+  ok(w8ScanE.markedMissing === 0, '【门三】解绑当天：一条都不许标丢失')
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w8PackB.id) === 1,
+    '解绑项目的素材记录原样保留'
+  )
+  ok(w8AssetOf('乙-成品.png').missing_at === null, '它的丢失标记仍是 NULL')
+  ok(restoreProject(w8ProjB.id, w8Ws).ok, '【布景】再还原回来')
+  ok(scanAll(w8Ws).markedMissing === 0, '还原后扫描也不误标')
+
+  // ---- (6) 门一：根目录读不到（移动硬盘拔了）→ 一条都不许标 ----
+  // 真窗口里没法模拟"拔硬盘"（连 rename 工作区根都会被 SQLite 的文件句柄拦成 EPERM，实测过），
+  // 所以第 5 步抽成了 markMissingAssets(rootReadable)，直接喂 false 验这道门。
+  const w8Guard = markMissingAssets(false)
+  ok(
+    w8Guard.markedMissing === 0 && w8Guard.restored === 0,
+    '【门一・安全阀】rootReadable=false 时一条都不标、一条都不恢复'
+  )
+  ok(w8MissingCount() === 0, '库里没有任何记录被误标')
+  // 端到端再来一遍：扫一个根本不存在的根目录
+  const w8GhostScan = scanAll(join(w8Root, 'not-mounted-at-all'))
+  ok(
+    w8GhostScan.files === 0 && w8GhostScan.markedMissing === 0 && w8MissingCount() === 0,
+    '扫一个根本不存在的根目录：不报错、0 个文件、记录一条没动'
+  )
+  ok(scanAll(w8Ws).markedMissing === 0, '回到真目录再扫，一切正常')
+
+  // ---- (7) 根目录散文件丢了照样标记（没有包保护） ----
+  hardRm(w8Stray)
+  ok(scanAll(w8Ws).markedMissing === 1, '根目录散文件丢了也标记（它没有所属包）')
+  ok(w8AssetOf('散落.png').missing_at !== null, '散文件的记录仍在、带标记')
+
+  // ---- (8) 重新定位：单条 ----
+  const w8Park = join(w8Ws, '临时停放')
+  mkdirSync(w8Park, { recursive: true })
+  const w8StrayId = w8AssetOf('散落.png').id
+  const w8StrayHome = join(w8Park, '散落.png')
+  writeFileSync(w8StrayHome, 'DDDD', 'utf-8') // 与记录同大小
+  const w8Reloc = relocateAsset(w8StrayId, w8StrayHome, w8Ws)
+  ok(w8Reloc.ok, `单条重新定位成功 → ${w8Reloc.relPath}`)
+  const w8StrayAfter = w8AssetOf('散落.png')
+  ok(w8StrayAfter.missing_at === null, '丢失标记清空')
+  ok(w8StrayAfter.id === w8StrayId, 'id 没变（标签 / 缩略图等关联全保留）')
+  ok(
+    w8Row<{ rel_path: string }>('SELECT rel_path FROM assets WHERE id = ?', w8StrayId).rel_path.startsWith(
+      '临时停放'
+    ),
+    'rel_path 重算成了新位置'
+  )
+  ok(scanAll(w8Ws).markedMissing === 0, '【幂等】重新定位后再扫描，不会被重新标成丢失')
+
+  // ---- (9) 校验：文件名 / 大小 / 工作区边界，三道都要拦住 ----
+  const w8ProjC = createProject({ name: '丢失-丙', workspaceRoot: w8Ws }).project!
+  const w8PackC = mkPack({ name: '丢失包丙', projectId: w8ProjC.id, workspaceRoot: w8Ws })
+  const w8F4 = join(w8PackC.folder_path, '01-成品', '丙-成品.png')
+  writeFileSync(w8F4, 'EEEEEEEE', 'utf-8') // 8 字节
+  scanAll(w8Ws)
+  hardRm(w8F4)
+  ok(scanAll(w8Ws).markedMissing === 1, '【布景】丙包的文件被挪走了（8 字节的记录）')
+  const w8F4Id = w8AssetOf('丙-成品.png').id
+
+  const w8Outside = join(w8Root, '丙-成品.png') // 工作区外（w8Ws 的上一级）
+  writeFileSync(w8Outside, 'EEEEEEEE', 'utf-8')
+  const w8OutTry = relocateAsset(w8F4Id, w8Outside, w8Ws)
+  ok(
+    !w8OutTry.ok && (w8OutTry.error ?? '').includes('工作区外面'),
+    `【边界】工作区外的文件被拒：${w8OutTry.error}`
+  )
+
+  const w8NameWrong = join(w8PackC.folder_path, '03-工程', '别的东西.png')
+  writeFileSync(w8NameWrong, 'EEEEEEEE', 'utf-8')
+  const w8NameTry = relocateAsset(w8F4Id, w8NameWrong, w8Ws)
+  ok(
+    !w8NameTry.ok && (w8NameTry.error ?? '').includes('文件名对不上'),
+    `【判据】文件名不符被拒：${w8NameTry.error}`
+  )
+
+  const w8SizeWrong = join(w8PackC.folder_path, '02-素材', '丙-成品.png')
+  writeFileSync(w8SizeWrong, 'EE', 'utf-8') // 2 字节 ≠ 记录里的 8
+  const w8SizeTry = relocateAsset(w8F4Id, w8SizeWrong, w8Ws)
+  ok(
+    !w8SizeTry.ok && (w8SizeTry.error ?? '').includes('大小对不上'),
+    `【判据】大小不符被拒（挡"选错文件"）：${w8SizeTry.error}`
+  )
+  ok(w8AssetOf('丙-成品.png').missing_at !== null, '三次被拒之后，记录仍是"已丢失"状态（改动一点没落）')
+
+  const w8Good = join(w8PackC.folder_path, '03-工程', '丙-成品.png')
+  writeFileSync(w8Good, 'EEEEEEEE', 'utf-8')
+  const w8GoodTry = relocateAsset(w8F4Id, w8Good, w8Ws)
+  ok(w8GoodTry.ok, `选对了就放行 → ${w8GoodTry.relPath}`)
+  ok(w8AssetOf('丙-成品.png').missing_at === null, '标记清空、界面恢复正常')
+
+  // ---- (10) 批量重新定位：逐级降级匹配 + 预览绝不落库 ----
+  const w8ProjD = createProject({ name: '丢失-丁', workspaceRoot: w8Ws }).project!
+  const w8PackD = mkPack({ name: '丢失包丁', projectId: w8ProjD.id, workspaceRoot: w8Ws })
+  const w8D1 = join(w8PackD.folder_path, '01-成品', '丁-成品.png')
+  const w8D2 = join(w8PackD.folder_path, '02-素材', '丁-素材.txt')
+  writeFileSync(w8D1, 'FFFFFFFF', 'utf-8')
+  writeFileSync(w8D2, 'GGGGGGGG', 'utf-8')
+  scanAll(w8Ws)
+
+  // 用户把这批文件整体挪到了另一个文件夹（原位删掉）
+  const w8BatchDir = join(w8Ws, '整体挪到这')
+  mkdirSync(w8BatchDir, { recursive: true })
+  writeFileSync(join(w8BatchDir, '丁-成品.png'), 'FFFFFFFF', 'utf-8')
+  writeFileSync(join(w8BatchDir, '丁-素材.txt'), 'GGGGGGGG', 'utf-8')
+  hardRm(w8D1)
+  hardRm(w8D2)
+  ok(scanAll(w8Ws).markedMissing === 2, '【布景】两条文件同时丢失')
+
+  const w8SuggestEmpty = suggestRelocateBatch(join(w8BatchDir, '不存在的子目录'), w8Ws)
+  ok(
+    w8SuggestEmpty.length === 2 && w8SuggestEmpty.every((s) => !s.ok && s.matchedPath === null),
+    '选了个空目录：两条都"没配上"，不会瞎指'
+  )
+
+  const w8Suggest = suggestRelocateBatch(w8BatchDir, w8Ws)
+  ok(
+    w8Suggest.length === 2 && w8Suggest.every((s) => s.ok && s.matchedPath !== null),
+    `【逐级降级】选对目录后两条都配上了：${w8Suggest.map((s) => s.reason).join(' / ')}`
+  )
+  ok(
+    w8Suggest.every((s) => s.reason.includes('去掉前')),
+    '命中的是"去掉前几层目录后命中"（原目录结构已不完整）'
+  )
+  ok(
+    w8MissingCount() === 2,
+    '【关键】预览只是看 —— 调用完 suggest 一条都没落库，标记还在'
+  )
+
+  const w8Apply = applyRelocateBatch(
+    w8Suggest.filter((s) => s.ok).map((s) => ({ assetId: s.assetId, newAbsPath: s.matchedPath! })),
+    w8Ws
+  )
+  ok(
+    w8Apply.moved === 2 && w8Apply.errors.length === 0,
+    `勾选后落库：找回 ${w8Apply.moved} 条${
+      w8Apply.errors.length ? '，失败：' + w8Apply.errors.join('；') : ''
+    }`
+  )
+  ok(w8MissingCount() === 0, '库里再也没有"已丢失"的记录了')
+  ok(
+    w8AssetOf('丁-成品.png').missing_at === null && w8AssetOf('丁-素材.txt').missing_at === null,
+    '两条记录的标记都清空了'
+  )
+  ok(
+    w8Num('SELECT COUNT(*) AS c FROM assets WHERE file_name = ?', '丁-成品.png') === 1 &&
+      w8Num('SELECT COUNT(*) AS c FROM assets WHERE file_name = ?', '丁-素材.txt') === 1,
+    '【合并】同一份文件只剩一条记录（扫描时登记的那条重复行被并掉了，不堆两份）'
+  )
+  ok(scanAll(w8Ws).markedMissing === 0, '【幂等】再扫一遍也不会又标丢失')
+
+  // ============ 第 9 批 M6：版本管理（一稿 = 包文件夹下的一个文件夹）============
+  log('\n[28] 第 9 批 M6：版本管理（建稿 / 收编 / 自动认 / 绑定 / 回滚 / 解绑）')
+
+  const w9Root = join('D:\\_accept_ws', `wstest9_${RUN_ID}`)
+  const w9Ws = join(w9Root, 'ws')
+  hardRm(w9Root)
+  mkdirSync(w9Ws, { recursive: true })
+  closeDb()
+  openDb(w9Ws)
+  initWorkspace(w9Ws)
+
+  const w9Num = (sql: string, ...args: unknown[]): number =>
+    (getDb().prepare(sql).get(...args) as { c: number }).c
+  const w9At = (
+    p: string
+  ): { id: number; version_id: number | null; rel_path: string } | undefined =>
+    getDb()
+      .prepare('SELECT id, version_id, rel_path FROM assets WHERE abs_path = ?')
+      .get(p) as { id: number; version_id: number | null; rel_path: string } | undefined
+  const w9Ver = (
+    seq: number,
+    /** 第 9 批补：库里出现第二个带稿的包之后，只按 seq 查会串包 —— 传 packId 限定 */
+    packId?: number
+  ): { id: number; folder_name: string; is_current: number } | undefined =>
+    packId === undefined
+      ? (getDb()
+          .prepare('SELECT id, folder_name, is_current FROM pack_versions WHERE seq = ?')
+          .get(seq) as { id: number; folder_name: string; is_current: number } | undefined)
+      : (getDb()
+          .prepare(
+            'SELECT id, folder_name, is_current FROM pack_versions WHERE seq = ? AND pack_id = ?'
+          )
+          .get(seq, packId) as
+          | { id: number; folder_name: string; is_current: number }
+          | undefined)
+  const w9Vid = (p: string): number | null => w9At(p)?.version_id ?? null
+  const w9TagsOf = (name: string): number =>
+    w9Num(
+      `SELECT COUNT(*) AS c FROM asset_tags at
+        JOIN assets a ON a.id = at.asset_id
+       WHERE a.file_name = ?`,
+      name
+    )
+
+  const w9Proj = createProject({ name: '版本-甲', workspaceRoot: w9Ws }).project!
+  const w9Pack = mkPack({ name: '版本包甲', projectId: w9Proj.id, workspaceRoot: w9Ws })
+
+  const w9F1 = join(w9Pack.folder_path, '01-成品', '海报.png')
+  const w9F2 = join(w9Pack.folder_path, '02-素材', '底图.png')
+  const w9F3 = join(w9Pack.folder_path, '03-工程', '源文件.psd')
+  const w9Stray = join(w9Pack.folder_path, '随手丢在包根.png')
+  writeFileSync(w9F1, 'AAAAAAAA', 'utf-8')
+  writeFileSync(w9F2, 'BBBB', 'utf-8')
+  writeFileSync(w9F3, 'CCCC', 'utf-8')
+  writeFileSync(w9Stray, 'DDDD', 'utf-8')
+  scanAll(w9Ws)
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w9Pack.id) === 4,
+    '【布景】三组各 1 个文件 + 包根散文件 1 个'
+  )
+  ok(w9Num('SELECT COUNT(*) AS c FROM pack_versions') === 0, '【布景】还没建任何稿（老包的样子）')
+
+  // ---- (1) 建 V1：把包里现有的文件收进第 1 稿 ----
+  const w9Tag = createTag({ dimension: 'category', name: '版本专用标签' }).tag!
+  const w9F1Id = w9At(w9F1)!.id
+  applyTags({ assetIds: [w9F1Id], tagIds: [w9Tag.id] })
+  ok(w9TagsOf('海报.png') === 1, '【布景】给「海报.png」贴了一个标签')
+
+  const w9V1Res = createVersion(w9Ws, { packId: w9Pack.id, note: '初稿', takeExisting: true })
+  ok(
+    w9V1Res.ok && w9V1Res.version?.seq === 1,
+    `建 V1：${w9V1Res.ok ? 'V' + w9V1Res.version?.seq : w9V1Res.error}`
+  )
+  ok(w9V1Res.moved === 3, `【收编】三组里的 3 个文件搬进 V1（moved=${w9V1Res.moved}）`)
+  ok(
+    existsSync(join(w9Pack.folder_path, 'V1', '01-成品', '海报.png')) &&
+      existsSync(join(w9Pack.folder_path, 'V1', '02-素材', '底图.png')) &&
+      existsSync(join(w9Pack.folder_path, 'V1', '03-工程', '源文件.psd')),
+    '【磁盘】V1 下三组各就各位（资源管理器里直接能看到）'
+  )
+  ok(
+    !existsSync(join(w9Pack.folder_path, '01-成品', '海报.png')) && existsSync(w9Stray),
+    '【铁则】旧位置空了是"搬走"；包根下的散文件一个都没动（它本来就没归类）'
+  )
+  const w9F1After = w9At(join(w9Pack.folder_path, 'V1', '01-成品', '海报.png'))
+  ok(!!w9F1After && w9F1After.id === w9F1Id, '【关键】路径重写，asset.id 没变（不是删旧建新）')
+  ok(w9TagsOf('海报.png') === 1, '【关键】标签一张没丢（id 若变，CASCADE 会把它带走）')
+  ok(w9F1After!.version_id === w9V1Res.version!.id, '文件挂到了 V1 名下')
+  ok(
+    w9F1After!.rel_path.includes('V1') && w9F1After!.rel_path.includes('01-成品'),
+    `库里的相对路径跟着改了：${w9F1After!.rel_path}`
+  )
+  ok(w9Ver(1)!.is_current === 1, '【新建即当前】V1 自动成为当前版本')
+  ok(w9Ver(1)!.folder_name === 'V1', '文件夹名就是 V1（软件自己命的名）')
+
+  // ---- (2) 建空 V2（默认不复制上一稿）----
+  const w9V2Res = createVersion(w9Ws, { packId: w9Pack.id, note: '客户反馈：主标题太小' })
+  ok(w9V2Res.ok && w9V2Res.version?.seq === 2, '建 V2')
+  ok(w9V2Res.moved === 0, '【默认空】V2 里不放东西（要复制上一稿得显式勾）')
+  ok(
+    SUB_FOLDERS.every((f) => existsSync(join(w9Pack.folder_path, 'V2', f))),
+    'V2 下自动长好 01-成品 / 02-素材 / 03-工程'
+  )
+  ok(w9Ver(2)!.is_current === 1, '【当前版本】新建的那稿自动成为当前')
+  ok(w9Ver(1)!.is_current === 0, 'V1 的「当前」被摘掉（一个包最多一个当前）')
+  ok(
+    existsSync(join(w9Pack.folder_path, 'V1', '01-成品', '海报.png')),
+    '【铁则】建新稿不动旧稿：V1 的文件原样还在'
+  )
+
+  // ---- (3) 用户自己在资源管理器里建 V3 → 扫描自动认 ----
+  const w9V3File = join(w9Pack.folder_path, 'V3', '01-成品', '海报.png')
+  mkdirSync(join(w9Pack.folder_path, 'V3', '01-成品'), { recursive: true })
+  writeFileSync(w9V3File, 'EEEEEEEE', 'utf-8')
+  const w9ScanV3 = scanAll(w9Ws)
+  ok(w9ScanV3.newVersions === 1, `【自动认】认出了 ${w9ScanV3.newVersions} 个新稿（名字像 V3 的文件夹）`)
+  ok(w9ScanV3.versionConflicts.length === 0, '这一步没有编号冲突')
+  ok(w9Ver(3)?.folder_name === 'V3', 'V3 的记录建好了')
+  ok(w9Vid(w9V3File) === w9Ver(3)!.id, 'V3 里的文件挂到了它名下')
+  ok(w9Ver(2)!.is_current === 1, '【自动认不动当前】当前版本仍是 V2')
+
+  // ---- (4) 名字不规范 → 不猜，靠「绑定文件夹」 ----
+  const w9OddName = '最终版-客户确认'
+  const w9OddFile = join(w9Pack.folder_path, w9OddName, '01-成品', '海报.png')
+  mkdirSync(join(w9Pack.folder_path, w9OddName, '01-成品'), { recursive: true })
+  writeFileSync(w9OddFile, 'FFFFFFFF', 'utf-8')
+  scanAll(w9Ws)
+  ok(w9Vid(w9OddFile) === null, '【不猜】名字不规范的文件夹不自动认，归「未分版本」')
+
+  const w9Cands = listBindableFolders(w9Pack.id)
+  ok(
+    w9Cands.some((c) => c.folderName === w9OddName),
+    `【候选】列出包里的可绑文件夹：${w9Cands.map((c) => c.folderName).join('、')}`
+  )
+  const w9OddCand = w9Cands.find((c) => c.folderName === w9OddName)!
+  ok(w9OddCand.suggestedSeq === 4, `建议编号 = 下一个可用（${w9OddCand.suggestedSeq}）`)
+  ok(w9OddCand.fileCount === 1, '候选里带上了这个文件夹的文件数')
+  ok(!w9Cands.some((c) => c.folderName === 'V1'), '已认领的文件夹不再出现在候选里')
+
+  const w9Bind = bindVersion(w9Ws, {
+    packId: w9Pack.id,
+    folderName: w9OddName,
+    seq: 4,
+    note: '客户确认稿'
+  })
+  ok(w9Bind.ok && w9Bind.version?.seq === 4, `绑定成功：${w9Bind.ok ? 'V' + w9Bind.version?.seq : w9Bind.error}`)
+  ok(
+    w9Vid(w9OddFile) === w9Bind.version!.id,
+    '【核心】绑完文件立刻挂上这一稿（不用自己再点刷新扫描）'
+  )
+  ok(existsSync(join(w9Pack.folder_path, w9OddName)), '【铁则】绑定不改名、不搬文件夹')
+  ok(w9Ver(2)!.is_current === 1, '【绑定不改当前】当前版本仍是 V2（补绑历史稿是常见场景）')
+  ok(!bindVersion(w9Ws, { packId: w9Pack.id, folderName: w9OddName, seq: 5 }).ok, '同一个文件夹绑两次会被拦下')
+  ok(!bindVersion(w9Ws, { packId: w9Pack.id, folderName: 'V1', seq: 9 }).ok, '绑一个已认领的文件夹会被拦下')
+  ok(!bindVersion(w9Ws, { packId: w9Pack.id, folderName: '不存在的文件夹', seq: 9 }).ok, '绑不存在的文件夹会被拦下')
+  const w9Outside = join(w9Ws, '包外面')
+  mkdirSync(w9Outside, { recursive: true })
+  ok(
+    !bindVersion(w9Ws, { packId: w9Pack.id, folderName: '..\\包外面', seq: 9 }).ok,
+    '【安全】想绑包外面的文件夹（路径穿越）会被拦下'
+  )
+
+  // ---- (5) 编号冲突：手工建 V4，但第 4 稿已经绑给别的文件夹了 ----
+  const w9ConflictFile = join(w9Pack.folder_path, 'V4', '01-成品', 'x.png')
+  mkdirSync(join(w9Pack.folder_path, 'V4', '01-成品'), { recursive: true })
+  writeFileSync(w9ConflictFile, 'GG', 'utf-8')
+  const w9ScanConflict = scanAll(w9Ws)
+  ok(
+    w9ScanConflict.versionConflicts.length === 1,
+    `【编号冲突】不自动认 + 给出提示：${w9ScanConflict.versionConflicts[0] ?? '（没有提示！）'}`
+  )
+  ok(w9ScanConflict.newVersions === 0, '冲突的那个不算新稿')
+  ok(w9Vid(w9ConflictFile) === null, '冲突文件夹里的文件留在「未分版本」，不硬塞进某一稿')
+  const w9V4Cand = listBindableFolders(w9Pack.id).find((c) => c.folderName === 'V4')
+  ok(!!w9V4Cand && w9V4Cand.suggestedSeq === 5, '冲突的文件夹仍可手工绑，建议编号避开已占用的（5）')
+
+  // ---- (6) 设为当前版本（= 回滚）----
+  ok(setCurrentVersion(w9Ver(1)!.id).ok, '把 V1 设为当前版本（回滚）')
+  ok(w9Ver(1)!.is_current === 1 && w9Ver(2)!.is_current === 0, '指针指回 V1')
+  ok(
+    existsSync(join(w9Pack.folder_path, 'V2')) && existsSync(join(w9Pack.folder_path, 'V3')),
+    '【铁则】回滚只改指针：V2 / V3 文件夹一个字符都没删'
+  )
+  ok(listPacks().find((p) => p.id === w9Pack.id)!.currentSeq === 1, '包卡片上的「当前」跟着变成 V1')
+  ok(!setCurrentVersion(999999).ok, '设一个不存在的稿为当前会被拦下')
+
+  // ---- (7) 解绑：只解除管理关系 ----
+  ok(unbindVersion(w9Ver(3)!.id).ok, '解绑 V3')
+  ok(!w9Ver(3), 'V3 的记录没了')
+  ok(existsSync(join(w9Pack.folder_path, 'V3')), '【铁则】V3 文件夹还在磁盘上，一个字节没动')
+  ok(w9Vid(w9V3File) === null, 'V3 里的文件回到「未分版本」')
+  ok(!unbindVersion(999999).ok, '解绑不存在的稿会被拦下')
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM assets WHERE file_name = ?', '海报.png') === 3,
+    '【不删文件】三条同名记录（V1 / V2 里搬过去的 / 最终版）都还在，只是归属不同'
+  )
+
+  // ---- (8) 当前版本被解绑 → 顺延 ----
+  ok(unbindVersion(w9Ver(1)!.id).ok, '解绑当前版本 V1')
+  ok(w9Ver(4)!.is_current === 1, '【顺延】当前版本自动落到剩下编号最大的 V4')
+  ok(
+    w9Num(
+      'SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ? AND is_current = 1',
+      w9Pack.id
+    ) === 1,
+    '一个包永远只有一个当前版本'
+  )
+
+  // ---- (8.5) 解绑要真的生效：扫一遍不会把刚解绑的 V1 又自动认回来 ----
+  // 自动认领的规则是「文件夹名像 V<数字> + 这个名字还没被认领」，而解绑**不动磁盘**——
+  // 文件夹还在、名字还叫 V1。没有忽略记录的话，下一轮扫描立刻把它认成第 1 稿，
+  // 用户点了「解绑」等于白点。
+  const w9ScanAfterUnbind = scanAll(w9Ws)
+  ok(w9ScanAfterUnbind.newVersions === 0, '【解绑生效】扫一遍不会把刚解绑的 V1 又认回来')
+  ok(!w9Ver(1) && !w9Ver(3), '【解绑生效】V1 / V3 的编号仍然空着')
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ?', w9Pack.id) === 2,
+    '【解绑生效】包里仍是 2 稿（V2 / V4）'
+  )
+  const w9ReCand = listBindableFolders(w9Pack.id)
+  ok(
+    w9ReCand.some((c) => c.folderName === 'V1') && w9ReCand.some((c) => c.folderName === 'V3'),
+    '【解绑可回头】解绑过的文件夹仍在「绑定」候选里，想收回管理随时能收回'
+  )
+
+  // ---- (8.6) 重新绑回来：用户主动收回 → 忽略记录作废、扫描不再重复认 ----
+  const w9Rebind = bindVersion(w9Ws, { packId: w9Pack.id, folderName: 'V3', seq: 3 })
+  ok(
+    w9Rebind.ok,
+    `把解绑过的 V3 重新绑回来：${w9Rebind.ok ? 'V' + w9Rebind.version?.seq : w9Rebind.error}`
+  )
+  ok(w9Vid(w9V3File) === w9Rebind.version!.id, '重新绑定后文件立刻挂上这一稿')
+  const w9ScanRebind = scanAll(w9Ws)
+  ok(w9ScanRebind.newVersions === 0, '【不重复建稿】重新绑定后扫描不会又建一条 V3')
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ? AND seq = 3', w9Pack.id) === 1,
+    '【不重复建稿】编号 3 只有一条记录'
+  )
+  ok(unbindVersion(w9Rebind.version!.id).ok, '再解绑一次（收拾干净，后面仍按 2 稿算）')
+
+  // ---- (9) 兜底：一个当前都没有时自动顺延 ----
+  getDb().prepare('UPDATE pack_versions SET is_current = 0 WHERE pack_id = ?').run(w9Pack.id)
+  ensureCurrentVersion(w9Pack.id)
+  ok(w9Ver(4)!.is_current === 1, '【兜底】一个当前都没有 → 自动顺延到编号最大的那一稿')
+
+  // ---- (10) 统计口径 ----
+  const w9Card = listPacks().find((p) => p.id === w9Pack.id)!
+  ok(w9Card.versionCount === 2, `包卡片：共 ${w9Card.versionCount} 稿（V2 / V4）`)
+  ok(w9Card.currentSeq === 4, `包卡片：当前 V${w9Card.currentSeq}`)
+  ok(
+    w9Card.fileCount === w9Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w9Pack.id),
+    '【口径】卡片的文件数算全部（含各稿，跟容量口径一致）'
+  )
+  const w9Detail = getPackDetail(w9Pack.id)
+  ok(w9Detail.versions.length === 2, '包详情带上了全部稿')
+  ok(
+    w9Detail.versions.every(
+      (v) => typeof v.fileCount === 'number' && typeof v.folderExists === 'boolean'
+    ),
+    '每稿都带上了文件数和「文件夹还在不在」'
+  )
+  ok(w9Detail.versions.find((v) => v.seq === 4)!.folderExists === true, '绑定那稿的文件夹存在 → folderExists')
+
+  // ---- (11) 只看当前稿 ----
+  const w9CurOnly = listAssets({ packId: w9Pack.id, currentOnly: true })
+  ok(
+    w9CurOnly.length > 0 && w9CurOnly.every((a) => a.version_id === w9Ver(4)!.id),
+    `【只看当前稿】只列 V4 的文件（${w9CurOnly.length} 条）`
+  )
+  const w9AllAssets = listAssets({ packId: w9Pack.id })
+  ok(
+    w9AllAssets.length > w9CurOnly.length,
+    `【默认全显示】全显示 ${w9AllAssets.length} 条 > 只看当前稿 ${w9CurOnly.length} 条（不藏用户的东西）`
+  )
+
+  // ---- (12) 在某一稿视角下移动文件，要落进「那一稿」的组 ----
+  // 注意路径：建 V1 时那份海报已经被「收编」搬进 V1 了，包根的 01-成品 早就空了。
+  const w9V1Poster = join(w9Pack.folder_path, 'V1', '01-成品', '海报.png')
+  ok(existsSync(w9V1Poster), '【布景】V1 里那份海报还在（解绑只是解除管理关系，文件没被扔）')
+  ok(!existsSync(w9F1), '【布景】包根那个旧位置仍然是空的（收编是真搬走，不是复制）')
+  const w9Claim = claimFiles(w9Ws, [w9V1Poster], w9Pack.id, '02-素材', w9Ver(2)!.id)
+  const w9ClaimedPath = join(w9Pack.folder_path, 'V2', '02-素材', '海报.png')
+  ok(
+    w9Claim.moved === 1 && existsSync(w9ClaimedPath),
+    '【移动带版本】在某一稿视角下移动 → 落进「那一稿」的组，不会被挪到包根'
+  )
+  scanAll(w9Ws)
+  ok(w9Vid(w9ClaimedPath) === w9Ver(2)!.id, '扫描后版本归属仍然正确（还在 V2）')
+
+  // ---- (13) 老包（没有版本）行为与升级前一模一样 ----
+  const w9OldPack = mkPack({ name: '老包无版本', projectId: w9Proj.id, workspaceRoot: w9Ws })
+  const w9OldFile = join(w9OldPack.folder_path, '01-成品', '老文件.png')
+  writeFileSync(w9OldFile, 'HH', 'utf-8')
+  scanAll(w9Ws)
+  const w9OldCard = listPacks().find((p) => p.id === w9OldPack.id)!
+  ok(w9OldCard.versionCount === 0 && w9OldCard.currentSeq === null, '【老包】没有版本 → 卡片不显示版本行')
+  ok(w9Vid(w9OldFile) === null, '【老包】文件照常登记，version_id 为空')
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?', w9OldPack.id) === 1,
+    '【老包】文件数与升级前一模一样'
+  )
+  ok(getPackDetail(w9OldPack.id).versions.length === 0, '老包的详情里没有稿')
+
+  // ---- (14) 幂等 + 全库映射 ----
+  const w9ScanIdle = scanAll(w9Ws)
+  ok(w9ScanIdle.newVersions === 0, '【幂等】再扫一遍不会重复建稿')
+  ok(w9Num('SELECT COUNT(*) AS c FROM pack_versions') === 2, '库里一共 2 稿（V2 / V4）')
+  const w9Map = listVersionMap()
+  ok(
+    w9Map.length === 2 && w9Map.some((v) => v.seq === 2) && w9Map.some((v) => v.seq === 4),
+    '全库稿映射可用（界面给文件行打 V2/V4 徽标用）'
+  )
+
+  // ---- (15) 新建包自带第一稿 V1（用户拍板：「所有新建的包都从 V1 开始」）----
+  // 之前是"先建个空包 → 再手动建第 1 稿"两步走，没必要：
+  // 建包时直接把 `包\V1\三组` 长好，V1 自动成为当前版本。
+  const w9AutoPack = createPack({ name: '自动带稿包', projectId: w9Proj.id, workspaceRoot: w9Ws })
+  const w9AutoCard = listPacks().find((p) => p.id === w9AutoPack.id)!
+  ok(
+    w9Num('SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ?', w9AutoPack.id) === 1,
+    '【新建即带稿】建完包库里就有 1 条稿记录，不用再手工建'
+  )
+  ok(
+    w9Num(
+      'SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ? AND seq = 1 AND is_current = 1',
+      w9AutoPack.id
+    ) === 1,
+    '【新建即带稿】它就是第 1 稿、并且直接是当前版本'
+  )
+  ok(
+    w9Num(
+      'SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ? AND folder_name = ?',
+      w9AutoPack.id,
+      FIRST_VERSION_FOLDER
+    ) === 1,
+    `【新建即带稿】文件夹名就是 ${FIRST_VERSION_FOLDER}（软件自己命的，用户不用想）`
+  )
+  ok(
+    SUB_FOLDERS.every((f) => existsSync(join(w9AutoPack.folder_path, FIRST_VERSION_FOLDER, f))),
+    '【磁盘】V1 下三组已经长好，资源管理器里直接能用'
+  )
+  ok(
+    !SUB_FOLDERS.some((f) => existsSync(join(w9AutoPack.folder_path, f))),
+    '【磁盘】包根不再直接放三组（不然会多出 3 个永远空着的文件夹）'
+  )
+  ok(
+    w9AutoCard.versionCount === 1 && w9AutoCard.currentSeq === 1,
+    `【卡片】新包直接显示「V1 当前 · 1 稿」（${w9AutoCard.versionCount} 稿 / V${w9AutoCard.currentSeq}）`
+  )
+  ok(getPackDetail(w9AutoPack.id).versions.length === 1, '包详情里直接就有这一稿')
+
+  // 往 V1 里丢文件 → 扫描认它是第 1 稿的文件（不用再手工建稿、收编）
+  const w9AutoFile = join(w9AutoPack.folder_path, FIRST_VERSION_FOLDER, '01-成品', '新包成品.png')
+  writeFileSync(w9AutoFile, 'II', 'utf-8')
+  scanAll(w9Ws)
+  ok(w9Vid(w9AutoFile) === w9Ver(1, w9AutoPack.id)!.id, '丢进 V1 的文件自动归第 1 稿')
+
+  // 认领（界面「未归属」→ 认领进这个包）：不指定稿 → 自动落进当前版本 V1
+  const w9Stray2 = join(w9Ws, '待认领-海报.png')
+  writeFileSync(w9Stray2, 'JJJ', 'utf-8')
+  scanAll(w9Ws)
+  const w9ClaimAuto = claimFiles(w9Ws, [w9Stray2], w9AutoPack.id, '02-素材')
+  const w9Claimed2 = join(w9AutoPack.folder_path, FIRST_VERSION_FOLDER, '02-素材', '待认领-海报.png')
+  ok(
+    w9ClaimAuto.moved === 1 && existsSync(w9Claimed2),
+    '【认领】认领进新包的文件落在 V1 里，不是落包根变成"未分版本"的孤儿'
+  )
+  ok(w9Vid(w9Claimed2) === w9Ver(1, w9AutoPack.id)!.id, '【认领】认领进来的文件直接挂上第 1 稿')
+
+  // 老包那一套照旧：明确要「未分版本」时（传 null）仍落包根三组
+  const w9ClaimNull = claimFiles(w9Ws, [w9AutoFile], w9AutoPack.id, '01-成品', null)
+  ok(
+    w9ClaimNull.moved === 1 &&
+      existsSync(join(w9AutoPack.folder_path, '01-成品', '新包成品.png')) &&
+      w9Vid(join(w9AutoPack.folder_path, '01-成品', '新包成品.png')) === null,
+    '【显式未分版本】传 null 时落包根三组、version_id 为空（老结构的逃生口还在）'
+  )
+
+  // 在这个包上再建一稿 → 编号接着 V2
+  const w9AutoV2 = createVersion(w9Ws, { packId: w9AutoPack.id, note: '第二稿' })
+  ok(w9AutoV2.ok && w9AutoV2.version?.seq === 2, '新包上再建一稿 → 编号接着 V2（不会又建一个 V1）')
+  ok(
+    w9Ver(2, w9AutoPack.id)!.is_current === 1 && w9Ver(1, w9AutoPack.id)!.is_current === 0,
+    '【当前】新稿成为当前，V1 让位'
+  )
+
+  // ============ 第 10 批：物料类别清单合一（建包清单 = 左栏标签维度）============
+  log('\n[29] 第 10 批：建包类别清单与左栏「物料类别」同源（改名 / 删除联动包）')
+
+  const eRoot = join('D:\\_accept_ws', `wstest10_${RUN_ID}`)
+  const eWs = join(eRoot, 'ws')
+  hardRm(eRoot)
+  mkdirSync(eWs, { recursive: true })
+  closeDb()
+  openDb(eWs)
+  initWorkspace(eWs)
+
+  /** 包当前的类别 */
+  const eCat = (packId: number): string =>
+    (getDb().prepare('SELECT category FROM packs WHERE id = ?').get(packId) as { category: string })
+      .category
+  /** 快照：当前「物料类别」维度下的标签名 —— 就是建包弹窗能选到的那些 */
+  const eList = (): string[] =>
+    (listTagDimensions().find((d) => d.key === 'category')?.tags ?? []).map((t) => t.name)
+
+  const eProj = createProject({ name: '类别-甲', workspaceRoot: eWs }).project!
+
+  // ---- (1) 两套合一：建包能选的 = 左栏「物料类别」里的（用户实测报的就是这两处不同步）----
+  const eBase = eList()
+  ok(
+    eBase.includes('海报') && eBase.includes('详情长图') && eBase.includes('参考图'),
+    `【同源】建包清单就是左栏这一套（${eBase.length} 项：${eBase.join('、')}）`
+  )
+  ok(
+    !eBase.includes('视频') && !eBase.includes('推文配图') && !eBase.includes('PPT'),
+    '【关键】原来那套写死的清单（视频 / 推文配图 / PPT）已经不存在了 —— 全软件只剩一套'
+  )
+  const eNewTag = createTag({ dimension: 'category', name: '易拉宝' }).tag!
+  ok(eList().includes('易拉宝'), '【实时】左栏新加一个「易拉宝」→ 建包清单当场就有（不用重启）')
+
+  // ---- (2) 建包选哪个类别，包上就记哪个 ----
+  const ePackA = createPack({
+    name: '类别包甲',
+    projectId: eProj.id,
+    category: '易拉宝',
+    workspaceRoot: eWs
+  })
+  const ePackB = createPack({
+    name: '类别包乙',
+    projectId: eProj.id,
+    category: '易拉宝',
+    workspaceRoot: eWs
+  })
+  const ePackC = createPack({
+    name: '类别包丙',
+    projectId: eProj.id,
+    category: '海报',
+    workspaceRoot: eWs
+  })
+  ok(
+    eCat(ePackA.id) === '易拉宝' && eCat(ePackC.id) === '海报',
+    '建包选什么类别，包上就记什么（甲/乙 = 易拉宝，丙 = 海报）'
+  )
+
+  // ---- (3) 删除前能问出「有多少个包在用这个类别」----
+  const eUsage = tagUsage(eNewTag.id)
+  ok(
+    eUsage.packCount === 2,
+    `删前查得到：${eUsage.packCount} 个包正在用「易拉宝」（界面确认弹窗就是拿这个数字说话）`
+  )
+  const eChTag = createTag({ dimension: 'channel', name: '类别测试渠道' }).tag!
+  ok(tagUsage(eChTag.id).packCount === 0, '【只算类别维度】渠道标签的包计数恒为 0（包跟它无关）')
+
+  // ---- (4) 改名 → 已有包的类别跟着改（不留"面板里查不到的老名字"）----
+  const eRename = updateTag(eNewTag.id, { name: '易拉宝-大展架' })
+  ok(
+    eRename.ok && eRename.packsUpdated === 2,
+    `改名：${eRename.packsUpdated} 个包的类别跟着改了`
+  )
+  ok(
+    eCat(ePackA.id) === '易拉宝-大展架' && eCat(ePackB.id) === '易拉宝-大展架',
+    '两个包的类别都是新名字'
+  )
+  ok(eCat(ePackC.id) === '海报', '【边界】没用到这个类别的包一个没动（丙还是「海报」）')
+  ok(
+    eList().includes('易拉宝-大展架') && !eList().includes('易拉宝'),
+    '清单里也只剩新名字（没有老名字的残影）'
+  )
+
+  // ---- (5) 跨维度同名：改 / 删「渠道」维度的同名标签，包一根毫毛都不动 ----
+  const eChPoster = createTag({ dimension: 'channel', name: '海报' }).tag!
+  ok(!!eChPoster, '【布景】渠道维度里也放一个叫「海报」的标签（跨维度允许同名）')
+  const eChRename = updateTag(eChPoster.id, { name: '海报（渠道）' })
+  ok(eChRename.ok && eChRename.packsUpdated === 0, '改渠道维度的同名标签 → 0 个包受影响')
+  ok(eCat(ePackC.id) === '海报', '【关键】包丙的类别纹丝不动（只认「物料类别」这一个维度）')
+  const eDelCh = removeTag(eChPoster.id)
+  ok(
+    eDelCh.ok && eDelCh.packsAffected === 0 && eCat(ePackC.id) === '海报',
+    `【关键】删渠道维度的同名标签，0 个包受影响、包丙的类别照样不动（packsAffected=${eDelCh.packsAffected}）`
+  )
+
+  // ---- (6) 删除 → 用它的包类别归「未分类」----
+  const eDel = removeTag(eNewTag.id)
+  ok(
+    eDel.ok && eDel.packsAffected === 2,
+    `确认删除后：${eDel.packsAffected} 个包的类别归到「未分类」`
+  )
+  ok(eCat(ePackA.id) === '未分类' && eCat(ePackB.id) === '未分类', '两个包都成了「未分类」')
+  ok(!eList().includes('易拉宝-大展架'), '清单里也没有这一项了')
+  ok(eCat(ePackC.id) === '海报', '【边界】没用到它的包还是「海报」')
+
+  // ---- (7) 联动是全库的：项目已解绑（界面上隐身的）包，类别也照样跟着改 ----
+  const eTagD = createTag({ dimension: 'category', name: '解绑也要跟' }).tag!
+  const ePackD = createPack({
+    name: '解绑包丁',
+    projectId: eProj.id,
+    category: '解绑也要跟',
+    workspaceRoot: eWs
+  })
+  getDb().prepare('UPDATE projects SET archived = 1 WHERE id = ?').run(eProj.id)
+  const eDelD = removeTag(eTagD.id)
+  ok(
+    eDelD.packsAffected === 1 && eCat(ePackD.id) === '未分类',
+    '【全库】项目已解绑、界面上隐身的包，类别也照样跟着改（将来重新绑定回来不会留个查不到的名字）'
+  )
+  getDb().prepare('UPDATE projects SET archived = 0 WHERE id = ?').run(eProj.id)
+
+  // ---- (8) 类别被删光也不崩：建包记「未分类」，重扫不会重置 ----
+  for (const t of listTagDimensions().find((d) => d.key === 'category')!.tags) removeTag(t.id)
+  ok(eList().length === 0, '【布景】「物料类别」这一维度被清空')
+  const ePackE = createPack({ name: '空类别包', projectId: null, category: '', workspaceRoot: eWs })
+  ok(eCat(ePackE.id) === '未分类', '清单空着也能建包 → 记「未分类」，不报错不崩')
+  scanAll(eWs)
+  ok(eCat(ePackE.id) === '未分类', '【回归】重新扫描不会把包的类别重置回默认值')
+
+  // ---- (9) 手工在资源管理器建的包文件夹被扫进来 → 类别记「未分类」----
+  const eManual = join(eWs, '手工建的包')
+  mkdirSync(join(eManual, '01-成品'), { recursive: true })
+  scanAll(eWs)
+  const eManualRow = getDb()
+    .prepare('SELECT id, category FROM packs WHERE folder_path = ?')
+    .get(eManual) as { id: number; category: string } | undefined
+  ok(
+    !!eManualRow && eManualRow.category === '未分类',
+    '【兜底】手工建的包文件夹被扫进来时类别记「未分类」（不是空串）'
+  )
+
+  closeDb()
+  hardRm(eRoot)
+  closeDb()
+  hardRm(w9Root)
+  closeDb()
+  hardRm(w8Root)
+  hardRm(w7Root)
   hardRm(w6Root)
 
   // ============ 汇总 ============

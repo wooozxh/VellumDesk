@@ -7,13 +7,22 @@ import type { DimensionGroup, TagWithCount } from '../types'
  * 约定：
  * - 同名同维度不允许；跨维度允许同名
  * - 删标签前先查使用量，被 N 条素材用着就明确提示，确认才删（素材本身不动）
+ *
+ * 第 10 批（2026-09-30 用户拍板）：**「物料类别」这个维度管着两处东西** ——
+ * 除了素材上的标签，它还同时是建包时的类别清单（`packs.category` 存的是类别名）。
+ * 所以这里的增删改都会影响包：
+ *   · 加一个类别 → 新建包弹窗当场能选到
+ *   · 改名      → 已有包的类别跟着改名（后端同一事务里做）
+ *   · 删除      → 先弹确认把「有 N 个包正在用它」说清楚，确认后这些包的类别归「未分类」
+ * 其余两个维度（使用渠道 / 状态）跟包无关，行为跟以前完全一样。
  */
 export function TagManagerModal({
   dimensions,
   focusDimension,
   onClose,
   onChanged,
-  toast
+  toast,
+  scopeLabel = '全部'
 }: {
   dimensions: DimensionGroup[]
   /** 打开时定位到哪个维度 */
@@ -21,6 +30,8 @@ export function TagManagerModal({
   onClose: () => void
   onChanged: () => Promise<void> | void
   toast: (text: string, kind?: 'ok' | 'err' | 'info') => void
+  /** 左栏当前项目范围名（'全部' / 项目名 / '待归类'）—— 列表里的数字就是这个范围的（第 7 批） */
+  scopeLabel?: string
 }): React.JSX.Element {
   const editableDims = useMemo(
     () => dimensions.filter((d) => d.editable),
@@ -33,7 +44,12 @@ export function TagManagerModal({
   const [busy, setBusy] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
-  const [confirmDel, setConfirmDel] = useState<{ tag: TagWithCount; usage: number } | null>(null)
+  const [confirmDel, setConfirmDel] = useState<{
+    tag: TagWithCount
+    usage: number
+    /** 有多少个包的类别正是它（只有「物料类别」维度会大于 0） */
+    packCount: number
+  } | null>(null)
 
   const add = async (): Promise<void> => {
     if (busy || !dim) return
@@ -78,18 +94,25 @@ export function TagManagerModal({
 
   const askDelete = async (tag: TagWithCount): Promise<void> => {
     const u = await window.api.tagUsage(tag.id)
-    setConfirmDel({ tag, usage: u.assetCount })
+    setConfirmDel({ tag, usage: u.assetCount, packCount: u.packCount })
   }
 
   const doDelete = async (): Promise<void> => {
     if (!confirmDel) return
-    const r = await window.api.removeTag(confirmDel.tag.id)
+    const { tag } = confirmDel
+    const r = await window.api.removeTag(tag.id)
     setConfirmDel(null)
     if (!r.ok) {
       toast(r.error ?? '删除失败', 'err')
       return
     }
-    toast(`标签「${confirmDel.tag.name}」已删除，${r.deleted} 条素材的该标签已摘掉`, 'ok')
+    const packs = r.packsAffected ?? 0
+    toast(
+      `标签「${tag.name}」已删除` +
+        (r.deleted > 0 ? `，${r.deleted} 条素材的该标签已摘掉` : '') +
+        (packs > 0 ? `，${packs} 个包的类别已归到「未分类」` : ''),
+      'ok'
+    )
     await onChanged()
   }
 
@@ -170,7 +193,7 @@ export function TagManagerModal({
                   <>
                     <span className="tm-dot" style={{ background: t.color }} />
                     <span className="tm-name">{t.name}</span>
-                    <span className="tm-cnt" title="使用该标签的素材数">
+                    <span className="tm-cnt" title={`使用该标签的素材数（当前范围：${scopeLabel === '全部' ? '全库' : scopeLabel}）`}>
                       {t.assetCount}
                     </span>
                     <input
@@ -218,9 +241,14 @@ export function TagManagerModal({
               </div>
               <div className="hint">
                 {confirmDel.usage > 0
-                  ? `该标签正被 ${confirmDel.usage} 条素材使用，删除后这些素材会失去这个标签（素材文件本身不会被删）。`
-                  : '该标签还没有被任何素材使用。'}
+                  ? `全库共 ${confirmDel.usage} 条素材在用这个标签（含已解绑项目里的），删除后这些素材会失去这个标签（素材文件本身不会被删）。`
+                  : '全库还没有任何素材用过这个标签。'}
               </div>
+              {confirmDel.packCount > 0 && (
+                <div className="hint" style={{ color: 'var(--danger)' }}>
+                  目前有 <b>{confirmDel.packCount}</b> 个包正在使用这个类别，删除后这些包的类别也会一并去掉（归为「未分类」）。
+                </div>
+              )}
             </div>
             <div className="foot">
               <button className="btn" onClick={() => setConfirmDel(null)}>

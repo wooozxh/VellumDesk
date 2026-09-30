@@ -33,6 +33,12 @@ export interface PackCard {
   /** 项目名与配色（LEFT JOIN projects 得来，未归属时为 null） */
   projectName: string | null
   projectColor: string | null
+  /** 第 8 批：这个包里文件已丢失的条数（卡片角标 ⚠ N） */
+  missingCount: number
+  /** 第 9 批（M6）：共几稿；0 = 老包（界面不显示版本行） */
+  versionCount: number
+  /** 第 9 批（M6）：当前版本的编号（1 → V1）；没有版本时为 null */
+  currentSeq: number | null
 }
 
 export interface AssetItem {
@@ -55,6 +61,14 @@ export interface AssetItem {
   probe_info: string | null
   created_at: string
   modified_at: string
+  /** 第 8 批：null = 正常；有值 = 该时刻发现文件已丢失（M8-03） */
+  missing_at: string | null
+  /** 第 9 批：属于哪一稿（pack_versions.id）；null = 未分版本（老包 / 包根散文件） */
+  version_id: number | null
+  /** 第 9 批：这一稿的编号（IPC 层带上来的派生字段，界面直接用；未分版本为 null） */
+  versionSeq?: number | null
+  /** 第 9 批：这一稿是不是当前版本 */
+  versionCurrent?: boolean
   thumb?: string | null
   /** 第 3 批：本条素材的标签（listAssets 带 withTags 时填充） */
   tags?: Tag[]
@@ -73,15 +87,53 @@ export interface WsInfo {
   /** 第 5 批：当前活动工作区 id */
   activeId: string
   projects: ProjectWithCount[]
+  /** 第 7 批：已解绑的项目（左栏「已解绑 N 个项目」入口用） */
+  unboundProjects: UnboundProject[]
   projectColors: string[]
-  categories: string[]
   subFolders: string[]
   unassigned: number
+  /** 第 8 批：可见素材里文件已丢失的条数（左栏「⚠️ 文件已丢失」入口用） */
+  missing: number
   /**
    * 第 6 批：刚把目录结构升级到三级时才有值 —— 界面弹一次提示条，
    * 调 wsAckLayout 之后就没了。
    */
   layoutMigrated?: { at: string; packs: number }
+}
+
+// ==================== 第 7 批：记录生命周期（docs/09） ====================
+
+/** 已解绑的项目（archived = 1）：软件里隐身，本地文件全在 `_已解绑的项目` */
+export interface UnboundProject extends Project {
+  packCount: number
+  fileCount: number
+  /** 取自库里的文件大小合计 */
+  totalSize: number
+}
+
+/** 改包信息（名称 / 类别 / 所属项目）；改项目 = 搬文件夹 */
+export interface UpdatePackPatch {
+  name?: string
+  category?: string
+  /** 传 null = 变成「待归类」（搬回工作区根目录） */
+  projectId?: number | null
+}
+
+export interface UpdatePackResult {
+  ok: boolean
+  error?: string
+  /** 真的搬了文件夹时返回（旧路径 / 新路径 / 重写了几条记录） */
+  moved?: { from: string; to: string; paths: number }
+}
+
+/** 删除项目的结果（toTrash 分支会多带两个字段） */
+export interface RemoveProjectResult {
+  ok: boolean
+  moved: number
+  error?: string
+  movedToRoot?: boolean
+  toTrashPath?: string
+  deletedPacks?: number
 }
 
 // ==================== 第 5 批：工作区管理（E-01） ====================
@@ -126,13 +178,73 @@ export interface MigrateWorkspaceResult {
 
 export interface PacksView {
   packs: PackCard[]
-  total: { packs: number; files: number; size: number; unassigned: number }
+  total: { packs: number; files: number; size: number; unassigned: number; missing: number }
 }
 
 export interface PackDetail {
   pack: PackCard
   groups: Record<string, AssetItem[]>
   subFolders: string[]
+  /** 第 9 批（M6）：这个包的全部稿（按 seq 倒序，当前版本排最前）。
+   *  界面一次拿全、自己按 version_id 过滤 —— 一个包几十条，不必来回问主进程 */
+  versions: PackVersion[]
+}
+
+// ==================== 第 9 批：版本管理（M6，docs/11） ====================
+
+/**
+ * 包里的「一稿」。一稿 = 包文件夹下的一个文件夹（软件建的叫 V1/V2/V3，用户绑定的可以任意名）。
+ * 磁盘是唯一真相：`folderExists` 为 false 表示那个文件夹已经不在磁盘上了（被改名或删了）。
+ */
+export interface PackVersion {
+  id: number
+  pack_id: number
+  /** 第几稿：1 → 界面显示 V1 */
+  seq: number
+  /** 磁盘上的真实文件夹名 */
+  folder_name: string
+  /** 版本说明：这一稿改了什么 */
+  note: string
+  is_current: number
+  delivered_at: string | null
+  created_at: string
+  // ---- 界面用的派生字段 ----
+  folder_path: string
+  /** 这一稿里有几个文件（含已丢失的） */
+  fileCount: number
+  /** 这一稿占用（不含已丢失的，口径与第 8 批一致） */
+  totalSize: number
+  missingCount: number
+  folderExists: boolean
+}
+
+export interface CreateVersionInput {
+  packId: number
+  /** 版本说明：这一稿改了什么 */
+  note?: string
+  /**
+   * 把包里现有的、还没分版本的文件收进这一稿（搬进对应的三组里）。
+   * 界面在「包里还没有任何版本、且三组里确实有文件」时默认勾上。
+   */
+  takeExisting?: boolean
+  /** 把哪一稿的文件复制一份进来（默认不复制：大包复制一份可能多占几个 GB） */
+  copyFromVersionId?: number
+}
+
+/** 可绑定成版本的文件夹（包文件夹下还没被认领的子文件夹） */
+export interface BindableFolder {
+  folderName: string
+  /** 软件建议的编号：文件夹名是 V3 就用 3（没被占时），否则给"下一个可用编号" */
+  suggestedSeq: number
+  fileCount: number
+}
+
+export interface BindVersionInput {
+  packId: number
+  folderName: string
+  /** 编号由用户确认（可改）；撞上已占用的编号会被拒绝 */
+  seq: number
+  note?: string
 }
 
 export interface ScanResult {
@@ -141,6 +253,29 @@ export interface ScanResult {
   unassigned: number
   newFiles: number
   thumbs: number
+  /** 第 7 批：本轮摘掉了几个"文件夹已不在磁盘上"的包记录 */
+  cleanedPacks: number
+  /** 第 8 批：本轮新标记为「文件已丢失」的素材条数 */
+  markedMissing: number
+  /** 第 8 批：本轮找回（清除丢失标记）的素材条数 */
+  restored: number
+  /** 第 9 批（M6）：本轮自动认出的新稿数（用户自己在资源管理器里建的 V3 文件夹） */
+  newVersions: number
+  /** 第 9 批（M6）：编号冲突提示 —— 名字像版本号但那个编号已经被别的文件夹占着，不自动认 */
+  versionConflicts: string[]
+}
+
+/**
+ * 第 8 批 M8-03：批量重新定位的候选（只出清单，用户勾选后才落库）。
+ * `matchedPath` 为 null 表示这条没配上或校验不过，`reason` 里写清原因。
+ */
+export interface RelocateSuggestion {
+  assetId: number
+  fileName: string
+  oldRelPath: string
+  matchedPath: string | null
+  ok: boolean
+  reason: string
 }
 
 export interface ClaimResult {
@@ -246,12 +381,55 @@ export interface Api {
   }>
   removeProject: (
     id: number,
-    action: { moveTo: number | null }
-  ) => Promise<{ ok: boolean; moved: number; error?: string; movedToRoot?: boolean }>
+    action: { moveTo: number | null; toTrash?: boolean }
+  ) => Promise<RemoveProjectResult>
   moveProject: (
     id: number,
     direction: 'up' | 'down'
   ) => Promise<{ ok: boolean; moved: boolean; error?: string }>
+
+  // ---------------- 第 7 批：记录生命周期 ----------------
+  /** 解绑项目（结项留底：软件里不显示、本地文件全保留、可还原） */
+  unbindProject: (
+    id: number
+  ) => Promise<{ ok: boolean; packs: number; error?: string; movedTo?: string }>
+  /** 还原已解绑的项目 */
+  restoreProject: (id: number) => Promise<{ ok: boolean; error?: string }>
+  /** 改包信息：名称 / 类别 / 所属项目（改项目 = 搬文件夹；projectId 传 null = 待归类） */
+  updatePack: (id: number, patch: UpdatePackPatch) => Promise<UpdatePackResult>
+
+  // ---------------- 第 8 批：重新定位（M8-03） ----------------
+  /** 单条重新定位：弹系统文件选择框 → 校验（文件名 + 扩展名 + 大小）→ 通过才落库 */
+  relocateAsset: (
+    assetId: number
+  ) => Promise<{ ok: boolean; error?: string; relPath?: string; canceled?: boolean }>
+  /** 批量第一步：选一个目录 */
+  pickRelocateDir: () => Promise<{ ok: boolean; canceled?: boolean; dir?: string }>
+  /** 批量第二步：出候选清单（只读，不落库） */
+  relocateSuggest: (dir: string) => Promise<{ ok: boolean; items: RelocateSuggestion[] }>
+  /** 批量第三步：用户勾选后才写 */
+  relocateApply: (
+    items: Array<{ assetId: number; newAbsPath: string }>
+  ) => Promise<{ moved: number; errors: string[] }>
+
+  // ---------------- 第 9 批：版本管理（M6） ----------------
+  /** 某包的全部稿（含文件数 / 占用 / 文件夹是否还在） */
+  listVersions: (packId: number) => Promise<PackVersion[]>
+  /**
+   * 新建一稿：建 `V<n>/` + 三组空文件夹（可选收编包里现有文件、可选复制上一稿），新稿自动成为当前版本。
+   * 搬文件是 rename + 在原记录上重写路径（绝不做"删旧建新"，否则 asset.id 一变标签就丢）。
+   */
+  createVersion: (
+    input: CreateVersionInput
+  ) => Promise<{ ok: boolean; version?: PackVersion; error?: string; moved?: number }>
+  /** 绑定候选：这个包文件夹下还没被认领的子文件夹 */
+  listBindableFolders: (packId: number) => Promise<BindableFolder[]>
+  /** 把用户自己建好的文件夹绑定成某一稿（编号可改；撞号会被拒绝） */
+  bindVersion: (input: BindVersionInput) => Promise<{ ok: boolean; version?: PackVersion; error?: string }>
+  /** 解绑：只解除管理关系，**文件夹和文件一个都不动** */
+  unbindVersion: (versionId: number) => Promise<{ ok: boolean; error?: string }>
+  /** 设为当前版本（= M6-05 回滚）；纯库操作，磁盘零改动 */
+  setCurrentVersion: (versionId: number) => Promise<{ ok: boolean; error?: string }>
 
   createPack: (input: {
     name?: string
@@ -270,28 +448,46 @@ export interface Api {
     filterProjectIds?: number[]
     /** 是否把每条素材的标签一起带出来 */
     withTags?: boolean
+    /** 第 8 批：只看文件已丢失的（M8-03） */
+    missingOnly?: boolean
+    /** 第 9 批（M6）：只看当前那一稿的文件（工具栏「只看当前稿」开关）。
+     *  未分版本的老文件**不算**当前版本的文件，开关打开时它们不显示 */
+    currentOnly?: boolean
   }) => Promise<{ items: AssetItem[]; total: number }>
   packDetail: (packId: number) => Promise<PackDetail>
-  claim: (args: { paths: string[]; packId: number; subFolder: string }) => Promise<ClaimResult>
+  claim: (args: {
+    paths: string[]
+    packId: number
+    subFolder: string
+    /** 第 9 批（M6）：搬进「某一稿」的组里。
+     *  传数字 = 搬进那一稿；传 null = 明确落「未分版本」（包根三组）；
+     *  **不传** = 自动：包有当前版本就落当前版本（新建包默认有 V1） */
+    versionId?: number | null
+  }) => Promise<ClaimResult>
   openFile: (absPath: string) => Promise<{ ok: boolean; error?: string }>
   revealFile: (absPath: string) => Promise<{ ok: boolean; error?: string }>
   openFolder: (p: string) => Promise<{ ok: boolean; error?: string }>
 
   // ---------------- 第 3 批：标签 ----------------
-  /** 5 个维度 + 每个维度的标签（带使用计数） */
-  listTagDimensions: () => Promise<DimensionGroup[]>
+  /** 各维度 + 每个维度的标签（带使用计数）。
+   *  计数口径跟随左栏当前项目范围：不传 = 全部；`projectId: 数字` = 该项目；`projectId: null` = 待归类 */
+  listTagDimensions: (scope?: { projectId?: number | null }) => Promise<DimensionGroup[]>
   createTag: (input: {
     dimension: string
     name: string
     color?: string
   }) => Promise<{ ok: boolean; tag?: Tag; error?: string }>
+  /** 第 10 批：改「物料类别」的名字时，`packsUpdated` = 跟着改掉的包数 */
   updateTag: (
     id: number,
     patch: { name?: string; color?: string }
-  ) => Promise<{ ok: boolean; tag?: Tag; error?: string }>
-  removeTag: (id: number) => Promise<{ ok: boolean; deleted: number; error?: string }>
-  /** 删除前看该标签被多少素材使用 */
-  tagUsage: (id: number) => Promise<{ assetCount: number }>
+  ) => Promise<{ ok: boolean; tag?: Tag; packsUpdated?: number; error?: string }>
+  /** 第 10 批：删「物料类别」时，`packsAffected` = 类别被归到「未分类」的包数 */
+  removeTag: (
+    id: number
+  ) => Promise<{ ok: boolean; deleted: number; packsAffected?: number; error?: string }>
+  /** 删除前看该标签被多少素材使用（`packCount` = 有多少个包的类别正是它） */
+  tagUsage: (id: number) => Promise<{ assetCount: number; packCount: number }>
   /** 批量打标签（覆盖同维度旧标签） */
   applyTags: (args: { assetIds: number[]; tagIds: number[] }) => Promise<ApplyTagsResult>
   /** 批量移除标签 */

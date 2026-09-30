@@ -8,20 +8,45 @@ function Placeholder(): React.JSX.Element {
 
 export function PackCard({
   pack,
-  onOpen
+  onOpen,
+  onEdit
 }: {
   pack: PackCardType
   onOpen: () => void
+  /** 第 7 批：改包信息（名称 / 类别 / 所属项目）；待归类的包用它归位 */
+  onEdit?: () => void
 }): React.JSX.Element {
   const [imgOk, setImgOk] = useState(true)
+  const isLoose = pack.project_id === null
 
   return (
     <div className="pack-card" onClick={onOpen} title={pack.folder_path}>
+      {onEdit && (
+        <button
+          className="pact"
+          title={isLoose ? '归位到某个项目' : '编辑包信息（名称 / 类别 / 项目）'}
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+        >
+          {isLoose ? '📥' : '✎'}
+        </button>
+      )}
       <div className="thumb">
         {pack.cover && imgOk ? (
           <img src={pack.cover} alt={pack.name} onError={() => setImgOk(false)} />
         ) : (
           <Placeholder />
+        )}
+        {/* 第 8 批：包里有文件丢了 → 挂个角标，进包详情能看到是哪几条 */}
+        {(pack.missingCount ?? 0) > 0 && (
+          <span
+            className="miss-flag"
+            title={`这个包里有 ${pack.missingCount} 个文件已丢失（原文件被删除或挪走了，记录还在，可重新定位）`}
+          >
+            ⚠ {pack.missingCount}
+          </span>
         )}
       </div>
       <div className="meta">
@@ -30,6 +55,15 @@ export function PackCard({
         </div>
         <div className="sub">
           {pack.fileCount} 个文件 · {fmtSize(pack.totalSize)}
+          {pack.versionCount > 0 && (
+            <span
+              className="ver-chip"
+              title={`这个包有 ${pack.versionCount} 稿；卡片上的文件数和容量算的是全部（历史稿也占硬盘）`}
+            >
+              {' · '}
+              {pack.currentSeq ? `V${pack.currentSeq} 当前` : '有版本'} · {pack.versionCount} 稿
+            </span>
+          )}
         </div>
         <div className="tags">
           {pack.projectName ? (

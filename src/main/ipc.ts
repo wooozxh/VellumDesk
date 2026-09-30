@@ -1,7 +1,7 @@
 import { ipcMain, shell, app, dialog } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
-import { openDb, getDb } from './db'
+import { openDb } from './db'
 import {
   createPack,
   scanAll,
@@ -26,8 +26,28 @@ import {
   moveProject,
   readLayoutNotice,
   ackLayoutNotice,
+  // 第 7 批：记录生命周期（docs/09）
+  updatePack,
+  unbindProject,
+  restoreProject,
+  listUnboundProjects,
+  assetTotals,
+  countMissing,
+  relocateAsset,
+  suggestRelocateBatch,
+  applyRelocateBatch,
   SUB_FOLDERS,
-  type SubFolder
+  type SubFolder,
+  // 第 9 批：版本管理（M6，docs/11）
+  listVersions,
+  listVersionMap,
+  createVersion,
+  listBindableFolders,
+  bindVersion,
+  unbindVersion,
+  setCurrentVersion,
+  type CreateVersionInput,
+  type BindVersionInput
 } from './workspace'
 import {
   ensureThumbsForAssets,
@@ -38,7 +58,7 @@ import {
   readAsDataUrl,
   isImage
 } from './thumbs'
-import { PROJECT_COLORS, CATEGORIES } from './db'
+import { PROJECT_COLORS } from './db'
 import {
   listTagDimensions,
   createTag,
@@ -80,19 +100,25 @@ export function registerIpc(): void {
       workspaces: ws.workspaces,
       activeId: ws.activeId,
       projectColors: [...PROJECT_COLORS],
-      categories: [...CATEGORIES],
+      // 第 10 批：这里原来返回一份写死的 `categories` 给建包弹窗用。
+      // 已删 —— 类别清单现在由渲染层从标签维度「物料类别」派生（tagDimensions），
+      // 保证「左栏能加什么、建包就能选什么」，也免掉两个数据源再次跑偏。
       subFolders: [...SUB_FOLDERS]
     }
     if (!st.ok) {
       // 工作区不可用时数据库根本打不开，直接返回空数据交给界面提示，
       // 不让异常冒到渲染进程控制台
-      return { ...base, projects: [], unassigned: 0 }
+      return { ...base, projects: [], unassigned: 0, unboundProjects: [], missing: 0 }
     }
     initWorkspace(st.root)
     return {
       ...base,
       projects: listProjectsWithCount(),
       unassigned: countUnassigned(),
+      // 第 7 批：已解绑的项目（左栏「已解绑 N 个项目」入口用）
+      unboundProjects: listUnboundProjects(),
+      // 第 8 批：文件已丢失的条数（左栏「⚠️ 文件已丢失」入口用）
+      missing: countMissing(),
       // 第 6 批：刚把目录结构升级过的话告诉界面（只提示一次，界面 ack 后不再出现）
       layoutMigrated: readLayoutNotice() ?? undefined
     }
@@ -127,13 +153,44 @@ export function registerIpc(): void {
     }
   )
 
-  ipcMain.handle('project:remove', (_e, args: { id: number; moveTo: number | null }) => {
+  ipcMain.handle(
+    'project:remove',
+    (_e, args: { id: number; moveTo: number | null; toTrash?: boolean }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      // 第 6 批：包文件夹跟着走 —— 转移项目就搬进目标项目文件夹，
+      // 变未归属就搬到工作区根目录（界面上的「待归类」）
+      // 第 7 批：toTrash = 整个项目文件夹搬进 _回收站，记录删掉，文件一个不少
+      return removeProject(args.id, { moveTo: args.moveTo, toTrash: args.toTrash }, root)
+    }
+  )
+
+  // 第 7 批 ④：解绑（结项留底，软件里不显示、本地全保留）/ 还原
+  ipcMain.handle('project:unbind', (_e, id: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
-    // 第 6 批：包文件夹跟着走 —— 转移项目就搬进目标项目文件夹，
-    // 变未归属就搬到工作区根目录（界面上的「待归类」）
-    return removeProject(args.id, { moveTo: args.moveTo }, root)
+    return unbindProject(id, root)
   })
+
+  ipcMain.handle('project:restore', (_e, id: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return restoreProject(id, root)
+  })
+
+  // 第 7 批 ②③：改包信息（名称 / 类别 / 所属项目）—— 改项目 = 搬文件夹
+  ipcMain.handle(
+    'pack:update',
+    (_e, args: { id: number; patch: { name?: string; category?: string; projectId?: number | null } }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      try {
+        return updatePack(args.id, args.patch, root)
+      } catch (e) {
+        return { ok: false, error: (e as Error).message }
+      }
+    }
+  )
 
   // 调整项目在左栏的显示顺序（上移 / 下移一位）
   ipcMain.handle('project:move', (_e, args: { id: number; direction: 'up' | 'down' }) => {
@@ -366,7 +423,6 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const packs = listPacks()
-    const db = getDb()
 
     // 封面转 dataURL，避免渲染进程直接读磁盘
     const withCover = packs.map((p) => {
@@ -380,13 +436,19 @@ export function registerIpc(): void {
       return { ...p, cover }
     })
 
-    const stat = db
-      .prepare('SELECT COUNT(*) AS c, COALESCE(SUM(size),0) AS s FROM assets')
-      .get() as { c: number; s: number }
+    // 第 7 批：总条数 / 总容量走 assetTotals —— 解绑项目名下的素材不计入（用户拍板）
+    // 第 8 批：口径改为「条数算上丢失的、容量不算」，并带出 missing 计数
+    const stat = assetTotals()
 
     return {
       packs: withCover,
-      total: { packs: packs.length, files: stat.c, size: stat.s, unassigned: countUnassigned() }
+      total: {
+        packs: packs.length,
+        files: stat.count,
+        size: stat.size,
+        unassigned: countUnassigned(),
+        missing: stat.missing
+      }
     }
   })
 
@@ -403,6 +465,10 @@ export function registerIpc(): void {
         tagIds?: number[]
         filterProjectIds?: number[]
         withTags?: boolean
+        /** 第 8 批：只看文件已丢失的 */
+        missingOnly?: boolean
+        /** 第 9 批：只看当前那一稿的文件 */
+        currentOnly?: boolean
       }
     ) => {
       const root = getWorkspaceRoot(appData)
@@ -414,22 +480,31 @@ export function registerIpc(): void {
         packId: o.packId,
         projectId: o.projectId,
         tagIds: o.tagIds,
-        filterProjectIds: o.filterProjectIds
+        filterProjectIds: o.filterProjectIds,
+        missingOnly: o.missingOnly,
+        currentOnly: o.currentOnly
       })
       // 第 3 批：需要标签时一并带出（列表色块展示）
       const tagMap = o.withTags || o.tagIds?.length ? tagsOfAssets(rows.map((r) => r.id)) : {}
-      const withThumb = rows.map((r) => ({
-        ...r,
-        // thumb_path 有值就直接读缩略图（图片 .webp / 视频 .jpg 都走这里）；
-        // 没有缩略图且本身是图片才读原图 —— 视频原文件绝不直接读（太大）
-        thumb:
-          r.thumb_path
-            ? readAsDataUrl(join(root, r.thumb_path))
-            : isImage(r.ext)
-              ? readAsDataUrl(r.abs_path)
-              : null,
-        tags: tagMap[r.id] ?? []
-      }))
+      // 第 9 批：给每行带上"哪一稿 / 是不是当前"——文件视图没有"当前包"的上下文，统一在这儿补
+      const vmap = new Map(listVersionMap().map((v) => [v.id, v]))
+      const withThumb = rows.map((r) => {
+        const v = r.version_id !== null ? vmap.get(r.version_id) : undefined
+        return {
+          ...r,
+          versionSeq: v ? v.seq : null,
+          versionCurrent: v ? v.is_current === 1 : false,
+          // thumb_path 有值就直接读缩略图（图片 .webp / 视频 .jpg 都走这里）；
+          // 没有缩略图且本身是图片才读原图 —— 视频原文件绝不直接读（太大）
+          thumb:
+            r.thumb_path
+              ? readAsDataUrl(join(root, r.thumb_path))
+              : isImage(r.ext)
+                ? readAsDataUrl(r.abs_path)
+                : null,
+          tags: tagMap[r.id] ?? []
+        }
+      })
       return { items: withThumb, total: withThumb.length }
     }
   )
@@ -438,27 +513,82 @@ export function registerIpc(): void {
   ipcMain.handle('view:packDetail', (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     const detail = getPackDetail(packId)
+    const vmap = new Map(listVersionMap().map((v) => [v.id, v]))
     const withThumb: Record<string, unknown[]> = {}
     for (const [role, items] of Object.entries(detail.groups)) {
-      withThumb[role] = items.map((r) => ({
-        ...r,
-        thumb:
-          r.thumb_path
-            ? readAsDataUrl(join(root, r.thumb_path))
-            : isImage(r.ext)
-              ? readAsDataUrl(r.abs_path)
-              : null
-      }))
+      withThumb[role] = items.map((r) => {
+        const v = r.version_id !== null ? vmap.get(r.version_id) : undefined
+        return {
+          ...r,
+          versionSeq: v ? v.seq : null,
+          versionCurrent: v ? v.is_current === 1 : false,
+          thumb:
+            r.thumb_path
+              ? readAsDataUrl(join(root, r.thumb_path))
+              : isImage(r.ext)
+                ? readAsDataUrl(r.abs_path)
+                : null
+        }
+      })
     }
-    return { pack: detail.pack, groups: withThumb, subFolders: [...SUB_FOLDERS] }
+    return {
+      pack: detail.pack,
+      groups: withThumb,
+      subFolders: [...SUB_FOLDERS],
+      // 第 9 批（M6）：这一包的全部稿（界面画版本条、自己按 version_id 过滤）
+      versions: detail.versions
+    }
+  })
+
+  // ---------- 第 9 批：版本管理（M6，docs/11） ----------
+  /** 某包的全部稿（含文件数 / 占用 / 文件夹是否还在） */
+  ipcMain.handle('version:list', (_e, packId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return listVersions(packId)
+  })
+
+  /** 新建一稿：建 `V<n>/` + 三组空文件夹（可选收编现有文件、可选复制上一稿） */
+  ipcMain.handle('version:create', (_e, input: CreateVersionInput) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return createVersion(root, input)
+  })
+
+  /** 绑定候选：这个包文件夹下还没被认领的子文件夹 */
+  ipcMain.handle('version:bindable', (_e, packId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return listBindableFolders(packId)
+  })
+
+  /** 把用户自己建好的文件夹绑定成某一稿 */
+  ipcMain.handle('version:bind', (_e, input: BindVersionInput) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return bindVersion(root, input)
+  })
+
+  /** 解绑：只解除管理关系，文件夹和文件一个都不动 */
+  ipcMain.handle('version:unbind', (_e, versionId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return unbindVersion(versionId)
+  })
+
+  /** 设为当前版本（= 回滚）：纯库操作，磁盘零改动 */
+  ipcMain.handle('version:setCurrent', (_e, versionId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return setCurrentVersion(versionId)
   })
 
   // ---------- A-09 认领 ----------
   ipcMain.handle(
     'asset:claim',
-    (_e, args: { paths: string[]; packId: number; subFolder: SubFolder }) => {
+    (_e, args: { paths: string[]; packId: number; subFolder: SubFolder; versionId?: number | null }) => {
       const root = getWorkspaceRoot(appData)
-      const res = claimFiles(root, args.paths, args.packId, args.subFolder)
+      const res = claimFiles(root, args.paths, args.packId, args.subFolder, args.versionId)
       return { ok: res.errors.length === 0, ...res }
     }
   )
@@ -482,11 +612,57 @@ export function registerIpc(): void {
     return err ? { ok: false, error: err } : { ok: true }
   })
 
-  // ---------- 第 3 批：标签体系（M2） ----------
-  ipcMain.handle('tag:dimensions', () => {
+  // ---------- 第 8 批 M8-03：重新定位（文件被删/挪走之后把它找回来）----------
+  /**
+   * 单条：弹系统文件选择框 → 校验（文件名 + 扩展名 + 大小，用户拍板）→ 通过才落库。
+   * 校验不过就把原因原样返回，界面照实说"哪儿对不上"。
+   */
+  ipcMain.handle('asset:relocate', async (_e, assetId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
-    return listTagDimensions()
+    const r = await dialog.showOpenDialog({
+      title: '指出这个文件现在在哪里',
+      buttonLabel: '就是它',
+      properties: ['openFile']
+    })
+    if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+    return relocateAsset(assetId, r.filePaths[0], root)
+  })
+
+  /** 批量第一步：选一个目录（"整个文件夹被搬走了"的场景） */
+  ipcMain.handle('asset:pickRelocateDir', async () => {
+    const r = await dialog.showOpenDialog({
+      title: '这些文件被搬到哪个文件夹了（选它们上一层或更上面）',
+      buttonLabel: '就在这里找',
+      properties: ['openDirectory']
+    })
+    if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+    return { ok: true, dir: r.filePaths[0] }
+  })
+
+  /** 批量第二步：出候选清单（**只读**，不落库 —— 用户勾选前一个字节都不改） */
+  ipcMain.handle('asset:relocateSuggest', (_e, dir: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return { ok: true, items: suggestRelocateBatch(dir, root) }
+  })
+
+  /** 批量第三步：用户勾选后才写 */
+  ipcMain.handle(
+    'asset:relocateApply',
+    (_e, items: Array<{ assetId: number; newAbsPath: string }>) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      return applyRelocateBatch(items ?? [], root)
+    }
+  )
+
+  // ---------- 第 3 批：标签体系（M2） ----------
+  ipcMain.handle('tag:dimensions', (_e, scope?: { projectId?: number | null }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    // 第 7 批补：标签计数跟随左栏当前项目范围（不传 = 全部）
+    return listTagDimensions(scope)
   })
 
   ipcMain.handle(

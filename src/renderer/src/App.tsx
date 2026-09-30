@@ -4,6 +4,8 @@ import type {
   DimensionGroup,
   PackCard as PackCardType,
   ProjectWithCount,
+  UnboundProject,
+  UpdatePackPatch,
   WorkspaceEntry,
   WsInfo
 } from './types'
@@ -12,8 +14,11 @@ import { PackCard, UnassignedCard } from './components/PackCard'
 import { FileRow, fmtSize } from './components/FileRow'
 import { NewPackModal } from './components/NewPackModal'
 import { PackDetailModal } from './components/PackDetailModal'
+import { EditPackModal } from './components/EditPackModal'
 import { ProjectModal } from './components/ProjectModal'
 import { DeleteProjectModal } from './components/DeleteProjectModal'
+import { UnboundProjectsModal } from './components/UnboundProjectsModal'
+import { RelocateModal } from './components/RelocateModal'
 import { TagPanel } from './components/TagPanel'
 import { TagManagerModal } from './components/TagManagerModal'
 import { TagPickerModal } from './components/TagPickerModal'
@@ -28,6 +33,15 @@ interface ToastMsg {
 
 /** 左栏项目筛选：'全部' 或具体项目 id（null 表示「未指定项目」的包） */
 type ProjectFilter = '全部' | number | null
+
+/**
+ * 左栏项目筛选 → 标签计数的范围参数。
+ * '全部' = 不限（全库可见素材）；数字 = 该项目的包；null = 待归类。
+ * 与 `shownPacks` 的口径一一对应，标签数字才能和点开后的结果对上。
+ */
+function tagScope(f: ProjectFilter): { projectId?: number | null } | undefined {
+  return f === '全部' ? undefined : { projectId: f }
+}
 
 /** 左栏宽度（px）。默认、最小、最大 */
 const SIDE_DEFAULT = 220
@@ -51,10 +65,14 @@ export default function App(): React.JSX.Element {
   const [resizing, setResizing] = useState(false)
 
   const [packs, setPacks] = useState<PackCardType[]>([])
-  const [stats, setStats] = useState({ packs: 0, files: 0, size: 0, unassigned: 0 })
+  const [stats, setStats] = useState({ packs: 0, files: 0, size: 0, unassigned: 0, missing: 0 })
   const [unassignedSize, setUnassignedSize] = useState(0)
   const [assets, setAssets] = useState<AssetItem[]>([])
   const [unassignedOnly, setUnassignedOnly] = useState(false)
+  /** 第 8 批：只看文件已丢失的（左栏「⚠️ 文件已丢失」入口） */
+  const [missingOnly, setMissingOnly] = useState(false)
+  /** 第 9 批（M6）：只看当前那一稿的文件（工具栏开关） */
+  const [currentOnly, setCurrentOnly] = useState(false)
 
   // ---- 第 3 批：标签（M2）----
   const [tagDimensions, setTagDimensions] = useState<DimensionGroup[]>([])
@@ -77,6 +95,16 @@ export default function App(): React.JSX.Element {
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null)
   const [deletingProject, setDeletingProject] = useState<ProjectWithCount | null>(null)
   const [hoverProject, setHoverProject] = useState<number | null>(null)
+
+  // ---- 第 7 批：记录生命周期 ----
+  /** 正在编辑信息的包（null = 弹窗关闭） */
+  const [editingPackId, setEditingPackId] = useState<number | null>(null)
+  const [showUnbound, setShowUnbound] = useState(false)
+  /** 包信息改过之后，让包详情弹窗重新挂载一次（它的数据是挂载时拉的） */
+  const [detailTick, setDetailTick] = useState(0)
+
+  // ---- 第 8 批：文件已丢失 / 重新定位（M8-03）----
+  const [showRelocate, setShowRelocate] = useState(false)
 
   const [scanning, setScanning] = useState(false)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
@@ -114,19 +142,25 @@ export default function App(): React.JSX.Element {
   /** 当前活动工作区（多工作区下，提示条和状态栏都要说清是哪一个） */
   const activeWs = (info?.workspaces ?? []).find((w) => w.id === info?.activeId) ?? null
 
-  /** 第 3 批：拉 5 个维度及其标签（带使用计数） */
-  const loadTags = useCallback(async (): Promise<DimensionGroup[]> => {
-    const d = await window.api.listTagDimensions()
-    setTagDimensions(d)
-    // 已删/已归档的项目对应的负数 id 要从已选里剔掉，避免筛出空结果
-    const valid = new Set<number>()
-    for (const g of d) for (const t of g.tags) valid.add(t.id)
-    setSelectedTagIds((prev) => {
-      const next = prev.filter((id) => valid.has(id))
-      return next.length === prev.length ? prev : next
-    })
-    return d
-  }, [])
+  /**
+   * 第 3 批：拉各维度及其标签（带使用计数）。
+   * 第 7 批补：计数口径跟随左栏当前项目范围，数字与点开后的结果保持一致。
+   */
+  const loadTags = useCallback(
+    async (scope?: { projectId?: number | null }): Promise<DimensionGroup[]> => {
+      const d = await window.api.listTagDimensions(scope)
+      setTagDimensions(d)
+      // 已删/已归档的项目对应的负数 id 要从已选里剔掉，避免筛出空结果
+      const valid = new Set<number>()
+      for (const g of d) for (const t of g.tags) valid.add(t.id)
+      setSelectedTagIds((prev) => {
+        const next = prev.filter((id) => valid.has(id))
+        return next.length === prev.length ? prev : next
+      })
+      return d
+    },
+    []
+  )
 
   const loadPacks = useCallback(async (): Promise<void> => {
     const r = await window.api.listPacks()
@@ -136,12 +170,36 @@ export default function App(): React.JSX.Element {
     setUnassignedSize(un.items.reduce((s, i) => s + i.size, 0))
   }, [])
 
+  /**
+   * 第 10 批（2026-09-30 用户实测反馈）：**「物料类别」清单在全软件里只有一套**。
+   *
+   * 就用左栏标签维度「物料类别」里的那一组 —— 建包 / 编辑包的类别 chips 从这里派生，
+   * 所以：左栏「标签管理 → 物料类别」里加一个「易拉宝」，新建包弹窗当场能选到；
+   * 删掉「PPT」，它也就不再出现在建包清单里。改名 / 删除还会反向联动已有包（见 tags.ts）。
+   *
+   * 这里不再走 `info.categories`：那份是 `db.ts` 里写死的常量，跟左栏这套只有两项重叠，
+   * 用户实测报了这个 bug 后已把常量与接口字段一并删掉，避免以后又冒出第二个数据源。
+   */
+  const categoryOptions = useMemo(
+    () => tagDimensions.find((d) => d.key === 'category')?.tags.map((t) => t.name) ?? [],
+    [tagDimensions]
+  )
+
   const loadAssets = useCallback(
-    async (kw: string, unassigned: boolean, tagIds: number[]): Promise<void> => {
+    async (
+      kw: string,
+      unassigned: boolean,
+      tagIds: number[],
+      missing?: boolean,
+      /** 第 9 批（M6）：只看当前那一稿 */
+      cur?: boolean
+    ): Promise<void> => {
       const r = await window.api.listAssets({
         keyword: kw,
         view: unassigned ? 'unassigned' : 'all',
         tagIds,
+        missingOnly: missing === true,
+        currentOnly: cur === true,
         withTags: true
       })
       setAssets(r.items)
@@ -157,39 +215,93 @@ export default function App(): React.JSX.Element {
       if (!i.workspaceOk) return
       await loadTags()
       await loadPacks()
-      await loadAssets('', false, [])
+      await loadAssets('', false, [], false, false)
     })()
   }, [loadWs, loadTags, loadPacks, loadAssets])
 
   useEffect(() => {
     if (!wsLive) return
     if (view === 'packs') loadPacks()
-    else loadAssets(keyword, unassignedOnly, selectedTagIds)
+    else loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, unassignedOnly, wsLive])
+  }, [view, unassignedOnly, missingOnly, currentOnly, wsLive])
 
   useEffect(() => {
     if (!wsLive || view !== 'files') return
-    const t = setTimeout(() => loadAssets(keyword, unassignedOnly, selectedTagIds), 220)
+    const t = setTimeout(
+      () => loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly),
+      220
+    )
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyword, wsLive])
 
   // 标签勾选变化：左侧筛选立即生效
+  // 第 7 批修正：这个 effect 以前把 wsLive 也放进了依赖数组 —— 工作区一连上就被顺带触发，
+  // `setView('files')` 跟着执行，结果软件每次启动都落在文件视图，包视图（主视图）得手点
+  // （第 4 批引入，界面验证壳第 7 批才抓到）。现在只在「标签真的变了」时才切视图；
+  // wsLive 翻转只负责把当前筛选的素材重载一遍。
+  const prevTagIdsRef = useRef<number[]>([])
   useEffect(() => {
     if (!wsLive) return
-    if (view !== 'files') setView('files')
-    loadAssets(keyword, unassignedOnly, selectedTagIds)
+    const prev = prevTagIdsRef.current
+    const tagChanged =
+      prev.length !== selectedTagIds.length ||
+      prev.some((t, i) => t !== selectedTagIds[i])
+    prevTagIdsRef.current = selectedTagIds
+    if (tagChanged && view !== 'files') setView('files')
+    loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTagIds, wsLive])
+
+  // 第 7 批补：切换项目 / 切到「待归类」时，标签后面的计数跟着重算。
+  // 口径 = 当前项目范围，保证「标签数字」与「点开真列出几条」永远一致
+  // （以前是全库口径，选了项目后数字对不上）。
+  useEffect(() => {
+    if (!wsLive) return
+    void loadTags(tagScope(projectFilter))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectFilter, wsLive])
+
+  // 第 9 批（M6）：「未归属」的文件本来就不属于任何一稿，两个筛选叠起来必定是空的
+  // —— 切到未归属视图时自动把「只看当前稿」关掉，别让用户对着空列表猜。
+  useEffect(() => {
+    if (unassignedOnly && currentOnly) setCurrentOnly(false)
+  }, [unassignedOnly, currentOnly])
 
   const reloadAll = useCallback(async (): Promise<void> => {
     const i = await loadWs()
     if (!i.workspaceOk) return
-    await loadTags()
+    await loadTags(tagScope(projectFilter))
     await loadPacks()
-    await loadAssets(keyword, unassignedOnly, selectedTagIds)
-  }, [loadWs, loadTags, loadPacks, loadAssets, keyword, unassignedOnly, selectedTagIds])
+    await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
+  }, [
+    loadWs,
+    loadTags,
+    loadPacks,
+    loadAssets,
+    keyword,
+    unassignedOnly,
+    selectedTagIds,
+    missingOnly,
+    currentOnly,
+    projectFilter
+  ])
+
+  /**
+   * 第 8 批 M8-03：单条重新定位 —— 弹系统文件框，选完直接校验 + 落库。
+   * 校验不过（文件名 / 大小对不上）就把原因原样告诉用户，别含糊其辞。
+   */
+  const doRelocate = async (assetId: number): Promise<void> => {
+    const r = await window.api.relocateAsset(assetId)
+    if (r.canceled) return
+    if (!r.ok) {
+      toast(r.error ?? '没能定位到文件', 'err')
+      return
+    }
+    toast(`已找回：${r.relPath ?? ''}`, 'ok')
+    await reloadAll()
+  }
 
   // ---------------- 工作区不可用时的两个出口 ----------------
 
@@ -200,9 +312,11 @@ export default function App(): React.JSX.Element {
       toast('还是连不上，检查一下磁盘或移动硬盘', 'err')
       return
     }
-    await loadTags()
+    await loadTags(tagScope(projectFilter))
     await loadPacks()
-    await loadAssets('', false, [])
+    setUnassignedOnly(false)
+    setMissingOnly(false)
+    await loadAssets('', false, [], false)
     toast('工作区已恢复', 'ok')
   }
 
@@ -349,6 +463,18 @@ export default function App(): React.JSX.Element {
           (r.thumbs ? ` · 生成 ${r.thumbs} 张缩略图` : ''),
         'ok'
       )
+      // 第 7 批 ①：磁盘上已经没有的包，记录也摘掉了（信息留在 _system/backup）
+      if (r.cleanedPacks) {
+        toast(
+          `已清理 ${r.cleanedPacks} 条失效的包记录（文件本来就不在了，清单留存在 _system/backup）`,
+          'info'
+        )
+      }
+      // 第 9 批（M6）：自动认出的稿 + 编号冲突
+      if (r.newVersions) {
+        toast(`认出了 ${r.newVersions} 个新的版本文件夹（V1/V2 这种名字）`, 'ok')
+      }
+      for (const c of r.versionConflicts ?? []) toast(c, 'err')
     } catch (e) {
       toast('扫描失败：' + (e as Error).message, 'err')
     } finally {
@@ -428,6 +554,7 @@ export default function App(): React.JSX.Element {
 
   const confirmDeleteProject = async (action: {
     moveTo: number | null
+    toTrash?: boolean
   }): Promise<{ ok: boolean; error?: string }> => {
     if (!deletingProject) return { ok: false, error: '没有待删除的项目' }
     const name = deletingProject.name
@@ -438,14 +565,93 @@ export default function App(): React.JSX.Element {
       // 若当前筛选正是被删的项目，退回「全部」
       if (projectFilter === deletingProject.id) setProjectFilter('全部')
       await reloadAll()
-      toast(
-        n > 0
-          ? `项目「${name}」已删除，${r.moved} 个包已${action.moveTo !== null ? '转移' : '变为未归属'}`
-          : `项目「${name}」已删除`,
-        'ok'
-      )
+      if (action.toTrash) {
+        toast(
+          `项目「${name}」已删进回收站：软件里不再显示，${r.deletedPacks ?? 0} 个包的文件夹原封不动躺在 _回收站 里`,
+          'info'
+        )
+      } else {
+        toast(
+          n > 0
+            ? `项目「${name}」已删除，${r.moved} 个包已${action.moveTo !== null ? '转移' : '变为待归类'}`
+            : `项目「${name}」已删除`,
+          'ok'
+        )
+      }
     }
     return r
+  }
+
+  // ---------------- 第 7 批 ②③：包信息编辑 / 待归类归位 ----------------
+
+  /**
+   * 保存包信息。改名 ⇒ 文件夹改名；改项目 ⇒ 文件夹搬家；只改类别 ⇒ 不碰磁盘。
+   * 待归类的包在这里选项目，就是「归位」。
+   */
+  const submitPackEdit = async (
+    patch: UpdatePackPatch
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (editingPackId === null) return { ok: false, error: '没有待编辑的包' }
+    try {
+      const r = await window.api.updatePack(editingPackId, patch)
+      if (!r.ok) return { ok: false, error: r.error }
+      setEditingPackId(null)
+      setDetailTick((t) => t + 1)
+      await reloadAll()
+      toast(
+        r.moved
+          ? '已保存，文件夹也跟着改名 / 搬家了（文件一个没动）'
+          : '已保存（只改了信息，磁盘上的文件夹没动）',
+        'ok'
+      )
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  }
+
+  // ---------------- 第 7 批 ④：解绑 / 还原 ----------------
+
+  /** 解绑项目：结项留底 —— 软件里不显示，本地文件全保留 */
+  const doUnbind = async (p: ProjectWithCount): Promise<void> => {
+    const yes = window.confirm(
+      `解绑项目「${p.name}」？\n\n` +
+        `· 软件里（包括包视图、文件视图、统计）不再显示它\n` +
+        `· 项目文件夹会搬到工作区的「_已解绑的项目」里，文件一个不少\n` +
+        `· 想回来时在左栏「已解绑」入口点一下就能还原\n\n` +
+        `确认解绑？`
+    )
+    if (!yes) return
+    try {
+      const r = await window.api.unbindProject(p.id)
+      if (!r.ok) {
+        toast(r.error || '解绑失败', 'err')
+        return
+      }
+      if (projectFilter === p.id) setProjectFilter('全部')
+      await reloadAll()
+      toast(
+        `项目「${p.name}」已解绑，${r.packs} 个包跟着搬进 _已解绑的项目（文件都在）`,
+        'ok'
+      )
+    } catch (e) {
+      toast('解绑失败：' + (e as Error).message, 'err')
+    }
+  }
+
+  /** 还原已解绑的项目：文件夹搬回工作区，左栏重新出现 */
+  const doRestoreUnbound = async (
+    p: UnboundProject
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await window.api.restoreProject(p.id)
+      if (!r.ok) return { ok: false, error: r.error }
+      await reloadAll()
+      toast(`项目「${p.name}」已还原，文件都还在`, 'ok')
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
   }
 
   // ---------------- A-09 认领 ----------------
@@ -473,7 +679,7 @@ export default function App(): React.JSX.Element {
     } catch {
       setTagSuggestions({})
     }
-    if (tagDimensions.length === 0) await loadTags()
+    if (tagDimensions.length === 0) await loadTags(tagScope(projectFilter))
     setTagPickerIds(ids)
   }
 
@@ -495,7 +701,7 @@ export default function App(): React.JSX.Element {
   /** 从当前勾选的素材上摘掉某个标签（在文件行上点标签的小叉） */
   const dropTag = async (assetId: number, tagId: number): Promise<void> => {
     const r = await window.api.removeTagsFrom({ assetIds: [assetId], tagIds: [tagId] })
-    if (r.ok) await loadAssets(keyword, unassignedOnly, selectedTagIds)
+    if (r.ok) await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
   }
 
   // ---------------- 打开 ----------------
@@ -544,6 +750,12 @@ export default function App(): React.JSX.Element {
   // ---------------- 派生数据 ----------------
 
   const projects: ProjectWithCount[] = info?.projects ?? []
+
+  /** 第 7 批：正在编辑信息的包（从 packs 里现取，保证弹窗里是最新数据） */
+  const editingPack = useMemo(
+    () => (editingPackId === null ? null : (packs.find((p) => p.id === editingPackId) ?? null)),
+    [packs, editingPackId]
+  )
 
   const knownProjectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
 
@@ -620,11 +832,12 @@ export default function App(): React.JSX.Element {
       {/* 主体 */}
       <div className="body">
         <div className="side" style={{ width: sideWidth }}>
-          {/* 第 3 批：维度式标签筛选（项目维度也在里面，映射 projects 表） */}
+          {/* 第 3 批：维度式标签筛选；第 7 批起标签计数跟随当前项目范围 */}
           <TagPanel
             dimensions={tagDimensions}
             selected={selectedTagIds}
             onChange={setSelectedTagIds}
+            scopeLabel={currentProjectLabel}
             onManage={(dim) => {
               setTagManagerDim(dim)
               setShowTagManager(true)
@@ -720,6 +933,16 @@ export default function App(): React.JSX.Element {
                       ✎
                     </button>
                     <button
+                      className="mini"
+                      title="解绑项目（结项留底：软件里不显示，本地文件全保留）"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void doUnbind(p)
+                      }}
+                    >
+                      📤
+                    </button>
+                    <button
                       className="mini danger"
                       title="删除项目"
                       onClick={(e) => {
@@ -739,9 +962,20 @@ export default function App(): React.JSX.Element {
             <button
               className={`item${projectFilter === null ? ' on' : ''}`}
               onClick={() => setProjectFilter(null)}
-              title="这些包的文件夹直接躺在工作区根目录，还没选项目"
+              title="这些包的文件夹直接躺在工作区根目录，还没选项目 —— 点包卡片右上角的 📥 就能归位"
             >
               <span>待归类</span>
+            </button>
+          )}
+
+          {/* 第 7 批：已解绑的项目入口（只在有解绑项目时出现） */}
+          {(info?.unboundProjects?.length ?? 0) > 0 && (
+            <button
+              className="item unbound-entry"
+              onClick={() => setShowUnbound(true)}
+              title="结项留底的项目：软件里不显示，本地文件全在 _已解绑的项目 里，可一键还原"
+            >
+              <span>📦 已解绑 {info?.unboundProjects?.length} 个项目</span>
             </button>
           )}
 
@@ -749,20 +983,37 @@ export default function App(): React.JSX.Element {
 
           <h4>筛选</h4>
           <button
-            className={`item${view === 'files' && unassignedOnly ? ' on' : ''}`}
+            className={`item${view === 'files' && unassignedOnly && !missingOnly ? ' on' : ''}`}
             onClick={() => {
               setView('files')
               setUnassignedOnly(true)
+              setMissingOnly(false)
             }}
           >
             <span>📥 未归属</span>
             <span className="n">{stats.unassigned}</span>
           </button>
+          {/* 第 8 批：文件已丢失（M8-03）—— 记录不删，只是原文件找不到了，可重新定位 */}
+          {stats.missing > 0 && (
+            <button
+              className={`item miss-entry${view === 'files' && missingOnly ? ' on' : ''}`}
+              onClick={() => {
+                setView('files')
+                setUnassignedOnly(false)
+                setMissingOnly(true)
+              }}
+              title="这些素材的原文件被删除或挪走了。软件不会因此删掉记录 —— 点行尾的 🔍 指到文件的新位置就能找回来"
+            >
+              <span>⚠️ 文件已丢失</span>
+              <span className="n">{stats.missing}</span>
+            </button>
+          )}
           <button
-            className={`item${view === 'files' && !unassignedOnly ? ' on' : ''}`}
+            className={`item${view === 'files' && !unassignedOnly && !missingOnly ? ' on' : ''}`}
             onClick={() => {
               setView('files')
               setUnassignedOnly(false)
+              setMissingOnly(false)
             }}
           >
             <span>全部文件</span>
@@ -906,19 +1157,26 @@ export default function App(): React.JSX.Element {
                     />
                   )}
                   {shownPacks.map((p) => (
-                    <PackCard key={p.id} pack={p} onOpen={() => setOpenPackId(p.id)} />
+                    <PackCard
+                      key={p.id}
+                      pack={p}
+                      onOpen={() => setOpenPackId(p.id)}
+                      onEdit={() => setEditingPackId(p.id)}
+                    />
                   ))}
                 </div>
               )
             ) : shownAssets.length === 0 ? (
               <div className="empty">
-                <div className="big">{unassignedOnly ? '📥' : '🔍'}</div>
+                <div className="big">{unassignedOnly ? '📥' : missingOnly ? '✅' : '🔍'}</div>
                 <div className="t">
                   {unassignedOnly
                     ? '未归属池是空的'
-                    : keyword
-                      ? '没找到匹配的文件'
-                      : '还没有登记任何文件'}
+                    : missingOnly
+                      ? '没有文件丢失，全都在'
+                      : keyword
+                        ? '没找到匹配的文件'
+                        : '还没有登记任何文件'}
                 </div>
                 <div className="s">
                   往工作区里的包文件夹丢文件，然后点右上角「🔄 刷新扫描」。
@@ -991,6 +1249,30 @@ export default function App(): React.JSX.Element {
                     }}
                   />
                   全选（双击文件名可直接打开文件）
+                  {/* 第 9 批（M6）：文件视图默认全显示（铁则：不藏用户的东西），
+                      打开这个开关只留各包「当前版本」那一稿的文件 */}
+                  <label
+                    className="cur-only"
+                    title="只显示各包「当前版本」那一稿的文件；未分版本的老文件也会被过滤掉"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={currentOnly}
+                      onChange={(e) => setCurrentOnly(e.target.checked)}
+                    />
+                    只看当前稿
+                  </label>
+                  {/* 第 8 批：一批文件被整体挪走时的批量找回入口 */}
+                  {stats.missing > 0 && (
+                    <button
+                      className="btn"
+                      style={{ marginLeft: 'auto', padding: '2px 10px' }}
+                      onClick={() => setShowRelocate(true)}
+                      title="一批文件被整体挪走了？选它现在所在的文件夹，软件按原目录结构替你先配一遍，你确认后才改"
+                    >
+                      🔍 批量重新定位{missingOnly ? `（共 ${stats.missing} 条丢失）` : ''}
+                    </button>
+                  )}
                 </div>
 
                 {shownAssets.map((a) => (
@@ -1010,6 +1292,7 @@ export default function App(): React.JSX.Element {
                     onOpen={() => openFile(a.abs_path)}
                     onReveal={() => window.api.revealFile(a.abs_path)}
                     onDropTag={(tagId) => void dropTag(a.id, tagId)}
+                    onRelocate={() => void doRelocate(a.id)}
                   />
                 ))}
               </>
@@ -1023,12 +1306,17 @@ export default function App(): React.JSX.Element {
                 <span>共 {shownPacks.length} 个包</span>
                 <span>·</span>
                 <span>共 {stats.files} 条素材</span>
+                {stats.missing > 0 && (
+                  <span style={{ color: 'var(--warn)' }}>其中 {stats.missing} 条文件已丢失</span>
+                )}
               </>
             ) : (
               <>
                 <span>
                   共 {shownAssets.length} 条素材
                   {unassignedOnly ? '（未归属）' : ''}
+                  {missingOnly ? '（文件已丢失）' : ''}
+                  {currentOnly ? '（只看当前稿）' : ''}
                 </span>
                 <span>·</span>
                 <span>{fmtSize(shownSize)}</span>
@@ -1058,7 +1346,7 @@ export default function App(): React.JSX.Element {
       {showNew && info && (
         <NewPackModal
           projects={projects}
-          categories={info.categories}
+          categories={categoryOptions}
           onClose={() => setShowNew(false)}
           onSubmit={doCreatePack}
         />
@@ -1066,10 +1354,48 @@ export default function App(): React.JSX.Element {
 
       {openPackId !== null && info && (
         <PackDetailModal
+          key={`${String(openPackId)}-${detailTick}`}
           packId={openPackId}
           subFolders={info.subFolders}
           onClose={() => setOpenPackId(null)}
           onChanged={reloadAll}
+          onEdit={
+            typeof openPackId === 'number' && packs.some((p) => p.id === openPackId)
+              ? () => setEditingPackId(openPackId)
+              : undefined
+          }
+          toast={toast}
+        />
+      )}
+
+      {/* 第 7 批 ②③：包信息编辑 / 待归类归位 */}
+      {editingPack && info && (
+        <EditPackModal
+          pack={editingPack}
+          projects={projects}
+          categories={categoryOptions}
+          onClose={() => setEditingPackId(null)}
+          onSubmit={submitPackEdit}
+        />
+      )}
+
+      {/* 第 7 批 ④：已解绑的项目 */}
+      {showUnbound && info && (
+        <UnboundProjectsModal
+          projects={info.unboundProjects ?? []}
+          workspaceRoot={info.workspaceRoot}
+          onClose={() => setShowUnbound(false)}
+          onRestore={doRestoreUnbound}
+        />
+      )}
+
+      {/* 第 8 批：批量重新定位（M8-03） */}
+      {showRelocate && (
+        <RelocateModal
+          onClose={() => setShowRelocate(false)}
+          onDone={async () => {
+            await reloadAll()
+          }}
           toast={toast}
         />
       )}
@@ -1100,6 +1426,7 @@ export default function App(): React.JSX.Element {
         <TagManagerModal
           dimensions={tagDimensions}
           focusDimension={tagManagerDim}
+          scopeLabel={currentProjectLabel}
           onClose={() => {
             setShowTagManager(false)
             setTagManagerDim(undefined)

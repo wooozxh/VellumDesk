@@ -11,6 +11,9 @@ import type { DimensionGroup } from '../types'
  * - 单选维度（状态）点新标签自动替换旧的
  * - 顶部一行汇总「已选 N 个」，一键清除
  * - 项目归属不在这里（走左栏项目面板）；时间用物料固有字段，都不做成标签
+ * - 标签后面的数字 = **当前左栏项目范围内**贴了该标签的素材条数（第 7 批起跟随项目，
+ *   之前是全库口径，选了项目后数字与右侧结果对不上）；0 条的标签仍列出但压暗
+ * - 维度标题右边的数字是「这个维度下有几个标签」，别跟上面的素材数混
  *
  * 组件只负责勾选与回显，筛选发生在界面层（交给 listAssets 的 tagIds）。
  */
@@ -18,7 +21,8 @@ export function TagPanel({
   dimensions,
   selected,
   onChange,
-  onManage
+  onManage,
+  scopeLabel = '全部'
 }: {
   dimensions: DimensionGroup[]
   /** 已选 tagId（项目维度为负数 id） */
@@ -26,8 +30,15 @@ export function TagPanel({
   onChange: (next: number[]) => void
   /** 打开标签管理弹窗（传维度 key 表示定位到该维度） */
   onManage: (dimension?: string) => void
+  /**
+   * 当前左栏项目范围的显示名（'全部' / 项目名 / '待归类'）。
+   * 标签后面的数字就是这个范围内的素材条数（第 7 批起跟随项目），
+   * 悬停提示里必须说清是哪个范围，否则用户只能靠猜。
+   */
+  scopeLabel?: string
 }): React.JSX.Element {
   const selectedSet = useMemo(() => new Set(selected), [selected])
+  const scopeText = scopeLabel === '全部' ? '全库' : `「${scopeLabel}」范围内`
 
   /** 每个维度已选了几个 —— 用于标题徽标与自动展开 */
   const pickedByDim = useMemo(() => {
@@ -85,7 +96,9 @@ export function TagPanel({
               <span className={`caret${open ? ' open' : ''}`}>▸</span>
               <span className="tp-dim-label">{dim.label}</span>
               {picked.length > 0 && <span className="tp-badge">{picked.length}</span>}
-              <span className="tp-dim-n">{dim.tags.length}</span>
+              <span className="tp-dim-n" title={`这个维度下有 ${dim.tags.length} 个标签`}>
+                {dim.tags.length}
+              </span>
             </button>
 
             {open && (
@@ -97,16 +110,21 @@ export function TagPanel({
                 )}
                 {dim.tags.map((t) => {
                   const on = selectedSet.has(t.id)
+                  const zero = t.assetCount === 0
                   return (
                     <button
                       key={t.id}
-                      className={`tp-tag${on ? ' on' : ''}`}
+                      className={`tp-tag${on ? ' on' : ''}${zero ? ' zero' : ''}`}
                       onClick={() => toggle(dim, t.id)}
-                      title={`${t.name} · ${t.assetCount} 条素材`}
+                      title={
+                        zero
+                          ? `${t.name} · ${scopeText}暂时没有贴这个标签的素材`
+                          : `${t.name} · ${scopeText}有 ${t.assetCount} 条素材`
+                      }
                       style={
                         on
                           ? { background: t.color, borderColor: t.color, color: '#fff' }
-                          : { borderColor: t.color + '66' }
+                          : { borderColor: t.color + (zero ? '33' : '66') }
                       }
                     >
                       {!on && <i className="cdot" style={{ background: t.color }} />}

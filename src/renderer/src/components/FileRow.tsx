@@ -74,7 +74,8 @@ export function FileRow({
   onToggle,
   onOpen,
   onReveal,
-  onDropTag
+  onDropTag,
+  onRelocate
 }: {
   item: AssetItem
   selected: boolean
@@ -84,13 +85,22 @@ export function FileRow({
   onReveal: () => void
   /** 第 3 批：点标签上的小叉摘掉这个标签 */
   onDropTag?: (tagId: number) => void
+  /** 第 8 批：文件已丢失 → 点这里重新定位（M8-03） */
+  onRelocate?: () => void
 }): React.JSX.Element {
-  const cls = useMemo(() => `file-row${selected ? ' sel' : ''}`, [selected])
+  const missing = item.missing_at !== null
+  const cls = useMemo(
+    () => `file-row${selected ? ' sel' : ''}${missing ? ' missing' : ''}`,
+    [selected, missing]
+  )
   const metaLine = useMemo(() => buildMetaLine(item), [item])
   const tags = item.tags ?? []
+  const lostTitle = missing
+    ? `文件已丢失（${item.missing_at} 发现）：${item.abs_path}\n原文件被删除或移走了。点「重新定位」把它找回来。`
+    : '双击/单击打开文件'
 
   return (
-    <div className={cls} onDoubleClick={onOpen}>
+    <div className={cls} onDoubleClick={missing ? undefined : onOpen}>
       {selectable && (
         <input
           className="cb"
@@ -104,8 +114,25 @@ export function FileRow({
         <FileThumb item={item} />
       </div>
       <div className="info">
-        <div className="fn" onClick={onOpen} title="双击/单击打开文件">
+        <div className="fn" onClick={missing ? undefined : onOpen} title={lostTitle}>
           {item.file_name}
+          {item.versionSeq ? (
+            <span
+              className={`ver-badge${item.versionCurrent ? ' cur' : ''}`}
+              title={
+                item.versionCurrent
+                  ? `当前版本 V${item.versionSeq}（在包详情里能切换看别的稿）`
+                  : `历史版本 V${item.versionSeq}`
+              }
+            >
+              V{item.versionSeq}
+            </span>
+          ) : null}
+          {missing && (
+            <span className="miss-badge" title={lostTitle}>
+              ⚠ 文件已丢失
+            </span>
+          )}
         </div>
         <div className="fp" title={metaLine}>
           <span className="meta">{metaLine}</span>
@@ -141,9 +168,19 @@ export function FileRow({
       </div>
       {item.role && <span className={`role ${item.role}`}>{item.role}</span>}
       <div className="act">
-        <button className="icon-btn" title="打开文件" onClick={onOpen}>
-          ↗
-        </button>
+        {missing ? (
+          <button
+            className="icon-btn relocate"
+            title="重新定位：文件被删掉或挪走了，指到它的新位置"
+            onClick={onRelocate}
+          >
+            🔍
+          </button>
+        ) : (
+          <button className="icon-btn" title="打开文件" onClick={onOpen}>
+            ↗
+          </button>
+        )}
         <button className="icon-btn" title="打开所在文件夹" onClick={onReveal}>
           📁
         </button>

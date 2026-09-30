@@ -341,6 +341,84 @@
 
 ---
 
+### 2026-09-29（第 8 次会话）—— 第 7 批「记录生命周期」六件事全部落地 + 验收通过
+
+- **流程**：先读四份档案 → 复述三件事等确认 → `docs/09-记录生命周期方案.md` 定稿（用户 6 处拍板全落纸）→ 9 步施工 → 验收
+- **用户拍板**：①删进回收站 ②asset_tags 重建表加真外键 `ON DELETE CASCADE` ③包改名连带改文件夹名 ④解绑的包在软件里全隐藏（含统计） ⑤清理留痕 `_system/backup/packs-<时间戳>.json` + 界面轻提示 ⑥不做"从回收站彻底删除"
+- **核心改动**：
+  - `db.ts`：迁移 7（`asset_tags` 清孤儿后重建表，双外键 `ON DELETE CASCADE`，幂等判定 `PRAGMA foreign_key_list` 为空）
+  - `workspace.ts`：`movePackTo`（rename + `reprefixPaths`，**不重扫**——abs_path UNIQUE 重扫会变 asset.id 让标签变孤儿）；`updatePack`（改名/改项目/改类别，只有前两样动磁盘）；`unbindProject`/`restoreProject`/`listUnboundProjects`；`removeProject` 加第三出口 `toTrash`（老两出口断言原样保留）；`cleanupMissingPacks`（三道门：rootReadable / 文件夹真没了 / 项目未解绑）；`VISIBLE_PACK_SQL` 常量集中"解绑隐身"语义；`assetTotals()`
+  - `ipc.ts` / `shared/types.ts` / `preload`：`pack:update`、`project:unbind`、`project:restore`、`WsInfo.unboundProjects`
+  - 界面：`EditPackModal`（待归类包标题变「📥 归位到项目」）、`UnboundProjectsModal`、`DeleteProjectModal` 重写三选一、PackCard/PackDetail 挂 ✎/📥、App.tsx 接线 + 解绑悬浮按钮 + 清理 toast
+  - `accept.ts` 新增 `[25]` 段 10 组；`_shotapp/v4/main.cjs` 新增 `lifecycle` 场景（播种 → 归位 → 编辑 → 解绑 → 还原 → 三选一删进回收站，6 张断言组 + 4 张截图）
+- **界面验证挖出 2 个真 bug**（单元断言全过、真窗口一跑就露馅）：
+  1. **本批引入**：`syncProjectFolders()` 没过滤 `archived`，每个 IPC 调用前的 `initWorkspace` 都会给已解绑项目在根目录重建空壳文件夹 → 还原被自己建的壳挡住。修复：`WHERE folder_name <> '' AND archived = 0`；accept [25] 加回归钉子（解绑后跑 initWorkspace，根目录不得重建）
+  2. **第 4 批引入的老毛病**：标签筛选 effect 的依赖数组里有 `wsLive`，工作区一连上就被顺带触发 `setView('files')` → **软件每次启动都落在文件视图，包视图（主视图）要手点**。修复：加 `prevTagIdsRef`，只在标签真的变化时才切视图（用户拍板修）
+- **验收**：typecheck 0 错；**427 项断言全过**（344 → 425 → 427）；界面 5 场景（banner/version/wslist/threelevel/lifecycle）全过、控制台零报错、4 张截图人工确认
+- **提交**：本批一次未提交（待用户验收后一起提交）
+- **下一步**：用户装机验收；第 8 批候选见 NEXT.md
+
+---
+
+### 2026-09-29（第 8 次会话续）—— 用户实测反馈：标签数字口径对不上 → 补丁 + 新场景
+
+- **用户疑问**：左栏「筛选标签」下标签后面的数字是包数还是物料数？是所有项目还是选中项目？"感觉不太对"
+- **实测定性**（探针脚本）：数字 = 贴了该标签的**物料条数**（不是包数）；范围 = **全库**、不随项目变；**解绑项目后数字纹丝不动 = 真 bug**（第 7 批「解绑隐身」查询点清单漏了 `listTagDimensions`，全项目最后一处没滤 archived 的查询）
+- **用户拍板**：数字跟随当前项目范围；0 条的标签仍列出、置灰
+- **改动**：`VISIBLE_PACK_SQL` 导出共用；`listTagDimensions(scope?)` 计数 SQL 加 visibility + scope（`projectId: null` 必须 `k.id IS NOT NULL`，否则把未归属散文件算进待归类）；`tag:dimensions` 透传 scope；`App.tsx` 加 effect 切项目重算标签；`TagPanel` 0 条置灰 + 悬停提示写明范围 + 维度标题数字加 title；`TagManagerModal` 删除确认明确全库口径（`tagUsage` 刻意保持全库）
+- **验收**：accept 新增 `[26]` 段 13 条（427 → **440**，含"解绑后数字跟着减"回归钉子 + "不重不漏"等式）；界面新增 `tagcount` 场景（布景四范围数字互不相同 4/2/1/1，逐一切换断言，截图 2 张）；6 场景全过、零报错；顺手把截图壳 hover 后等悬浮按钮从固定 320ms 改成轮询（偶发 no-btn 竞态）
+- **遗留待确认**：左栏「筛选」区「未归属 / 全部文件」两个数字仍是全库口径（选中项目后不变）——语义是"库里的池子大小"，用户没提出异议，先记录不动
+
+---
+
+### 2026-09-29（第 9 次会话）—— 第 8 批「文件已丢失标记 + 重新定位」（M8-03）
+
+- **开工方式**：用户问"下一步做什么" → 答「第 8 批 M8-03」（docs/08 §16 蓝图）→ 出方案 `docs/10` → 用户四项全按推荐拍板（整包删→连带摘素材留痕带清单 / 文件名+扩展名+大小判据 / 批量先预览再勾选 / 条数算容量不算）→ 动代码
+- **核心改动**：`assets` 加 `missing_at`（迁移 8，索引必须放在 ALTER 之后建——放建表段会 "no such column"，老库踩过）；扫描第 5 步抽成 `markMissingAssets(rootReadable)`，四道门（根可读/真不在/未解绑/包文件夹还在）；`cleanupMissingPacks` 连带摘包内素材 + 留痕带文件清单；单条 `relocateAsset`（校验 + **合并占用者**）+ 批量 `suggestRelocateBatch`（逐级降级，只出候选）+ `applyRelocateBatch`；界面：丢失行压暗+红角标、左栏「⚠️ 文件已丢失 N」、包卡片 `⚠ N`、RelocateModal、扫描 toast 带丢失/找回数
+- **挖出并修掉一个第 1 批老 bug**：`claimFiles` 认领后不重写路径，靠"重扫兜底"——改标记后立刻暴露成"一条文件两条记录 + 认领前的标签 CASCADE 蒸发"。全项目 6 处搬运点都用了 reprefixPaths，只有它漏网。已改为搬完立刻在原记录上重写
+- **又一个隐蔽点**：文件挪到工作区内的新位置时，扫描早已把它登记成新记录（未归属）→ 重新定位必撞 `abs_path` UNIQUE。处理：把占用者的标签转挂到老记录、删占用者、老记录改路径——一条文件永远一条
+- **验收**：typecheck 0 错；accept **499 项全过**（440 → +59，老断言 481 按规矩改写并说明理由）；界面新增 `missing` 场景（入口/数字一致/角标/压暗/标签还在/弹窗/恢复自动生效），**7 个场景全过、零报错**，4 张截图人工确认
+- **提交**：本批一次未提交（第 5、6、7、8 批攒着，等用户验收后一起提交 + 重出安装包）
+- **下一步**：用户装机验收；之后的候选见 NEXT.md（M8-04 一键备份 / M6 版本管理 / 进度条性能 / 图标签名）
+
+---
+
+### 2026-09-30（第 10 次会话）—— 第 9 批「版本管理」（M6）方案讨论 + 全部落地 + 验收通过
+
+- **流程**：用户点名做 M6 → 出方案 → **第一轮设计被用户否掉**（AI 提"物料级多版本 = 平铺改文件名"，用户拍板"包级版本 = 包文件夹下的一个文件夹 V1/V2/V3"）→ 用户补三点拍板（老包零迁移 / 不做创建人 / 加「绑定文件夹」按钮）→ `docs/11-M6版本管理方案.md` 定稿（14 节）→ 12 步施工 → 验收 + 截图
+- **核心改动**：
+  - `db.ts`：新表 `pack_versions`（seq/folder_name/note/is_current，双 UNIQUE）+ `pack_version_ignores`；迁移 9 给 `assets` 补 `version_id`（索引放 ALTER 之后——放建表段老库会 "no such column"，老坑复踩风险）
+  - `workspace.ts`：`detectVersions`（扫描第 4.5 步：自动认 `^[Vv]\d+$`，编号被占不硬塞只提示）+ `locateVersion`（深度无关找 folder_name 段）+ `createVersion`（建文件夹→可选复制上一稿→可选收编→先搬磁盘可回滚→单事务写库→scanAll）+ `listBindableFolders` / `bindVersion`（只绑包直接子级，防路径穿越）/ `unbindVersion` / `setCurrentVersion` / `ensureCurrentVersion`（顺延兜底）/ `listVersionMap`；`claimFiles` 加 `versionId`（某一稿视角下移动落进那一稿的组）；`listPacks` / `getPackDetail` / `listAssets(currentOnly)` 接版本
+  - `ipc.ts` / `shared/types.ts` / `preload`：6 个 `version:*` 通道 + `currentOnly` 透传 + 每行补 `versionSeq`/`versionCurrent`
+  - 界面：`VersionBar`（包详情顶部版本条，一格一稿，hover 出「设为当前」「解绑」）、`VersionModal`（一组件两副面孔：create/bind）、PackCard 版本行、FileRow `V3` 徽标（当前稿绿色）、App 工具栏「只看当前稿」+ 扫描 toast 带新稿数与冲突提示
+  - `accept.ts` 新增 `[28]` 段 14 组 84 项；`_shotapp/v4/main.cjs` 新增 `versions` 场景（9 张截图）
+- **施工中发现并修掉一个方案级缺陷**：解绑后文件夹还在、名字还叫 `V1`，下轮扫描按自动认规则**又把它认回来**——解绑按钮形同虚设。加 `pack_version_ignores` 忽略名单（解绑时登记；绑定 / 软件重建同名时清除），accept 补"解绑→扫描→仍是 2 稿"回归钉子。设计写进 `docs/11` §14
+- **验收**：typecheck 0 错；accept **583 项全过**（499 → 583）；界面 8 场景（banner/version/wslist/threelevel/lifecycle/tagcount/missing/versions）全过、控制台零报错、9 张截图人工确认
+- **提交**：仍未提交（第 5~9 批攒着，等用户验收后一起提交 + 重出安装包）
+- **下一步**：用户装机验收；M6 剩余三小项——M6-06 版本对比（可随时做）/ M6-07 等 M5 / M6-08 与 M8-02 合并立项
+
+### 2026-09-30（第 10 次会话补丁）—— 用户实测反馈：新建包自带 V1
+
+- **反馈**：用户实测后发现"建包后是空的，还要再手动建第 1 稿"没必要——"所有新建的包都是从 V1 开始的"，拍板建包即带一个**空的 V1**
+- **改动**：
+  - `createPack`：磁盘直接长成 `包\V1\三组`（包根**不再放三组**，免得多 3 个永远空着的文件夹），库里插一条 `seq=1 / is_current=1` 的版本记录，写在 `scanAll` 之前（否则扫描会把它当手工建的稿再认一遍）
+  - `claimFiles`：`versionId` 语义扩为三态——传数字 = 那一稿 / 传 `null` = 明确落包根三组（「未分版本」逃生口）/ **不传 = 自动落当前版本**（新包认领直接进 V1，不产生"未分版本孤儿"）。UPDATE 语句顺带把 `version_id` 一起写掉（原来靠 scanAll 兜底）
+  - `PackDetailModal`：`versionId: selVer ?? undefined` 改为原样传 `selVer`（null 才能表达"明确要未分版本"，`?? undefined` 会把它跟"不传"混掉）
+  - `NewPackModal` 文案改为"自带第 1 稿 V1：包名\V1\01-成品…"
+  - **老包不动**：包根三组照旧、归「未分版本」；accept 新增 `mkPack` 辅助函数（createPack 后抹掉自带 V1、补回包根三组），全部替换 1~8 批的建包调用——老断言零改动地继续考兼容路径；`w9Ver` 加可选 packId（库里出现第二个带稿的包后按 seq 查会串包）
+- **验收**：typecheck 0 错；accept **596 项全过**（583 → +13：新建即带稿 / 磁盘结构 / 卡片口径 / 认领落 V1 / 显式 null / 接 V2）；`versions` 场景追加第 (10) 步，**3 张新截图**（弹窗文案 / 卡片「V1 当前 · 1 稿」/ 详情版本条直接有 V1），场景全过零报错
+- **提交**：仍未提交（第 5~9 批攒着）
+
+### 2026-09-30（第 11 次会话）—— 第 10 批：物料类别同源（用户实测报的 bug）
+
+- **反馈**：用户实测发现"新建包时的物料类别"和"左侧筛选标签里的物料类别"不是实时同步一一对应。排查确认是**两套来源**：建包用 `db.ts` 写死的 6 项常量 `CATEGORIES`（第 1 批埋的欠条），左栏筛选用 `tags` 表的 category 维度（9 项、可维护），只有 2 项重叠
+- **拍板**（方案 A + 用户定的删除交互）：两套合一，建包清单从标签维度派生；标签改名 → 已有包的 `packs.category` 同事务跟着改；删除 → 先确认「目前有 N 个包正在使用此标签…」，确认后这些包归「未分类」。不选 B（category 改存外键），不动表结构
+- **改动**：`tags.ts`（`CATEGORY_DIM` + `countPacksWithCategory` + 改名/删除联动 + `tagUsage.packCount`）；`db.ts` 删 `CATEGORIES` 加 `UNCATEGORIZED`；`ipc.ts` 删 `info.categories`；`App.tsx` 派生 `categoryOptions`；`NewPackModal` 空清单指引 + `picked` 自愈；`EditPackModal` 提示；`TagManagerModal` 确认弹窗红字提示 + toast 带包数
+- **验收**：typecheck 0 错；accept **619 项全过**（596 → +23，新增 `[29]` 段：同源/实时/改名联动/跨维度同名反向断言/删除联动/全库含解绑包/空清单兜底/扫描不重置/手工包兜底）；新场景 `category` **12 项断言全过**、控制台零报错、4 张截图（shot-b10-1~4）
+- **提交**：仍未提交（第 5~10 批攒着）
+
+---
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

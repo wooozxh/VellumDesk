@@ -14,5 +14,14 @@ export type {
   DimensionGroup,
   TagSelection,
   ApplyTagsResult,
-  SuggestTagsResult
+  SuggestTagsResult,
+  UnboundProject,
+  UpdatePackPatch,
+  UpdatePackResult,
+  RemoveProjectResult,
+  RelocateSuggestion,
+  PackVersion,
+  CreateVersionInput,
+  BindableFolder,
+  BindVersionInput
 } from '../../shared/types'

@@ -1339,6 +1339,21 @@ body:has(.side-resizer.dragging) {
   box-shadow: 0 0 0 1px var(--warn-soft);
 }
 
+/* 第 7 批：当前项目范围内 0 条的标签 —— 仍然列出（别让用户以为标签丢了），但明显压暗 */
+.tp-tag.zero {
+  opacity: 0.42;
+  filter: grayscale(0.7);
+}
+
+.tp-tag.zero .tp-tag-n {
+  opacity: 0.75;
+}
+
+.tp-tag.zero:hover {
+  opacity: 0.75;
+  filter: grayscale(0.2);
+}
+
 .tp-star {
   color: var(--warn);
   font-size: 9px;
@@ -1779,5 +1794,480 @@ body:has(.side-resizer.dragging) {
   color: var(--accent);
   border-color: var(--accent-line);
   background: var(--accent-soft);
+}
+
+/* ============================================================
+   第 7 批：记录生命周期（docs/09）
+   ============================================================ */
+
+/* 项目行悬浮按钮组多了一个「解绑」，让位宽度跟着加 */
+.proj-row:hover .proj-item {
+  padding-right: 118px;
+}
+
+/* 包卡片右上角的编辑 / 归位按钮（悬浮才显形，不抢封面的视觉） */
+.pack-card {
+  position: relative;
+}
+
+.pack-card .pact {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  border-radius: 6px;
+  color: var(--text-2);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 2;
+}
+
+.pack-card:hover .pact {
+  opacity: 1;
+}
+
+.pack-card .pact:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* 左栏「已解绑 N 个项目」入口 */
+.side .item.unbound-entry {
+  color: var(--text-2);
+}
+
+.side .item.unbound-entry:hover {
+  color: var(--accent);
+}
+
+/* 已解绑项目列表（弹窗内） */
+.unbound-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.unbound-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+}
+
+.unbound-row .ub-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.unbound-row .ub-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.unbound-row .ub-folder {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono, monospace);
+}
+
+.unbound-row .ub-sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==================== 第 8 批：文件已丢失（M8-03） ==================== */
+
+/* 丢了的那条压暗，但绝不隐藏 —— 用户得看得见，才谈得上找回来 */
+.file-row.missing {
+  opacity: 0.6;
+}
+.file-row.missing:hover {
+  opacity: 0.88;
+}
+.file-row.missing .fn {
+  cursor: default;
+}
+.file-row.missing .pic {
+  filter: grayscale(0.35);
+}
+
+/* 文件名后面的红角标 */
+.miss-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  font-weight: 600;
+  vertical-align: 1px;
+  white-space: nowrap;
+  color: var(--danger);
+  background: rgba(240, 96, 63, 0.14);
+  border: 1px solid rgba(240, 96, 63, 0.5);
+}
+
+/* 行尾「重新定位」按钮：比普通图标亮一点，提示这是能动手的地方 */
+.icon-btn.relocate {
+  color: var(--warn);
+}
+
+/* 包卡片封面右上角的 ⚠ N */
+.thumb .miss-flag {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(240, 96, 63, 0.92);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* 左栏「⚠️ 文件已丢失」入口 */
+.side .item.miss-entry,
+.side .item.miss-entry .n {
+  color: var(--warn);
+}
+
+/* 批量重新定位弹窗 */
+.modal.relocate {
+  width: min(780px, 94vw);
+}
+.relocate-list {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.relocate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+.relocate-row:last-child {
+  border-bottom: none;
+}
+.relocate-row:hover {
+  background: var(--bg-hover);
+}
+.relocate-row.bad {
+  opacity: 0.55;
+  cursor: default;
+}
+.relocate-row .rr-main {
+  flex: 1;
+  min-width: 0;
+}
+.relocate-row .rr-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.relocate-row .rr-path {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.relocate-row .rr-tag {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+/* ==================== 第 9 批（M6）：版本管理（docs/11） ==================== */
+
+/* 包详情顶部的版本条：一格 = 一稿 */
+.ver-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 6px 10px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 8px;
+}
+.ver-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  flex: 1;
+  padding-bottom: 2px;
+}
+.ver-cell {
+  flex: none;
+  width: 170px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 8px 9px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.ver-cell:hover {
+  background: var(--bg-hover);
+}
+.ver-cell.sel {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ver-cell.none {
+  width: 134px;
+  border-style: dashed;
+}
+.ver-cell .vh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ver-cell .vn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.ver-cell.cur .vn {
+  color: #3fb950;
+}
+.ver-cell .vflag {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  line-height: 15px;
+}
+.ver-cell .vflag.cur {
+  color: #3fb950;
+  border: 1px solid #3fb95066;
+  background: #3fb9501a;
+}
+.ver-cell .vflag.gone {
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  opacity: 0.85;
+}
+.ver-cell .vnote {
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ver-cell .vmeta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.ver-cell .vmiss {
+  color: var(--warn);
+}
+.ver-cell .vacts {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+}
+.ver-cell .vbtn {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.ver-cell .vbtn:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+.ver-acts {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+}
+.ver-acts .btn {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* 文件行上的版本徽标 */
+.ver-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  line-height: 15px;
+  vertical-align: 1px;
+  font-weight: 500;
+  color: var(--text-3);
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+}
+.ver-badge.cur {
+  color: #3fb950;
+  border-color: #3fb95066;
+  background: #3fb9501a;
+}
+
+/* 包卡片上的「V3 当前 · 3 稿」 */
+.ver-chip {
+  color: var(--text-3);
+}
+
+/* 新建 / 绑定 弹窗 */
+.modal.version-modal {
+  max-width: 520px;
+}
+.version-modal .content {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: 62vh;
+}
+.version-modal .hint-box {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+  background: var(--bg-mute);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.version-modal .hint-box b {
+  color: var(--text-1);
+}
+.version-modal .hint-box code {
+  font-family: var(--font-mono, monospace);
+  color: var(--accent);
+}
+.version-modal .fld {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.version-modal .fld input {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-1);
+  font-size: 12.5px;
+  padding: 6px 9px;
+  outline: none;
+}
+.version-modal .fld input:focus {
+  border-color: var(--accent);
+}
+.version-modal .chk {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  color: var(--text-1);
+  cursor: pointer;
+  line-height: 1.6;
+}
+.version-modal .chk input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.version-modal .chk em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.bind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.bind-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.bind-row:hover {
+  background: var(--bg-hover);
+}
+.bind-row.sel {
+  border-color: var(--accent);
+}
+.bind-row input {
+  accent-color: var(--accent);
+}
+.bind-row .bfn {
+  flex: 1;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bind-row .bfc {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.version-modal .foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* 文件视图工具栏的「只看当前稿」 */
+.cur-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.cur-only input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 

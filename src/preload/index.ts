@@ -27,10 +27,37 @@ const api = {
     ipcRenderer.invoke('project:create', input),
   updateProject: (id: number, patch: { name?: string; color?: string; note?: string }) =>
     ipcRenderer.invoke('project:update', { id, patch }),
-  removeProject: (id: number, action: { moveTo: number | null }) =>
-    ipcRenderer.invoke('project:remove', { id, moveTo: action.moveTo }),
+  removeProject: (id: number, action: { moveTo: number | null; toTrash?: boolean }) =>
+    ipcRenderer.invoke('project:remove', { id, moveTo: action.moveTo, toTrash: action.toTrash }),
   moveProject: (id: number, direction: 'up' | 'down') =>
     ipcRenderer.invoke('project:move', { id, direction }),
+
+  // 第 7 批：记录生命周期（docs/09）
+  unbindProject: (id: number) => ipcRenderer.invoke('project:unbind', id),
+  restoreProject: (id: number) => ipcRenderer.invoke('project:restore', id),
+  updatePack: (id: number, patch: { name?: string; category?: string; projectId?: number | null }) =>
+    ipcRenderer.invoke('pack:update', { id, patch }),
+
+  // 第 8 批：重新定位（M8-03）
+  relocateAsset: (assetId: number) => ipcRenderer.invoke('asset:relocate', assetId),
+  pickRelocateDir: () => ipcRenderer.invoke('asset:pickRelocateDir'),
+  relocateSuggest: (dir: string) => ipcRenderer.invoke('asset:relocateSuggest', dir),
+  relocateApply: (items: Array<{ assetId: number; newAbsPath: string }>) =>
+    ipcRenderer.invoke('asset:relocateApply', items),
+
+  // 第 9 批：版本管理（M6，docs/11）
+  listVersions: (packId: number) => ipcRenderer.invoke('version:list', packId),
+  createVersion: (input: {
+    packId: number
+    note?: string
+    takeExisting?: boolean
+    copyFromVersionId?: number
+  }) => ipcRenderer.invoke('version:create', input),
+  listBindableFolders: (packId: number) => ipcRenderer.invoke('version:bindable', packId),
+  bindVersion: (input: { packId: number; folderName: string; seq: number; note?: string }) =>
+    ipcRenderer.invoke('version:bind', input),
+  unbindVersion: (versionId: number) => ipcRenderer.invoke('version:unbind', versionId),
+  setCurrentVersion: (versionId: number) => ipcRenderer.invoke('version:setCurrent', versionId),
 
   // 建包 / 扫描
   createPack: (input: { name?: string; projectId?: number | null; category?: string }) =>
@@ -47,15 +74,21 @@ const api = {
     tagIds?: number[]
     filterProjectIds?: number[]
     withTags?: boolean
+    /** 第 8 批：只看文件已丢失的 */
+    missingOnly?: boolean
+    /** 第 9 批：只看当前那一稿的文件 */
+    currentOnly?: boolean
   }) => ipcRenderer.invoke('view:assets', opts),
   packDetail: (packId: number) => ipcRenderer.invoke('view:packDetail', packId),
 
   // 认领
-  claim: (args: { paths: string[]; packId: number; subFolder: string }) =>
+  claim: (args: { paths: string[]; packId: number; subFolder: string; versionId?: number | null }) =>
     ipcRenderer.invoke('asset:claim', args),
 
   // 第 3 批：标签体系（M2）
-  listTagDimensions: () => ipcRenderer.invoke('tag:dimensions'),
+  // 第 7 批补：计数口径跟随左栏项目范围（不传 = 全部）
+  listTagDimensions: (scope?: { projectId?: number | null }) =>
+    ipcRenderer.invoke('tag:dimensions', scope),
   createTag: (input: { dimension: string; name: string; color?: string }) =>
     ipcRenderer.invoke('tag:create', input),
   updateTag: (id: number, patch: { name?: string; color?: string }) =>

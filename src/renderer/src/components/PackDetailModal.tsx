@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { AssetItem, PackDetail } from '../types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { AssetItem, PackDetail, PackVersion } from '../types'
 import { fmtSize } from './FileRow'
+import { VersionBar } from './VersionBar'
+import { VersionModal } from './VersionModal'
 
 const ROLE_ORDER = ['成品', '素材', '工程', '未归属'] as const
 
@@ -53,22 +55,44 @@ export function PackDetailModal({
   subFolders,
   onClose,
   onChanged,
+  onEdit,
   toast
 }: {
   packId: number | 'unassigned'
   subFolders: string[]
   onClose: () => void
   onChanged: () => void
+  /** 第 7 批：编辑包信息（名称 / 类别 / 所属项目；待归类的包用它归位） */
+  onEdit?: () => void
   toast: (text: string, kind?: 'ok' | 'err' | 'info') => void
 }): React.JSX.Element {
   const [detail, setDetail] = useState<PackDetail | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [target, setTarget] = useState(subFolders[0] ?? '01-成品')
   const [busy, setBusy] = useState(false)
+  // 第 9 批（M6）：当前在看哪一稿（null = 未分版本）；verModal = 新建/绑定弹窗
+  const [selVer, setSelVer] = useState<number | null>(null)
+  const [verModal, setVerModal] = useState<'create' | 'bind' | null>(null)
+  const verInited = useRef(false)
 
   const load = async (): Promise<void> => {
     const d = await window.api.packDetail(packId as number)
     setDetail(d)
+    if (!verInited.current) {
+      // 首次打开：默认看当前版本（没有版本就看"未分版本"）
+      verInited.current = true
+      const cur = d.versions.find((v) => v.is_current === 1)
+      setSelVer(cur ? cur.id : null)
+    } else {
+      // 之前选中的那一稿被解绑了 → 回到当前版本，别让界面空着
+      setSelVer((prev) => {
+        if (prev !== null && !d.versions.some((v) => v.id === prev)) {
+          const cur = d.versions.find((v) => v.is_current === 1)
+          return cur ? cur.id : null
+        }
+        return prev
+      })
+    }
   }
 
   useEffect(() => {
@@ -76,10 +100,51 @@ export function PackDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId])
 
-  const allItems = useMemo(() => {
-    if (!detail) return [] as AssetItem[]
-    return ROLE_ORDER.flatMap((r) => detail.groups[r] ?? [])
+  /** 只显示选中的那一稿的文件（未分版本 = version_id 为 null 的） */
+  const filteredGroups = useMemo(() => {
+    if (!detail) return {} as Record<string, AssetItem[]>
+    const out: Record<string, AssetItem[]> = {}
+    for (const role of ROLE_ORDER) {
+      out[role] = (detail.groups[role] ?? []).filter((i) =>
+        selVer === null ? i.version_id === null : i.version_id === selVer
+      )
+    }
+    return out
+  }, [detail, selVer])
+
+  /** 还没归到任何一稿的文件数（决定要不要显示「未分版本」那一格） */
+  const unassignedCount = useMemo(() => {
+    if (!detail) return 0
+    return ROLE_ORDER.flatMap((r) => detail.groups[r] ?? []).filter((i) => i.version_id === null)
+      .length
   }, [detail])
+
+  const allItems = useMemo(
+    () => ROLE_ORDER.flatMap((r) => filteredGroups[r] ?? []),
+    [filteredGroups]
+  )
+
+  const doSetCurrent = async (v: PackVersion): Promise<void> => {
+    const r = await window.api.setCurrentVersion(v.id)
+    if (!r.ok) {
+      toast(r.error ?? '设置失败', 'err')
+      return
+    }
+    toast(`已把 V${v.seq} 设为当前版本（文件夹一个都没动）`, 'ok')
+    await load()
+    onChanged()
+  }
+
+  const doUnbind = async (v: PackVersion): Promise<void> => {
+    const r = await window.api.unbindVersion(v.id)
+    if (!r.ok) {
+      toast(r.error ?? '解绑失败', 'err')
+      return
+    }
+    toast(`已解绑 V${v.seq}：文件夹和文件都没动，只是软件不再把它当一稿`, 'info')
+    await load()
+    onChanged()
+  }
 
   const toggle = (id: number): void => {
     setSelected((prev) => {
@@ -95,7 +160,15 @@ export function PackDetailModal({
     if (!detail || busy || selected.size === 0) return
     const paths = allItems.filter((i) => selected.has(i.id)).map((i) => i.abs_path)
     setBusy(true)
-    const res = await window.api.claim({ paths, packId: detail.pack.id, subFolder: target })
+    const res = await window.api.claim({
+      paths,
+      packId: detail.pack.id,
+      subFolder: target,
+      // 第 9 批：正在看某一稿时，移动的目标是「那一稿文件夹里的这个组」，
+      // 不然文件会被搬到包根目录下的三组、等于把它挪出了这一稿。
+      // selVer === null（用户明确停在「未分版本」那格）→ 传 null，落包根三组。
+      versionId: selVer
+    })
     setBusy(false)
     if (res.ok) {
       toast(`已移动 ${res.moved} 个文件到「${target}」`, 'ok')
@@ -173,10 +246,25 @@ export function PackDetailModal({
                     <span>{new Date(detail.pack.created_at).toLocaleString('zh-CN')}</span>
                   </div>
                 </div>
+                <button className="btn" onClick={() => onEdit && onEdit()} disabled={!onEdit}>
+                  {detail.pack.project_id === null ? '📥 归位到项目' : '✎ 编辑包信息'}
+                </button>
                 <button className="btn" onClick={() => window.api.openFolder(detail.pack.folder_path)}>
                   📁 打开文件夹
                 </button>
               </div>
+
+              {/* 第 9 批（M6）：版本条 —— 一格一稿，点一下换视角 */}
+              <VersionBar
+                versions={detail.versions}
+                selected={selVer}
+                unassignedCount={unassignedCount}
+                onSelect={setSelVer}
+                onCreate={() => setVerModal('create')}
+                onBind={() => setVerModal('bind')}
+                onSetCurrent={doSetCurrent}
+                onUnbind={doUnbind}
+              />
 
               {selected.size > 0 && (
                 <div className="claimbar">
@@ -199,7 +287,7 @@ export function PackDetailModal({
               )}
 
               {ROLE_ORDER.map((role) => {
-                const items = detail.groups[role] ?? []
+                const items = filteredGroups[role] ?? []
                 const isUnassignedGroup = role === '未归属'
                 const label =
                   role === '成品'
@@ -258,6 +346,24 @@ export function PackDetailModal({
           )}
         </div>
       </div>
+
+      {/* 第 9 批（M6）：新建 / 绑定 弹窗（叠在包详情上面） */}
+      {verModal && detail && (
+        <VersionModal
+          mode={verModal}
+          packId={detail.pack.id}
+          versions={detail.versions}
+          unassignedCount={unassignedCount}
+          onClose={() => setVerModal(null)}
+          onDone={async (msg) => {
+            setVerModal(null)
+            toast(msg, 'ok')
+            await load()
+            onChanged()
+          }}
+          toast={toast}
+        />
+      )}
     </div>
   )
 }
