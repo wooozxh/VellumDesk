@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-- 阶段：**第 7~10 批全部完成、已提交（`92e0eb1`），1.1.0 安装包已出炉 ✅（2026-09-30）—— 等用户装机验收**
+- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`，安装包已出炉、等装机验收）；**当前在 `feature/incr` 分支做增量功能**（2026-09-30 起，用户说"不一定用得上"，采纳与否待定）
 - 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；**第 7 批 100%**；**第 8 批 100%**；**第 9 批（M6 版本管理）100%**；**第 10 批（物料类别同源）100%**；MVP 整体约 96%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
@@ -427,6 +427,17 @@
 - **踩坑（重要，已回写 README/NEXT）**：`npm run build:win` 连挂两次，全是 **AI 沙箱批量删除护栏** `SAFE_DELETE_BULK_CONFIRM_REQUIRED` —— vite 清 `out/`（198 个文件）与 electron-builder 清 `win-unpacked`（587 个文件）都超 50 的阈值。**提权也拦**（`dangerouslyDisableSandbox` 无效 —— 护栏是注入 node fs 的 shim，跟沙箱隔离开关无关）。**正解两步走**：① `npm run build` 单独跑成功（编译产物已在 `out/`）；② 单独 `npx electron-builder --win --config.directories.output=<全新空目录>` —— 目标是空目录就不触发 bulk delete。别整条 `build:win` 裸跑
 - **验收**：typecheck 0 错；提交前复跑 accept **619 项全过**
 - **仍挂**：用户装机验收（安装包已就绪，`docs/06` §9 有 8 个检查点）；**提醒**：1.0.0 是第 4 批产物，若那台机器的库还是老结构，升到 1.1.0 首启会跑第 6 批的一次性三级目录迁移（先备份工作区）
+
+### 2026-09-30（第 13 次会话）—— 1.1.0 封存 + 开增量分支 `feature/incr`
+
+- **用户要求**：1.1.0 先留着稍后装机测；**要开一个分支做增量功能，且"一定要把之前的代码都备份，然后再开新的"**（新功能不一定用得上）
+- **三层备份（都在项目外）**：
+  1. `git tag -a v1.1.0`（不可移动标签，钉在 `f20fa3d`）
+  2. `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，`--all` 含 main + tag 两个 ref，`git bundle verify` → "records a complete history"）
+  3. `D:\_accept_ws\backup\proj_media_v1.1.0_源码\` —— robocopy `/E` 全量复制（**19831 个文件 / 1.052 GB / 0 失败**，含 `.git`、resources/ffmpeg、截图与截图壳；只排除 node_modules / out / release）；另存一份安装包 exe
+- **新分支**：`git switch -c feature/incr`，起点 = `main` 的 `f20fa3d`（= `v1.1.0`）。**main 从此冻结**，增量只往 feature/incr 提，**不 merge 回 main**（用户拍板"不一定用"）
+- **踩坑**：Git Bash 会把 robocopy 的 `/E` 参数当路径转成 `E:/` → "无效参数 #3"。**加 `MSYS_NO_PATHCONV=1` 前缀**即可（2026-09-30 实测）
+- **给下一批的话**：新功能出新包时把 `package.json` 版本号提到 **1.2.0**（1.1.0 已发出，别重号）；改完记得 `git status` 看当前在哪个分支上
 
 ---
 

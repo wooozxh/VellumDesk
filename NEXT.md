@@ -5,6 +5,21 @@
 
 ---
 
+## ⚠️ 当前在分支上（2026-09-30 起）
+
+**这份代码现在在 `feature/incr` 分支上做增量功能**，不是 `main`：
+
+- **稳定点** = `main` / 标签 `v1.1.0`（提交 `f20fa3d`）—— **装机待验收的那一版，不许动**
+- **备份（项目外，三层，2026-09-30 已做）**：
+  - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
+  - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
+  - `D:\_accept_ws\backup\素材管家-1.1.0-安装包.exe`（179.5 MB）
+- **增量功能不一定保留**（用户原话）：所以改动只往 `feature/incr` 上提，**不要 merge 回 main**，等用户拍板
+- **来回切**：`git switch main`（代码回 1.1.0）/ `git switch feature/incr`（回增量开发）
+- **出新包时把 `package.json` 版本号改成 1.2.0** —— 1.1.0 已经发给同事了，别重号
+
+---
+
 ## 一、标准启动词（直接复制）
 
 ```
