@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { DimensionGroup, TagWithCount } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 3 批 C-02：标签管理弹窗（增 / 改名 / 改色 / 删）。
@@ -120,9 +121,9 @@ export function TagManagerModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 560 }}>
         <h3>
-          🏷 标签管理
+          <Icon name="tag" size={15} /> 标签管理
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 
@@ -161,7 +162,7 @@ export function TagManagerModal({
               }}
             />
             <button className="btn primary" onClick={add} disabled={busy || !newName.trim()}>
-              ＋ 添加
+              <Icon name="plus" size={13} strokeWidth={2} /> 添加
             </button>
           </div>
 
@@ -183,10 +184,10 @@ export function TagManagerModal({
                       }}
                     />
                     <button className="mini ok" onClick={() => saveEdit(t)} title="保存">
-                      ✓
+                      <Icon name="check" size={13} strokeWidth={2} />
                     </button>
                     <button className="mini" onClick={() => setEditingId(null)} title="取消">
-                      ✕
+                      <Icon name="close" size={14} />
                     </button>
                   </>
                 ) : (
@@ -211,10 +212,10 @@ export function TagManagerModal({
                         setEditName(t.name)
                       }}
                     >
-                      ✎
+                      <Icon name="edit" size={13} />
                     </button>
                     <button className="mini danger" title="删除标签" onClick={() => askDelete(t)}>
-                      ✕
+                      <Icon name="trash" size={13} />
                     </button>
                   </>
                 )}

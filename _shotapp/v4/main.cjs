@@ -581,7 +581,7 @@ app.whenReady().then(async () => {
       if (!c) return 'no-card'
       const b = c.querySelector('.pact')
       if (!b) return 'no-btn'
-      if (${icon ? `!(b.innerText || '').includes(${JSON.stringify(icon)})` : 'false'}) return 'wrong-icon:' + (b.innerText || '')
+      if (${icon ? `!(b.getAttribute('title') || '').includes(${JSON.stringify(icon)})` : 'false'}) return 'wrong-icon:' + (b.getAttribute('title') || '')
       b.click(); return 'ok'
     })()`)
   /** 展开某个标签维度（折叠状态下看不到标签后的数字） */
@@ -783,7 +783,7 @@ app.whenReady().then(async () => {
       looseCards.length === 1 && looseCards[0].includes('零散海报'),
       `「待归类」下正好 1 个包：${JSON.stringify(looseCards)}`
     )
-    const openLoose = await clickPackAction('零散海报', '📥')
+    const openLoose = await clickPackAction('零散海报', '归位')
     ok(openLoose === 'ok', `游离包卡片上给的是「归位」按钮（${openLoose}）`)
     await wait(400)
     const editTitle = await js(
@@ -835,7 +835,7 @@ app.whenReady().then(async () => {
     await clickByText('.side .item', '全部')
     await wait(500)
     const beforeCategory = q('SELECT category, folder_path FROM packs WHERE name = ?', '招生折页-A4')
-    const editOpened = await clickPackAction('招生折页-A4', '✎')
+    const editOpened = await clickPackAction('招生折页-A4', '编辑包信息')
     ok(editOpened === 'ok', `包卡片上有「编辑」入口（${editOpened}）`)
     await wait(400)
     const editBox = await js(
@@ -855,12 +855,12 @@ app.whenReady().then(async () => {
     ok(editBox.path.includes('招生折页-A4'), '弹窗里显示了当前文件夹在哪')
     await shot('shot-b7-2-lifecycle-editpack.png')
 
-    await clickByText('.modal .chips .chip', '推文配图')
+    await clickByText('.modal .chips .chip', '短视频')
     await wait(200)
     await clickModalOk()
     await wait(1200)
     const afterCategory = q('SELECT category, folder_path FROM packs WHERE name = ?', '招生折页-A4')
-    ok(afterCategory.category === '推文配图', `类别已改成「${afterCategory.category}」`)
+    ok(afterCategory.category === '短视频', `类别已改成「${afterCategory.category}」`)
     ok(afterCategory.folder_path === beforeCategory.folder_path, '只改类别：磁盘上的文件夹一动不动')
 
     // ---- (4) 解绑项目 ----
@@ -921,7 +921,7 @@ app.whenReady().then(async () => {
     await shot('shot-b7-3-lifecycle-unbound.png')
 
     // ---- (5) 已解绑弹窗 → 还原 ----
-    await clickByText('.side .item', '📦 已解绑 1 个项目')
+    await clickByText('.side .item', '已解绑 1 个项目')
     await wait(500)
     const unboundModal = await js(
       `(() => {
@@ -1196,11 +1196,15 @@ app.whenReady().then(async () => {
          return {
            name: (c.querySelector('.name')||{}).innerText || '',
            sub: (c.querySelector('.sub')||{}).innerText || '',
-           flag: f ? f.innerText.trim() : null
+           flag: f ? f.innerText.trim() : null,
+           flagIcon: f && f.querySelector('svg') ? 'warning' : null
          }
        })()`
     )
-    ok(!!packCard && packCard.flag === '⚠ 1', `包卡片挂出丢失角标：${packCard && packCard.flag}`)
+    ok(
+      !!packCard && packCard.flag === '1' && packCard.flagIcon === 'warning',
+      `包卡片挂出丢失角标（图标 + 数字）：${packCard && packCard.flag}`
+    )
     ok(
       !!packCard && packCard.sub.includes('2 个文件'),
       `卡片文件数仍算上丢失的（含丢失共 2 条）：${packCard && packCard.sub}`
@@ -1259,7 +1263,7 @@ app.whenReady().then(async () => {
        })()`
     )
     ok(
-      !!act && act.text.includes('🔍') && act.title.includes('重新定位'),
+      !!act && act.title.includes('重新定位'),
       `行尾按钮是「重新定位」而不是「打开文件」：${act && act.title}`
     )
 
@@ -1468,7 +1472,7 @@ app.whenReady().then(async () => {
          b.click(); return 'ok'
        })()`
     )
-    ok(openCreate === 'ok', `点开「＋ 新建版本」（${openCreate}）`)
+    ok(openCreate === 'ok', `点开「新建版本」（${openCreate}）`)
     await wait(600)
     const cm = await js(
       `(() => {
@@ -1509,7 +1513,7 @@ app.whenReady().then(async () => {
          b.click(); return 'ok'
        })()`
     )
-    ok(openBind === 'ok', `点开「📎 绑定文件夹」（${openBind}）`)
+    ok(openBind === 'ok', `点开「绑定文件夹」（${openBind}）`)
     await wait(1000)
     const bm = await js(
       `(() => {

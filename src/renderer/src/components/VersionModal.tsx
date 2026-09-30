@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { BindableFolder, PackVersion } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 9 批（M6）：**新建一稿** / **绑定已有文件夹**。
@@ -92,9 +93,17 @@ export function VersionModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal version-modal">
         <h3>
-          {mode === 'create' ? `＋ 新建版本 V${nextSeq}` : '📎 绑定已有文件夹'}
+          {mode === 'create' ? (
+            <>
+              <Icon name="plus" size={15} strokeWidth={2} /> 新建版本 V{nextSeq}
+            </>
+          ) : (
+            <>
+              <Icon name="clip" size={15} /> 绑定已有文件夹
+            </>
+          )}
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 
@@ -174,7 +183,9 @@ export function VersionModal({
                             setSeq(f.suggestedSeq)
                           }}
                         />
-                        <span className="bfn">📁 {f.folderName}</span>
+                        <span className="bfn">
+                  <Icon name="folder" size={13} /> {f.folderName}
+                </span>
                         <span className="bfc">{f.fileCount} 个文件</span>
                       </label>
                     ))}

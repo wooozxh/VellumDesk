@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { DimensionGroup } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 3 批 C-03 / C-07：给已勾选的一批素材打标签（用户拍板的入口：列表勾选批量打）。
@@ -67,9 +68,9 @@ export function TagPickerModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width: 620 }}>
         <h3>
-          🏷 给 {assetIds.length} 个文件打标签
+          <Icon name="tag" size={15} /> 给 {assetIds.length} 个文件打标签
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 
@@ -80,7 +81,9 @@ export function TagPickerModal({
 
           {suggestedIds.size > 0 && (
             <div className="tp-sug-bar">
-              <span>💡 按文件名猜出 {suggestedIds.size} 个可能的标签</span>
+              <span>
+                <Icon name="bulb" size={13} /> 按文件名猜出 {suggestedIds.size} 个可能的标签
+              </span>
               <button className="linky" onClick={pickAllSuggested}>
                 全部选中
               </button>
@@ -113,7 +116,9 @@ export function TagPickerModal({
                       >
                         {!on && <i className="cdot" style={{ background: t.color }} />}
                         <span className="tp-tag-name">{t.name}</span>
-                        {sug && <span className="tp-star" title="自动建议">★</span>}
+                        {sug && <span className="tp-star" title="自动建议">
+                          <Icon name="star" size={10} />
+                        </span>}
                       </button>
                     )
                   })}

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { PackCard, ProjectWithCount, UpdatePackPatch } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 7 批 ②③：编辑包信息（名称 / 类别 / 所属项目）。
@@ -66,9 +67,17 @@ export function EditPackModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          {isLoose ? '📥 归位到项目' : '✎ 编辑包信息'}
+          {isLoose ? (
+            <>
+              <Icon name="inbox" size={15} /> 归位到项目
+            </>
+          ) : (
+            <>
+              <Icon name="edit" size={15} /> 编辑包信息
+            </>
+          )}
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 

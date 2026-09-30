@@ -3,6 +3,7 @@ import type { AssetItem, PackDetail, PackVersion } from '../types'
 import { fmtSize } from './FileRow'
 import { VersionBar } from './VersionBar'
 import { VersionModal } from './VersionModal'
+import { Icon } from './Icon'
 
 const ROLE_ORDER = ['成品', '素材', '工程', '未归属'] as const
 
@@ -197,7 +198,7 @@ export function PackDetailModal({
         <h3>
           {detail ? (
             <>
-              🗂 {detail.pack.name}
+              <Icon name="package" size={15} /> {detail.pack.name}
               <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>
                 {detail.pack.folder_path}
               </span>
@@ -206,7 +207,7 @@ export function PackDetailModal({
             '加载中…'
           )}
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 
@@ -247,10 +248,18 @@ export function PackDetailModal({
                   </div>
                 </div>
                 <button className="btn" onClick={() => onEdit && onEdit()} disabled={!onEdit}>
-                  {detail.pack.project_id === null ? '📥 归位到项目' : '✎ 编辑包信息'}
+                  {detail.pack.project_id === null ? (
+                    <>
+                      <Icon name="inbox" size={13} /> 归位到项目
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="edit" size={13} /> 编辑包信息
+                    </>
+                  )}
                 </button>
                 <button className="btn" onClick={() => window.api.openFolder(detail.pack.folder_path)}>
-                  📁 打开文件夹
+                  <Icon name="folder" size={13} /> 打开文件夹
                 </button>
               </div>
 

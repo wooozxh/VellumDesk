@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { AssetItem } from '../types'
+import { Icon } from './Icon'
 
 export function fmtSize(bytes: number): string {
   if (!bytes) return '0 B'
@@ -130,7 +131,7 @@ export function FileRow({
           ) : null}
           {missing && (
             <span className="miss-badge" title={lostTitle}>
-              ⚠ 文件已丢失
+              <Icon name="warning" size={12} /> 文件已丢失
             </span>
           )}
         </div>
@@ -158,7 +159,7 @@ export function FileRow({
                       onDropTag(t.id)
                     }}
                   >
-                    ×
+                    <Icon name="close" size={10} strokeWidth={2} />
                   </button>
                 )}
               </span>
@@ -174,15 +175,15 @@ export function FileRow({
             title="重新定位：文件被删掉或挪走了，指到它的新位置"
             onClick={onRelocate}
           >
-            🔍
+            <Icon name="locate" size={14} />
           </button>
         ) : (
           <button className="icon-btn" title="打开文件" onClick={onOpen}>
-            ↗
+            <Icon name="external" size={13} />
           </button>
         )}
         <button className="icon-btn" title="打开所在文件夹" onClick={onReveal}>
-          📁
+          <Icon name="folder" size={14} />
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Project } from '../types'
+import { Icon } from './Icon'
 
 const PRESET_NOTES = [
   '教育咨询 + 异地升学办理',
@@ -51,9 +52,17 @@ export function ProjectModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          {isEdit ? '✎ 编辑项目' : '＋ 新建项目'}
+          {isEdit ? (
+            <>
+              <Icon name="edit" size={15} /> 编辑项目
+            </>
+          ) : (
+            <>
+              <Icon name="plus" size={15} strokeWidth={2} /> 新建项目
+            </>
+          )}
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 

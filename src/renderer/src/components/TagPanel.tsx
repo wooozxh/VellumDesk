@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { DimensionGroup } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 3 批 C-01 / C-08：左栏「维度式」标签筛选面板。
@@ -93,7 +94,9 @@ export function TagPanel({
               onClick={() => setCollapsed((c) => ({ ...c, [dim.key]: open }))}
               title={dim.hint}
             >
-              <span className={`caret${open ? ' open' : ''}`}>▸</span>
+              <span className={`caret${open ? ' open' : ''}`}>
+                <Icon name="caret" size={11} />
+              </span>
               <span className="tp-dim-label">{dim.label}</span>
               {picked.length > 0 && <span className="tp-badge">{picked.length}</span>}
               <span className="tp-dim-n" title={`这个维度下有 ${dim.tags.length} 个标签`}>
@@ -135,7 +138,7 @@ export function TagPanel({
                 })}
                 {dim.editable && (
                   <button className="tp-add" onClick={() => onManage(dim.key)}>
-                    ＋ 管理
+                    <Icon name="plus" size={11} strokeWidth={2} /> 管理
                   </button>
                 )}
               </div>

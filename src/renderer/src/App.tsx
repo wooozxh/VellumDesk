@@ -10,6 +10,7 @@ import type {
   WsInfo
 } from './types'
 
+import { Icon } from './components/Icon'
 import { PackCard, UnassignedCard } from './components/PackCard'
 import { FileRow, fmtSize } from './components/FileRow'
 import { NewPackModal } from './components/NewPackModal'
@@ -800,7 +801,9 @@ export default function App(): React.JSX.Element {
         </div>
 
         <div className="search-wrap">
-          <span className="icon">🔍</span>
+          <span className="icon">
+            <Icon name="search" size={13} />
+          </span>
           <input
             type="text"
             value={keyword}
@@ -821,11 +824,17 @@ export default function App(): React.JSX.Element {
         </div>
 
         <button className="btn" onClick={doRefresh} disabled={scanning} title="重新扫描素材工作区">
-          {scanning ? '扫描中…' : '🔄 刷新扫描'}
+          {scanning ? (
+            '扫描中…'
+          ) : (
+            <>
+              <Icon name="refresh" size={13} /> 刷新扫描
+            </>
+          )}
         </button>
 
         <button className="btn primary" onClick={() => setShowNew(true)}>
-          ＋ 新建任务包
+          <Icon name="plus" size={13} strokeWidth={2} /> 新建任务包
         </button>
       </div>
 
@@ -856,7 +865,7 @@ export default function App(): React.JSX.Element {
               }}
               title="新建项目"
             >
-              ＋
+              <Icon name="plus" size={13} strokeWidth={2} />
             </button>
           </h4>
 
@@ -908,7 +917,7 @@ export default function App(): React.JSX.Element {
                         void moveProj(p, 'up')
                       }}
                     >
-                      ↑
+                      <Icon name="arrowUp" size={13} />
                     </button>
                     <button
                       className="mini"
@@ -919,7 +928,7 @@ export default function App(): React.JSX.Element {
                         void moveProj(p, 'down')
                       }}
                     >
-                      ↓
+                      <Icon name="arrowDown" size={13} />
                     </button>
                     <button
                       className="mini"
@@ -930,7 +939,7 @@ export default function App(): React.JSX.Element {
                         setShowProjectModal(true)
                       }}
                     >
-                      ✎
+                      <Icon name="edit" size={13} />
                     </button>
                     <button
                       className="mini"
@@ -940,7 +949,7 @@ export default function App(): React.JSX.Element {
                         void doUnbind(p)
                       }}
                     >
-                      📤
+                      <Icon name="export" size={13} />
                     </button>
                     <button
                       className="mini danger"
@@ -950,7 +959,7 @@ export default function App(): React.JSX.Element {
                         setDeletingProject(p)
                       }}
                     >
-                      ✕
+                      <Icon name="trash" size={13} />
                     </button>
                   </span>
                 )}
@@ -962,7 +971,7 @@ export default function App(): React.JSX.Element {
             <button
               className={`item${projectFilter === null ? ' on' : ''}`}
               onClick={() => setProjectFilter(null)}
-              title="这些包的文件夹直接躺在工作区根目录，还没选项目 —— 点包卡片右上角的 📥 就能归位"
+              title="这些包的文件夹直接躺在工作区根目录，还没选项目 —— 点包卡片右上角的入库按钮就能归位"
             >
               <span>待归类</span>
             </button>
@@ -975,7 +984,9 @@ export default function App(): React.JSX.Element {
               onClick={() => setShowUnbound(true)}
               title="结项留底的项目：软件里不显示，本地文件全在 _已解绑的项目 里，可一键还原"
             >
-              <span>📦 已解绑 {info?.unboundProjects?.length} 个项目</span>
+              <span>
+                <Icon name="archive" size={13} /> 已解绑 {info?.unboundProjects?.length} 个项目
+              </span>
             </button>
           )}
 
@@ -990,7 +1001,9 @@ export default function App(): React.JSX.Element {
               setMissingOnly(false)
             }}
           >
-            <span>📥 未归属</span>
+            <span>
+              <Icon name="inbox" size={13} /> 未归属
+            </span>
             <span className="n">{stats.unassigned}</span>
           </button>
           {/* 第 8 批：文件已丢失（M8-03）—— 记录不删，只是原文件找不到了，可重新定位 */}
@@ -1002,9 +1015,11 @@ export default function App(): React.JSX.Element {
                 setUnassignedOnly(false)
                 setMissingOnly(true)
               }}
-              title="这些素材的原文件被删除或挪走了。软件不会因此删掉记录 —— 点行尾的 🔍 指到文件的新位置就能找回来"
+              title="这些素材的原文件被删除或挪走了。软件不会因此删掉记录 —— 点行尾的定位按钮指到文件的新位置就能找回来"
             >
-              <span>⚠️ 文件已丢失</span>
+              <span>
+                <Icon name="warning" size={13} /> 文件已丢失
+              </span>
               <span className="n">{stats.missing}</span>
             </button>
           )}
@@ -1036,7 +1051,7 @@ export default function App(): React.JSX.Element {
               >
                 <div className="wrow">
                   <span className="wname">
-                    {isActive ? '📁' : '🗂'} {w.name}
+                    <Icon name={isActive ? 'folder' : 'archive'} size={13} /> {w.name}
                   </span>
                   {isActive ? (
                     <span className="wtag">当前</span>
@@ -1049,7 +1064,7 @@ export default function App(): React.JSX.Element {
                         void doRemoveWs(w)
                       }}
                     >
-                      ×
+                      <Icon name="close" size={12} />
                     </button>
                   )}
                 </div>
@@ -1082,7 +1097,9 @@ export default function App(): React.JSX.Element {
             onClick={() => void doAddWs()}
             title="选一个文件夹作为工作区：空的就新建，有素材库的直接接进来"
           >
-            <span>＋ 添加工作区</span>
+            <span>
+              <Icon name="plus" size={13} strokeWidth={2} /> 添加工作区
+            </span>
           </button>
         </div>
 
@@ -1097,7 +1114,9 @@ export default function App(): React.JSX.Element {
         <div className="main">
           {info && !info.workspaceOk && (
             <div className="wsbanner">
-              <span className="ico">⚠</span>
+              <span className="ico">
+                <Icon name="warning" size={16} />
+              </span>
               <div className="txt">
                 <div className="t">
                   工作区「{activeWs?.name ?? '未知'}」连不上，里面的东西一件没动
@@ -1118,7 +1137,9 @@ export default function App(): React.JSX.Element {
 
           {info?.workspaceOk && layoutNotice && (
             <div className="wsbanner info">
-              <span className="ico">🗂</span>
+              <span className="ico">
+                <Icon name="archive" size={16} />
+              </span>
               <div className="txt">
                 <div className="t">目录结构已升级：工作区 / 项目 / 包</div>
                 <div className="s">
@@ -1135,7 +1156,9 @@ export default function App(): React.JSX.Element {
             {view === 'packs' ? (
               shownPacks.length === 0 ? (
                 <div className="empty">
-                  <div className="big">🗂</div>
+                  <div className="big">
+                    <Icon name="package" size={38} strokeWidth={1.1} />
+                  </div>
                   <div className="t">
                     {projectFilter === '全部'
                       ? '还没有任何任务包'
@@ -1168,7 +1191,13 @@ export default function App(): React.JSX.Element {
               )
             ) : shownAssets.length === 0 ? (
               <div className="empty">
-                <div className="big">{unassignedOnly ? '📥' : missingOnly ? '✅' : '🔍'}</div>
+                <div className="big">
+                  <Icon
+                    name={unassignedOnly ? 'inbox' : missingOnly ? 'check' : 'search'}
+                    size={34}
+                    strokeWidth={1.1}
+                  />
+                </div>
                 <div className="t">
                   {unassignedOnly
                     ? '未归属池是空的'
@@ -1179,7 +1208,7 @@ export default function App(): React.JSX.Element {
                         : '还没有登记任何文件'}
                 </div>
                 <div className="s">
-                  往工作区里的包文件夹丢文件，然后点右上角「🔄 刷新扫描」。
+                  往工作区里的包文件夹丢文件，然后点右上角「刷新扫描」。
                 </div>
               </div>
             ) : (
@@ -1215,7 +1244,7 @@ export default function App(): React.JSX.Element {
                       确定认领
                     </button>
                     <button className="btn" onClick={openTagPicker} title="给选中的文件批量打标签">
-                      🏷 打标签
+                      <Icon name="tag" size={13} /> 打标签
                     </button>
                     <button className="btn" onClick={() => setSelected(new Set())}>
                       取消
@@ -1270,7 +1299,8 @@ export default function App(): React.JSX.Element {
                       onClick={() => setShowRelocate(true)}
                       title="一批文件被整体挪走了？选它现在所在的文件夹，软件按原目录结构替你先配一遍，你确认后才改"
                     >
-                      🔍 批量重新定位{missingOnly ? `（共 ${stats.missing} 条丢失）` : ''}
+                      <Icon name="locate" size={12} /> 批量重新定位
+                      {missingOnly ? `（共 ${stats.missing} 条丢失）` : ''}
                     </button>
                   )}
                 </div>

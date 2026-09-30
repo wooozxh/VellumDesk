@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import type { PackCard as PackCardType } from '../types'
+import { Icon } from './Icon'
 
 /** 包卡片占位图标——没有缩略图时显示 */
 function Placeholder(): React.JSX.Element {
-  return <div className="ph">🗂</div>
+  return (
+    <div className="ph">
+      <Icon name="package" size={30} strokeWidth={1.3} />
+    </div>
+  )
 }
 
 export function PackCard({
@@ -30,7 +35,7 @@ export function PackCard({
             onEdit()
           }}
         >
-          {isLoose ? '📥' : '✎'}
+          {isLoose ? <Icon name="inbox" size={13} /> : <Icon name="edit" size={13} />}
         </button>
       )}
       <div className="thumb">
@@ -45,7 +50,7 @@ export function PackCard({
             className="miss-flag"
             title={`这个包里有 ${pack.missingCount} 个文件已丢失（原文件被删除或挪走了，记录还在，可重新定位）`}
           >
-            ⚠ {pack.missingCount}
+            <Icon name="warning" size={12} /> {pack.missingCount}
           </span>
         )}
       </div>
@@ -119,7 +124,7 @@ export function UnassignedCard({
     <div className="pack-card unassigned" onClick={onOpen}>
       <div className="thumb">
         <div className="ph" style={{ opacity: 0.7 }}>
-          📥
+          <Icon name="inbox" size={30} strokeWidth={1.3} />
         </div>
       </div>
       <div className="meta">

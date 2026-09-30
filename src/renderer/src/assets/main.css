@@ -3,34 +3,56 @@
 /* ============================================================
    素材管家 · 深色主题手写样式
    见 DECISIONS.md 2026-09-24：本阶段不引入 Tailwind / shadcn
+
+   第 11 批 UI 改版（2026-09-30）：配色体系换成 Adobe Spectrum 2 深色。
+   三条口径（见 docs/13）：
+   ① 灰阶**纯中性、不带任何色调** —— 原来是 #15161a/#1b1d22/#212429
+      这类偏蓝冷黑，Adobe 是 R=G=B 的中性灰，这是"像不像 Adobe"的根子
+   ② 强调色取 Spectrum blue-500 #2680EB（深色主题用的那一档）
+   ③ 按钮/输入框/标签改胶囊形，并补上键盘焦点环（Adobe 的标志性细节）
    ============================================================ */
 
 :root {
-  --bg: #15161a;
-  --bg-soft: #1b1d22;
-  --bg-mute: #212429;
-  --bg-card: #1e2127;
-  --bg-hover: #262a31;
+  /* ---- 灰阶（Spectrum 2 dark，R=G=B 中性）---- */
+  --bg: #111111; /* 应用底 / 内容区（pasteboard） */
+  --bg-soft: #1b1b1b; /* 顶栏 / 左栏 / 弹窗（layer-1） */
+  --bg-mute: #232323; /* 输入框 / 次级面（layer-2） */
+  --bg-card: #2c2c2c; /* 卡片（layer-3） */
+  --bg-hover: #353535; /* 悬停 / 次级按钮悬停 */
 
-  --line: #2e323a;
-  --line-soft: #262a31;
+  --line: #3a3a3a; /* 主边框 */
+  --line-soft: #2b2b2b; /* 细分割线 / 卡片内部分隔 */
 
-  --text: #e8eaf0;
-  --text-2: #9aa1af;
-  --text-3: #6b7280;
+  --text: #efefef; /* 主文字 */
+  --text-2: #b3b3b3; /* 次要文字 */
+  --text-3: #7c7c7c; /* 弱化文字 / 占位符 */
 
-  --accent: #4f8cff;
-  --accent-soft: rgba(79, 140, 255, 0.14);
-  --accent-line: rgba(79, 140, 255, 0.45);
+  /* ---- 强调色（Spectrum blue）---- */
+  --accent: #2680eb; /* blue-500：深色主题主色 */
+  --accent-hover: #378ef0; /* blue-400：悬停变亮 */
+  --accent-down: #1473e6; /* blue-600：按下变深 */
+  --accent-soft: rgba(38, 128, 235, 0.16); /* 选中底 */
+  --accent-line: rgba(38, 128, 235, 0.5); /* 选中边框 */
+  --accent-text: #78bbfa; /* blue-300：深色底上的链接/数字文字 */
 
-  --warn: #e8a33d;
-  --warn-soft: rgba(232, 163, 61, 0.14);
-  --ok: #3fb950;
-  --ok-soft: rgba(63, 185, 80, 0.14);
-  --danger: #f0603f;
+  /* ---- 语义色（Spectrum 官方色板）---- */
+  --warn: #e68619; /* orange-500：文件丢失 / 待整理 */
+  --warn-soft: rgba(230, 134, 25, 0.16);
+  --ok: #2d9d78; /* green-500：当前稿 / 完成 */
+  --ok-soft: rgba(45, 157, 120, 0.18);
+  --danger: #e34850; /* red-500：删除 / 危险 */
+  --danger-soft: rgba(227, 72, 80, 0.16);
+  --purple: #a78ae8; /* 深色底上的紫：工程组标识 */
+  --purple-soft: rgba(146, 86, 217, 0.16);
 
-  --r: 8px;
-  --r-sm: 6px;
+  /* ---- 圆角 ---- */
+  --r: 10px; /* 卡片 / 弹窗 */
+  --r-sm: 6px; /* 小方块（缩略图 / 色块） */
+  --r-pill: 999px; /* 按钮 / 输入框 / 标签：Spectrum 2 胶囊 */
+
+  /* ---- 键盘焦点环（2px 蓝 + 2px 间隙，Adobe 的标志性细节）---- */
+  --focus: 0 0 0 2px var(--bg-soft), 0 0 0 4px var(--accent-hover);
+  --focus-in: 0 0 0 2px var(--accent-hover);
 }
 
 *,
@@ -118,17 +140,24 @@ input {
 
 .search-wrap input {
   width: 100%;
-  padding: 7px 12px 7px 30px;
+  padding: 7px 14px 7px 32px;
   background: var(--bg-mute);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-pill);
   color: var(--text);
   outline: none;
-  transition: border-color 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.search-wrap input:hover {
+  border-color: var(--line);
 }
 
 .search-wrap input:focus {
-  border-color: var(--accent-line);
+  border-color: var(--accent);
+  background: var(--bg-soft);
 }
 
 .search-wrap input::placeholder {
@@ -137,11 +166,11 @@ input {
 
 .search-wrap .icon {
   position: absolute;
-  left: 10px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-3);
-  font-size: 12px;
+  display: flex;
   pointer-events: none;
 }
 
@@ -153,46 +182,53 @@ input {
 .tabs {
   display: flex;
   background: var(--bg-mute);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-pill);
+  padding: 3px;
   gap: 2px;
 }
 
 .tabs button {
-  padding: 5px 14px;
-  border-radius: 4px;
+  padding: 4px 14px;
+  border-radius: var(--r-pill);
   color: var(--text-2);
   white-space: nowrap;
-  transition: all 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .tabs button:hover {
   color: var(--text);
+  background: var(--bg-hover);
 }
 
 .tabs button.on {
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text);
+  font-weight: 500;
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 13px;
-  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line);
-  background: var(--bg-mute);
+  background: transparent;
   color: var(--text-2);
   white-space: nowrap;
-  transition: all 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .btn:hover {
   background: var(--bg-hover);
   color: var(--text);
-  border-color: var(--text-3);
+  border-color: #4a4a4a;
 }
 
 .btn.primary {
@@ -202,7 +238,8 @@ input {
 }
 
 .btn.primary:hover {
-  background: #3d7bf0;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn:disabled {
@@ -359,7 +396,7 @@ body:has(.side-resizer.dragging) {
 .mini {
   width: 19px;
   height: 19px;
-  border-radius: 4px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -561,7 +598,7 @@ body:has(.side-resizer.dragging) {
 .tag {
   font-size: 11px;
   padding: 1px 7px;
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   background: var(--bg-mute);
   border: 1px solid var(--line);
   color: var(--text-2);
@@ -587,7 +624,7 @@ body:has(.side-resizer.dragging) {
 
 .pack-card.unassigned:hover {
   border-color: var(--warn);
-  box-shadow: 0 6px 18px rgba(232, 163, 61, 0.18);
+  box-shadow: 0 6px 18px rgba(230, 134, 25, 0.18);
 }
 
 .pack-card.unassigned .name {
@@ -724,28 +761,32 @@ body:has(.side-resizer.dragging) {
 }
 
 .icon-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-3);
-  border: 1px solid var(--line);
-  background: var(--bg-mute);
-  font-size: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  transition:
+    color 0.14s,
+    background 0.14s,
+    border-color 0.14s;
 }
 
 .icon-btn:hover {
   color: var(--text);
   background: var(--bg-hover);
+  border-color: var(--line);
 }
 
 /* role 徽标 */
 .role {
   font-size: 10.5px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--r-pill);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -761,8 +802,8 @@ body:has(.side-resizer.dragging) {
 }
 
 .role.工程 {
-  background: rgba(168, 132, 255, 0.14);
-  color: #a884ff;
+  background: var(--purple-soft);
+  color: var(--purple);
 }
 
 .role.未归属 {
@@ -837,7 +878,7 @@ body:has(.side-resizer.dragging) {
   font-size: 17px;
   line-height: 1;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 50%;
 }
 
 .modal h3 .close:hover {
@@ -876,17 +917,26 @@ body:has(.side-resizer.dragging) {
 .field input[type='text'],
 .field select {
   width: 100%;
-  padding: 8px 11px;
+  padding: 8px 14px;
   background: var(--bg-mute);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-pill);
   color: var(--text);
   outline: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.field input[type='text']:hover,
+.field select:hover {
+  border-color: var(--line);
 }
 
 .field input[type='text']:focus,
 .field select:focus {
-  border-color: var(--accent-line);
+  border-color: var(--accent);
+  background: var(--bg-soft);
 }
 
 .field .hint {
@@ -902,24 +952,28 @@ body:has(.side-resizer.dragging) {
 }
 
 .chip {
-  padding: 5px 12px;
-  border-radius: 20px;
-  border: 1px solid var(--line);
-  background: var(--bg-mute);
+  padding: 5px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-soft);
+  background: transparent;
   color: var(--text-2);
-  transition: all 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
 }
 
 .chip:hover {
-  border-color: var(--text-3);
+  border-color: var(--line);
+  background: var(--bg-hover);
   color: var(--text);
 }
 
 .chip.on {
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
-  color: var(--accent);
-  font-weight: 600;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
 }
 
 /* ---------------- 空状态 ---------------- */
@@ -1020,7 +1074,7 @@ body:has(.side-resizer.dragging) {
   color: var(--text-3);
   font-weight: 400;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line);
 }
 
@@ -1134,7 +1188,7 @@ body:has(.side-resizer.dragging) {
   padding: 5px 9px;
   background: var(--bg-mute);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   color: var(--text);
   outline: none;
   max-width: 240px;
@@ -1182,12 +1236,12 @@ body:has(.side-resizer.dragging) {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #33383f;
+  background: var(--line);
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #454b54;
+  background: #4f4f4f;
 }
 
 /* ============================================================
@@ -1221,7 +1275,7 @@ body:has(.side-resizer.dragging) {
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   padding: 2px 8px;
   cursor: pointer;
 }
@@ -1278,7 +1332,7 @@ body:has(.side-resizer.dragging) {
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
-  border-radius: 8px;
+  border-radius: var(--r-pill);
   background: var(--accent);
   color: #fff;
   display: inline-flex;
@@ -1307,7 +1361,7 @@ body:has(.side-resizer.dragging) {
   padding: 4px 8px;
   background: var(--bg-mute);
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   color: var(--text-2);
   cursor: pointer;
   transition: all 0.12s;
@@ -1370,7 +1424,7 @@ body:has(.side-resizer.dragging) {
   padding: 4px 8px;
   background: transparent;
   border: 1px dashed var(--line);
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   color: var(--text-3);
   cursor: pointer;
 }
@@ -1410,7 +1464,7 @@ body:has(.side-resizer.dragging) {
   line-height: 1;
   padding: 2.5px 4px 2.5px 7px;
   border: 1px solid;
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   white-space: nowrap;
 }
 
@@ -1477,7 +1531,7 @@ body:has(.side-resizer.dragging) {
   padding: 8px 11px;
   background: var(--bg-mute);
   border: 1px solid var(--line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   color: var(--text);
   outline: none;
 }
@@ -1535,7 +1589,7 @@ body:has(.side-resizer.dragging) {
   height: 20px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 50%;
   background: transparent;
   cursor: pointer;
 }
@@ -1545,7 +1599,7 @@ body:has(.side-resizer.dragging) {
   padding: 4px 8px;
   background: var(--bg-card);
   border: 1px solid var(--accent-line);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   color: var(--text);
   outline: none;
   font-size: 12.5px;
@@ -1582,7 +1636,7 @@ body:has(.side-resizer.dragging) {
   font-size: 11.5px;
   color: var(--warn);
   background: var(--warn-soft);
-  border: 1px solid rgba(232, 163, 61, 0.3);
+  border: 1px solid rgba(230, 134, 25, 0.3);
   border-radius: var(--r-sm);
   padding: 7px 11px;
   margin-bottom: 10px;
@@ -1609,7 +1663,7 @@ body:has(.side-resizer.dragging) {
 .tp-pick-mode {
   font-size: 9.5px;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   background: var(--bg-mute);
   border: 1px solid var(--line);
   color: var(--text-3);
@@ -1723,7 +1777,7 @@ body:has(.side-resizer.dragging) {
   font-size: 10.5px;
   line-height: 1.5;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
@@ -1734,7 +1788,7 @@ body:has(.side-resizer.dragging) {
   width: 18px;
   height: 18px;
   line-height: 1;
-  border-radius: 4px;
+  border-radius: 50%;
   color: var(--text-3);
   opacity: 0;
   transition: all 0.12s;
@@ -1746,7 +1800,7 @@ body:has(.side-resizer.dragging) {
 
 .wsitem .wx:hover {
   color: var(--danger);
-  background: rgba(240, 96, 63, 0.14);
+  background: var(--danger-soft);
 }
 
 .wsitem .wpath {
@@ -1771,7 +1825,7 @@ body:has(.side-resizer.dragging) {
   flex: 1 1 0;
   padding: 3px 6px;
   font-size: 11px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   color: var(--text-2);
   background: var(--bg-mute);
   border: 1px solid var(--line);
@@ -1820,7 +1874,7 @@ body:has(.side-resizer.dragging) {
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  border-radius: 6px;
+  border-radius: 50%;
   color: var(--text-2);
   background: rgba(0, 0, 0, 0.55);
   border: 1px solid var(--line);
@@ -1913,14 +1967,14 @@ body:has(.side-resizer.dragging) {
   display: inline-block;
   margin-left: 8px;
   padding: 0 6px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   font-size: 10.5px;
   font-weight: 600;
   vertical-align: 1px;
   white-space: nowrap;
   color: var(--danger);
-  background: rgba(240, 96, 63, 0.14);
-  border: 1px solid rgba(240, 96, 63, 0.5);
+  background: var(--danger-soft);
+  border: 1px solid rgba(227, 72, 80, 0.5);
 }
 
 /* 行尾「重新定位」按钮：比普通图标亮一点，提示这是能动手的地方 */
@@ -1934,11 +1988,11 @@ body:has(.side-resizer.dragging) {
   top: 6px;
   right: 6px;
   padding: 1px 7px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-pill);
   font-size: 11px;
   font-weight: 600;
   color: #fff;
-  background: rgba(240, 96, 63, 0.92);
+  background: var(--danger);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
@@ -2022,7 +2076,7 @@ body:has(.side-resizer.dragging) {
   flex: none;
   width: 170px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg-card);
   padding: 8px 9px;
   cursor: pointer;
@@ -2052,21 +2106,21 @@ body:has(.side-resizer.dragging) {
 .ver-cell .vn {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-1);
+  color: var(--text);
 }
 .ver-cell.cur .vn {
-  color: #3fb950;
+  color: var(--ok);
 }
 .ver-cell .vflag {
   font-size: 10px;
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--r-pill);
   line-height: 15px;
 }
 .ver-cell .vflag.cur {
-  color: #3fb950;
-  border: 1px solid #3fb95066;
-  background: #3fb9501a;
+  color: var(--ok);
+  border: 1px solid rgba(45, 157, 120, 0.4);
+  background: var(--ok-soft);
 }
 .ver-cell .vflag.gone {
   color: var(--warn);
@@ -2095,7 +2149,7 @@ body:has(.side-resizer.dragging) {
 .ver-cell .vbtn {
   font-size: 10.5px;
   padding: 1px 7px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line);
   background: var(--bg-mute);
   color: var(--text-2);
@@ -2103,7 +2157,7 @@ body:has(.side-resizer.dragging) {
 }
 .ver-cell .vbtn:hover {
   border-color: var(--accent);
-  color: var(--text-1);
+  color: var(--text);
 }
 .ver-acts {
   flex: none;
@@ -2123,7 +2177,7 @@ body:has(.side-resizer.dragging) {
   display: inline-block;
   margin-left: 6px;
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--r-pill);
   font-size: 10.5px;
   line-height: 15px;
   vertical-align: 1px;
@@ -2133,9 +2187,9 @@ body:has(.side-resizer.dragging) {
   background: var(--bg-mute);
 }
 .ver-badge.cur {
-  color: #3fb950;
-  border-color: #3fb95066;
-  background: #3fb9501a;
+  color: var(--ok);
+  border-color: rgba(45, 157, 120, 0.4);
+  background: var(--ok-soft);
 }
 
 /* 包卡片上的「V3 当前 · 3 稿」 */
@@ -2166,7 +2220,7 @@ body:has(.side-resizer.dragging) {
   padding: 8px 10px;
 }
 .version-modal .hint-box b {
-  color: var(--text-1);
+  color: var(--text);
 }
 .version-modal .hint-box code {
   font-family: var(--font-mono, monospace);
@@ -2182,8 +2236,8 @@ body:has(.side-resizer.dragging) {
 .version-modal .fld input {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text-1);
+  border-radius: var(--r-pill);
+  color: var(--text);
   font-size: 12.5px;
   padding: 6px 9px;
   outline: none;
@@ -2196,7 +2250,7 @@ body:has(.side-resizer.dragging) {
   gap: 8px;
   align-items: flex-start;
   font-size: 12.5px;
-  color: var(--text-1);
+  color: var(--text);
   cursor: pointer;
   line-height: 1.6;
 }
@@ -2239,7 +2293,7 @@ body:has(.side-resizer.dragging) {
 }
 .bind-row .bfn {
   flex: 1;
-  color: var(--text-1);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2271,3 +2325,83 @@ body:has(.side-resizer.dragging) {
   cursor: pointer;
 }
 
+
+/* ---------------- 键盘焦点环 ---------------- */
+/* 第 11 批：Adobe 的标志性细节 —— 只在键盘 Tab 走位时出现，
+   2px 蓝实线 + 2px 间隙。鼠标点击不显示，绝不打扰。 */
+.btn:focus-visible,
+.tabs button:focus-visible,
+.side .item:focus-visible,
+.add-proj:focus-visible,
+.mini:focus-visible,
+.chip:focus-visible,
+.swatch:focus-visible,
+.icon-btn:focus-visible,
+.modal h3 .close:focus-visible,
+.pack-card:focus-visible,
+.pack-card .pact:focus-visible,
+.file-row:focus-visible,
+.tp-dim-head:focus-visible,
+.tp-tag:focus-visible,
+.tp-add:focus-visible,
+.tp-clear:focus-visible,
+.tm-edit:focus-visible,
+.row-tag-x:focus-visible,
+.claimbar select:focus-visible,
+.wsitem .wx:focus-visible,
+.wsitem .wacts button:focus-visible,
+.ver-cell:focus-visible,
+.ver-cell .vbtn:focus-visible,
+.bind-row:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+/* 输入类：focus 时边框已经变蓝，不再叠外圈 */
+.search-wrap input:focus-visible,
+.field input:focus-visible,
+.field select:focus-visible,
+.tm-add input:focus-visible,
+.version-modal .fld input:focus-visible {
+  outline: none;
+}
+
+/* ---------------- 图标对齐（第 11 批 UI 改版）---------------- */
+/* 内联 SVG 默认按文字基线对齐，视觉上会往下沉 2~3px —— 统一压到中线 */
+svg {
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* 图标 + 文字的行内小件：flex 居中，间距 4px
+   （.btn / .icon-btn / .mini / .modal h3 / .tp-dim-head 外面本来就是 flex，不用管） */
+.miss-badge,
+.thumb .miss-flag,
+.vmiss,
+.tp-add,
+.tp-clear,
+.tp-star,
+.row-tag-x,
+.wsitem .wx,
+.tp-dim-head .caret,
+.wsbanner .ico,
+.empty .big,
+.pack-card .thumb .ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* 工作区名：图标 + 名字，间距单独给大一点 */
+.wname {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 空状态那枚大图标：容器居中靠 .empty 的 text-align，这里只保证 svg 不歪 */
+.empty .big svg,
+.pack-card .thumb .ph svg {
+  display: block;
+}

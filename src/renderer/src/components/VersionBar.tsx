@@ -1,5 +1,6 @@
 import type { PackVersion } from '../types'
 import { fmtSize } from './FileRow'
+import { Icon } from './Icon'
 
 /**
  * 第 9 批（M6 版本管理）：包详情顶部的**版本条** —— 一格 = 一稿。
@@ -52,7 +53,10 @@ export function VersionBar({
             <div className="vnote">{v.note || '（没写这一稿改了什么）'}</div>
             <div className="vmeta">
               {v.fileCount} 个文件 · {fmtSize(v.totalSize)}
-              {v.missingCount > 0 && <span className="vmiss"> · ⚠ {v.missingCount}</span>}
+              {v.missingCount > 0 && <span className="vmiss">
+                {' · '}
+                <Icon name="warning" size={11} /> {v.missingCount}
+              </span>}
             </div>
             <div className="vacts">
               {v.is_current !== 1 && (
@@ -102,14 +106,14 @@ export function VersionBar({
           onClick={onCreate}
           title="在包文件夹里建一个新版本文件夹（V1 / V2 / V3…）"
         >
-          ＋ 新建版本
+          <Icon name="plus" size={13} strokeWidth={2} /> 新建版本
         </button>
         <button
           className="btn"
           onClick={onBind}
           title="你自己在资源管理器里建好了文件夹？在这儿绑定一下就能纳入管理"
         >
-          📎 绑定文件夹
+          <Icon name="clip" size={13} /> 绑定文件夹
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { UnboundProject } from '../types'
 import { fmtSize } from './FileRow'
+import { Icon } from './Icon'
 
 /**
  * 第 7 批 ④：已解绑的项目。
@@ -37,9 +38,9 @@ export function UnboundProjectsModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal wide">
         <h3>
-          📦 已解绑的项目（{projects.length}）
+          <Icon name="archive" size={15} /> 已解绑的项目（{projects.length}）
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 

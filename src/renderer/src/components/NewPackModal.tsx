@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ProjectWithCount } from '../types'
+import { Icon } from './Icon'
 
 /**
  * A-01 新建任务包弹窗。
@@ -50,9 +51,9 @@ export function NewPackModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          ＋ 新建任务包
+          <Icon name="plus" size={15} strokeWidth={2} /> 新建任务包
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 

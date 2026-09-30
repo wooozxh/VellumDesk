@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ProjectWithCount } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 删除项目的确认弹窗。
@@ -49,9 +50,9 @@ export function DeleteProjectModal({
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>
-          ⚠ 删除项目
+          <Icon name="warning" size={15} /> 删除项目
           <button className="close" onClick={onClose}>
-            ✕
+            <Icon name="close" size={14} />
           </button>
         </h3>
 

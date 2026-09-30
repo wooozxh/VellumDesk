@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { RelocateSuggestion } from '../types'
+import { Icon } from './Icon'
 
 /**
  * 第 8 批 M8-03：批量重新定位。
@@ -83,7 +84,7 @@ export function RelocateModal({
         <div className="head">
           <h3>批量重新定位</h3>
           <button className="close" onClick={onClose}>
-            ×
+            <Icon name="close" size={14} />
           </button>
         </div>
         <div className="content">
@@ -93,7 +94,7 @@ export function RelocateModal({
               <b>你先看结果、勾选之后才会动记录。</b>
             </div>
             <button className="btn" onClick={pickDir} disabled={busy}>
-              📁 选择文件夹
+              <Icon name="folder" size={13} /> 选择文件夹
             </button>
             {dir && <div className="path">{dir}</div>}
           </div>
