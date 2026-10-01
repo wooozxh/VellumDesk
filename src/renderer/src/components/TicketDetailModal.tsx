@@ -56,12 +56,13 @@ export function TicketDetailModal({
     }
   }
 
-  const row = (label: string, v: string | number | null | undefined): React.JSX.Element => (
-    <div className="tk-field">
-      <span className="k">{label}</span>
-      <span className="v">{v === null || v === undefined || v === '' ? '—' : String(v)}</span>
-    </div>
-  )
+  const row = (label: string, v: string | number | null | undefined): React.JSX.Element | null =>
+    v === null || v === undefined || v === '' ? null : (
+      <div className="tk-field">
+        <span className="k">{label}</span>
+        <span className="v">{String(v)}</span>
+      </div>
+    )
 
   const urlOk = /^https?:\/\//i.test(d?.approvalUrl ?? d?.sourceUrl ?? '')
 
