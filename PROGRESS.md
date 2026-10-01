@@ -668,6 +668,7 @@
   - 出包：① `npm run build`（typecheck 0 错 + 主/预加载/渲染三份产物重打）② `npx electron-builder --win --output=D:/_accept_ws/rel_out/v1.3.0`（**两个镜像都设**、输出到项目外空目录、`CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`）
   - 产物：**`D:\_accept_ws\rel_out\v1.3.0\营销中心-素材库-1.3.0-安装包.exe`**（179.6 MB，NSIS x64，oneClick，perMachine=false）；附带 `win-unpacked\`
   - **产物自检**（asar 二进制直接查）：`scan:progress` 出现 4 次、`onScanProgress` 3 次、渲染产物 hash `index-Czhe4FRt.js` / `index-D1Va0K43.css` 与 `out/renderer/index.html` 引用**逐个对上** → 确认新界面确实进了包，不是拿旧产物打的
+- **提交**：本批 + 第 13 批遗留的未提交改动一次性提交 → **`deadd2d`**（24 文件 / +1288 −273，含 `docs/16` 工单二期方案存档 + `docs/17` 本批方案）
 - **下一步**：**发同事装机**（无签名会撞 SmartScreen → 装机说明：点「更多信息 → 仍要运行」）；冒烟三看：桌面/开始菜单名 = 营销中心-素材库、任务栏标题、老工作区配置还在（`%APPDATA%\proj_media`）；收反馈后决定下一批（工单二期 / M6-06 / M8-02 / 报表，见 NEXT 第四节）
 
 ---
