@@ -39,6 +39,8 @@ export interface PackCard {
   versionCount: number
   /** 第 9 批（M6）：当前版本的编号（1 → V1）；没有版本时为 null */
   currentSeq: number | null
+  /** 第 15 批（M5）：是否至少有一稿已交付 */
+  hasDelivered: boolean
 }
 
 export interface AssetItem {
@@ -298,6 +300,52 @@ export interface ClaimResult {
   ok: boolean
   moved: number
   errors: string[]
+}
+
+// ==================== 第 15 批：交付打包（M5，docs/18） ====================
+
+export interface PackExportInput {
+  packId: number
+  /** 版本选择模式 */
+  versionMode: 'current' | 'specific' | 'all'
+  /** specific 模式下必填 */
+  specificVersionId?: number | null
+  /** 分组选择 */
+  roles: string[]
+  /** 用户取消勾选的文件 asset.id 数组 */
+  excludedAssetIds?: number[]
+  /** 目标目录 */
+  outputDir: string
+  /** 压缩包文件名（不含 .zip） */
+  zipName: string
+  /** 是否在压缩包内加一层同名文件夹 */
+  wrapFolder: boolean
+  /** 尺寸，如 1920x1080 */
+  size: string
+  /** 是否保留原文件名主干 */
+  keepOriginalName: boolean
+  /** 用户自定义文件名模板，空则用默认规则 */
+  customNameTemplate?: string
+}
+
+export interface PackExportResult {
+  ok: boolean
+  outputPath?: string
+  fileCount?: number
+  totalSize?: number
+  error?: string
+}
+
+export interface DeliveryRecord {
+  id: number
+  pack_id: number
+  version_id: number | null
+  scope_json: string
+  files_json: string
+  output_path: string
+  output_size: number
+  file_count: number
+  created_at: string
 }
 
 // ==================== 第 3 批：标签体系（M2） ====================
@@ -646,4 +694,12 @@ export interface Api {
   ) => Promise<{ ok: boolean; packId?: number; packName?: string; msg?: string }>
   /** 打开审批链接（浏览器） */
   ticketOpenApproval: (url: string) => Promise<{ ok: boolean; error?: string }>
+
+  // ---------------- 第 15 批：交付打包（M5） ----------------
+  /** 执行打包，生成 zip 并写交付记录 */
+  packExport: (input: PackExportInput) => Promise<PackExportResult>
+  /** 读取某任务的交付记录 */
+  packDeliveryRecords: (packId: number) => Promise<DeliveryRecord[]>
+  /** 弹系统选目录对话框，用于选择打包输出位置 */
+  pickOutputDir: (defaultPath?: string) => Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }>
 }

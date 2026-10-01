@@ -71,6 +71,12 @@ export function PackCard({
               {pack.currentSeq ? fmt(COPY.card.currentVer, { n: pack.currentSeq }) : COPY.card.hasVer} · <Rich tpl={COPY.card.verCount} v={{ n: pack.versionCount }} />
             </span>
           )}
+          {pack.hasDelivered && (
+            <span className="delivered-chip" title={COPY.exportPack.deliveredMark}>
+              {' · '}
+              <Icon name="check" size={10} /> {COPY.exportPack.deliveredMark}
+            </span>
+          )}
         </div>
         <div className="tags">
           {pack.projectName ? (

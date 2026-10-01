@@ -2861,6 +2861,11 @@ export function listPacks(): PackWithStats[] {
       )
       .get(p.id) as { c: number; cur: number }
 
+    // 第 15 批（M5）：是否至少有一稿已交付
+    const hasDelivered = db
+      .prepare('SELECT 1 FROM pack_versions WHERE pack_id = ? AND delivered_at IS NOT NULL LIMIT 1')
+      .get(p.id) !== undefined
+
     return {
       ...p,
       fileCount: stat.c,
@@ -2868,6 +2873,7 @@ export function listPacks(): PackWithStats[] {
       missingCount: stat.m,
       versionCount: vstat.c,
       currentSeq: vstat.cur || null,
+      hasDelivered,
       coverPath: cover ? cover.thumb_path || cover.abs_path : null
     }
   })

@@ -30,5 +30,8 @@ export type {
   TicketStatus,
   TicketSaveConfigResult,
   TicketSyncResult,
-  ScanProgress
+  ScanProgress,
+  PackExportInput,
+  PackExportResult,
+  DeliveryRecord
 } from '../../shared/types'

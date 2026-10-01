@@ -16,7 +16,7 @@
 |---|---|---|
 | `main` | 第 1~10 批（= 标签 `v1.1.0` = `f20fa3d`） | **已封存，不许动**；1.1.0 安装包已发同事 |
 | `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被 `TM` 的 1.3.0 包取代） |
-| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录） | **当前分支**；**1.3.0 是坏包，当前发包 = 1.3.1** |
+| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包** | **当前分支**；版本 **1.3.2**；accept 671 项 + 10 场景全绿 |
 
 - **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
 - 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
@@ -37,14 +37,13 @@ npm run build      # 类型检查 + 编译三端产物到 out/
 ## 出 Windows 安装包
 
 ```bash
-# 先设国内镜像 —— 两个都要设，只设一个不够：
-#   ELECTRON_MIRROR 管 electron 本体（本机 electron-builder 缓存里没有它的 zip，
-#   漏设就去 GitHub 拉 39.8.10，能白等 9 分钟毫无输出）
-#   ELECTRON_BUILDER_BINARIES_MIRROR 管 NSIS / winCodeSign 等
-set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
-set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+# package.json 已固定 electronDist = ./node_modules/electron/dist，
+# 直接使用本地已安装的 Electron 39.8.10，不再联网下载 electron 本体。
+# 若本地 electron 被删或跨平台打包，再临时补镜像：
+#   set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+#   set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
 
-npm run build:win
+NODE_OPTIONS= npm run build:win
 ```
 
 产物：`release/营销中心-素材库-<版本>-安装包.exe`
@@ -80,21 +79,24 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-node out/test/accept.cjs                        # 664 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 671 项断言，结果写 accept-result.txt
 
-node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
-node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
-node _shotapp/run-verify4.cjs wslist            # 界面验证：左栏工作区列表（第 5 批）
-node _shotapp/run-verify4.cjs threelevel        # 界面验证：三级结构迁移提示条（第 6 批）
-node _shotapp/run-verify4.cjs lifecycle         # 界面验证：记录生命周期六件事（第 7 批）
-node _shotapp/run-verify4.cjs tagcount          # 界面验证：标签计数口径（第 7 批补）
-node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
-node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
-node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
-node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
+NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
+NODE_OPTIONS= node _shotapp/run-verify4.cjs wslist            # 界面验证：左栏工作区列表（第 5 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs threelevel        # 界面验证：三级结构迁移提示条（第 6 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs lifecycle         # 界面验证：记录生命周期六件事（第 7 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs tagcount          # 界面验证：标签计数口径（第 7 批补）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5 交付打包（包详情 → 打包交付 → 生成 zip，第 16 批）
 ```
 
-注意：`out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打三个**（accept.cjs / ipc.cjs / workspace.cjs——截图壳和三级结构场景都依赖 workspace.cjs），否则跑的是旧代码。截图壳的场景工作区在 `D:\_accept_ws\shot*`，与真实工作区完全隔离。
+注意：
+- **跑测试/场景前必须清空 `NODE_OPTIONS=`**。WorkBuddy 会话默认会给 Node 注入 `--require=.../node-brokered-fs-shim.cjs`，该 shim 会改变 `D:\_accept_ws` 下的文件删除/创建语义，导致 accept 第 4/5 批出现「可写目录判定为不可用」「配置文件写不进」等假失败，以及界面场景启动阶段炸。清空 `NODE_OPTIONS=` 后回归正常。
+- `out/test/*.cjs` 是 esbuild 独立产物，**改了 `src/main` 必须重打三个**（accept.cjs / ipc.cjs / workspace.cjs——截图壳和三级结构场景都依赖 workspace.cjs），否则跑的是旧代码。截图壳的场景工作区在 `D:\_accept_ws\shot*`，与真实工作区完全隔离。
 
 **改了 `src/renderer` 必须重打 `out/renderer`**（`npx electron-vite build`）——场景壳是
 `win.loadFile('out/renderer/index.html')`，**不是** dev server。不重打就会拿着旧界面跑场景、

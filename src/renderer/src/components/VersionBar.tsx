@@ -1,4 +1,4 @@
-import { COPY } from '../../../shared/copy'
+import { COPY, fmt } from '../../../shared/copy'
 import { Rich } from './Rich'
 import type { PackVersion } from '../types'
 import { fmtSize } from './FileRow'
@@ -46,6 +46,11 @@ export function VersionBar({
             <div className="vh">
               <span className="vn">V{v.seq}</span>
               {v.is_current === 1 && <span className="vflag cur">{COPY.common.current}</span>}
+              {v.delivered_at && (
+                <span className="vflag delivered" title={fmt(COPY.exportPack.deliveredTip, { at: new Date(v.delivered_at).toLocaleString('zh-CN'), path: v.folder_path })}>
+                  <Icon name="check" size={10} /> {COPY.exportPack.deliveredMark}
+                </span>
+              )}
               {!v.folderExists && (
                 <span className="vflag gone" title={COPY.verBar.goneTip}>
                   

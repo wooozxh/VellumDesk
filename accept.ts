@@ -79,6 +79,8 @@ import {
   // 第 9 批补：新建包自带的第一稿文件夹名
   FIRST_VERSION_FOLDER
 } from './src/main/workspace'
+// 第 15 批：交付打包（M5，docs/18）
+import { executePackExport, listDeliveryRecords } from './src/main/exportPack'
 import {
   applySync,
   detectStructure,
@@ -3737,6 +3739,95 @@ async function main(): Promise<void> {
   hardRm(w8Root)
   hardRm(w7Root)
   hardRm(w6Root)
+
+  // ============ 第 15 批 M5：交付打包 ============
+  const p15Root = `D:\\_accept_ws\\run_${RUN_ID}_packexport`
+  mkdirSync(p15Root, { recursive: true })
+  initWorkspace(p15Root)
+
+  // 用 createPack（自带 V1），往 V1 的三组里丢文件
+  const p15Proj = listProjectsWithCount()[0]
+  const p15Pack = createPack({ name: '交付打包测试', projectId: p15Proj.id, workspaceRoot: p15Root })
+  const p15V1Dir = join(p15Pack.folder_path, 'V1')
+  mkdirSync(join(p15V1Dir, '01-成品'), { recursive: true })
+  mkdirSync(join(p15V1Dir, '02-素材'), { recursive: true })
+  mkdirSync(join(p15V1Dir, '03-工程'), { recursive: true })
+  makePng(join(p15V1Dir, '01-成品', '海报终稿.png'), 16, 9)
+  writeFileSync(join(p15V1Dir, '02-素材', '底图.jpg'), 'jpg-bytes', 'utf-8')
+  writeFileSync(join(p15V1Dir, '03-工程', '源文件.psd'), 'psd-bytes', 'utf-8')
+  scanAll(p15Root)
+
+  // (1) 默认打包：当前版本 + 成品/素材/工程
+  const outDir = join(p15Root, 'out')
+  mkdirSync(outDir, { recursive: true })
+  const pe1 = await executePackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品', '素材', '工程'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: '',
+    wrapFolder: true,
+    size: '',
+    keepOriginalName: true
+  })
+  ok(pe1.ok && !!pe1.outputPath && existsSync(pe1.outputPath), '默认打包生成 zip')
+  ok((pe1.fileCount ?? 0) === 3, '默认打包包含 3 个文件')
+
+  // 交付记录 + 版本 delivered_at
+  const records = listDeliveryRecords(p15Pack.id)
+  ok(records.length >= 1, '打包后生成交付记录')
+  const db15 = getDb()
+  const v15Delivered = db15
+    .prepare('SELECT delivered_at FROM pack_versions WHERE pack_id = ?')
+    .get(p15Pack.id) as { delivered_at: string | null }
+  ok(!!v15Delivered?.delivered_at, '打包后当前版本标记为已交付')
+
+  // (2) 不保留原文件名 → 内部文件用序号
+  const pe2 = await executePackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-no-original',
+    wrapFolder: false,
+    size: '1920x1080',
+    keepOriginalName: false
+  })
+  ok(pe2.ok && existsSync(pe2.outputPath!), '不保留原文件名打包成功')
+
+  // (3) 自定义模板
+  const pe3 = await executePackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['素材'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-custom',
+    wrapFolder: true,
+    size: '800x600',
+    keepOriginalName: true,
+    customNameTemplate: '{任务名}-{尺寸}-{版本}-{原文件名}{打包日期}.{扩展名}'
+  })
+  ok(pe3.ok && existsSync(pe3.outputPath!), '自定义文件名模板打包成功')
+
+  // (4) 空选择 → 失败
+  const pe4 = await executePackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['未归属'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-empty',
+    wrapFolder: true,
+    size: '',
+    keepOriginalName: true
+  })
+  ok(!pe4.ok, '没有可打包内容时返回失败')
+
+  closeDb()
+  hardRm(p15Root)
 
   // ============ 汇总 ============
   log('\n' + '='.repeat(62))

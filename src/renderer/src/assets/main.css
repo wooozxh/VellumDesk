@@ -2157,6 +2157,14 @@ body:has(.side-resizer.dragging) {
   border: 1px solid var(--warn);
   opacity: 0.85;
 }
+.ver-cell .vflag.delivered {
+  color: var(--ok);
+  border: 1px solid rgba(45, 157, 120, 0.4);
+  background: var(--ok-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .ver-cell .vnote {
   font-size: 11px;
   color: var(--text-2);
@@ -2225,6 +2233,12 @@ body:has(.side-resizer.dragging) {
 /* 包卡片上的「V3 当前 · 3 稿」 */
 .ver-chip {
   color: var(--text-3);
+}
+.delivered-chip {
+  color: var(--ok);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* 新建 / 绑定 弹窗 */
@@ -2752,4 +2766,156 @@ svg {
   background: var(--danger-soft);
   color: var(--text-2);
   font-size: 12px;
+}
+
+/* ---------------- 第 15 批：交付打包弹窗 ---------------- */
+.pack-export-modal .content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 64vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ep-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ep-section > label {
+  font-size: 12.5px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.ep-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ep-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ep-radio select {
+  margin-left: 6px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text);
+  font-size: 12px;
+}
+.ep-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ep-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ep-check input[type='checkbox'],
+.ep-radio input[type='radio'] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+.ep-muted {
+  color: var(--text-3);
+  font-size: 13px;
+}
+.ep-files {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+  padding: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.ep-file-group {
+  margin-bottom: 10px;
+}
+.ep-file-group:last-child {
+  margin-bottom: 0;
+}
+.ep-file-group h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.ep-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ep-file-row:hover {
+  background: var(--bg-hover);
+}
+.ep-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.ep-file-size,
+.ep-file-dim {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.ep-empty {
+  color: var(--text-3);
+  font-size: 12.5px;
+  padding: 12px;
+  text-align: center;
+}
+.ep-output {
+  gap: 6px;
+}
+.ep-output .ep-row {
+  display: flex;
+  gap: 8px;
+}
+.ep-output input[type='text'] {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.ep-output input[type='text']:focus {
+  border-color: var(--accent);
+}
+.ep-path {
+  color: var(--text-3);
+}
+.ep-summary {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.pack-export-modal .foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }

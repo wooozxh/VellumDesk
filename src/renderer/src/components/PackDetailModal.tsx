@@ -5,6 +5,7 @@ import type { AssetItem, PackDetail, PackVersion } from '../types'
 import { fmtSize } from './FileRow'
 import { VersionBar } from './VersionBar'
 import { VersionModal } from './VersionModal'
+import { PackExportModal } from './PackExportModal'
 import { Icon } from './Icon'
 
 const ROLE_ORDER = ['成品', '素材', '工程', '未归属'] as const
@@ -76,6 +77,8 @@ export function PackDetailModal({
   // 第 9 批（M6）：当前在看哪一稿（null = 未分版本）；verModal = 新建/绑定弹窗
   const [selVer, setSelVer] = useState<number | null>(null)
   const [verModal, setVerModal] = useState<'create' | 'bind' | null>(null)
+  // 第 15 批（M5）：打包交付弹窗
+  const [exportOpen, setExportOpen] = useState(false)
   const verInited = useRef(false)
 
   const load = async (): Promise<void> => {
@@ -264,6 +267,13 @@ export function PackDetailModal({
                 <button className="btn" onClick={() => window.api.openFolder(detail.pack.folder_path)}>
                   <Icon name="folder" size={13} />  {COPY.common.openFolder}
                 </button>
+                <button
+                  className="btn primary"
+                  onClick={() => setExportOpen(true)}
+                  title={COPY.exportPack.btnTip}
+                >
+                  <Icon name="archive" size={13} />  {COPY.exportPack.btn}
+                </button>
               </div>
 
               {/* 第 9 批（M6）：版本条 —— 一格一稿，点一下换视角 */}
@@ -375,6 +385,15 @@ export function PackDetailModal({
             await load()
             onChanged()
           }}
+          toast={toast}
+        />
+      )}
+
+      {/* 第 15 批（M5）：打包交付弹窗 */}
+      {exportOpen && detail && (
+        <PackExportModal
+          detail={detail}
+          onClose={() => setExportOpen(false)}
           toast={toast}
         />
       )}

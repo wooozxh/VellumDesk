@@ -94,6 +94,19 @@ export interface PackVersionRow {
   created_at: string
 }
 
+/** 第 15 批（M5 交付打包）：一次交付记录 */
+export interface DeliveryRecordRow {
+  id: number
+  pack_id: number
+  version_id: number | null
+  scope_json: string
+  files_json: string
+  output_path: string
+  output_size: number
+  file_count: number
+  created_at: string
+}
+
 /**
  * 第 13 批（工单模块，迁移 10）：企微审批工单的本地镜像行。
  *
@@ -522,6 +535,22 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     backupStatusTags(workspaceRoot, statusTags, statusLinks)
     d.prepare("DELETE FROM tags WHERE dimension = 'status'").run()
   }
+
+  // ---- 迁移 12：交付记录表（第 15 批 M5 交付打包）----
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS delivery_records (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      pack_id       INTEGER NOT NULL REFERENCES packs(id) ON DELETE CASCADE,
+      version_id    INTEGER REFERENCES pack_versions(id) ON DELETE SET NULL,
+      scope_json    TEXT    NOT NULL,
+      files_json    TEXT    NOT NULL,
+      output_path   TEXT    NOT NULL,
+      output_size   INTEGER NOT NULL DEFAULT 0,
+      file_count    INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_delivery_records_pack ON delivery_records(pack_id);
+  `)
 
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。

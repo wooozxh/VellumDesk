@@ -90,6 +90,12 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_tickets'),
     workspaceRoot: join(BASE, 'shot_wst'),
     shot: 'shot-b13-4-detail.png'
+  },
+  // 第 16 批：M5 交付打包（包详情 → 打包交付 → 生成 zip）
+  export: {
+    userData: join(BASE, 'shot4_export'),
+    workspaceRoot: join(BASE, 'shot_wsexp'),
+    shot: 'shot-b16-1-export-modal.png'
   }
 }
 
@@ -589,6 +595,40 @@ app.whenReady().then(async () => {
     d.close()
     wsm.scanAll(ws) // 登记 T001 任务里的文件，详情卡有文件数
     say('seeded tickets        : 9（我的3 / 别人1 / 未指派1 / 历史1 / 待确认1 / 撞号1 / 电子1）')
+  }
+
+  if (SCEN === 'export') {
+    // 第 16 批：M5 交付打包。造一个三级工作区 + 一个带 V1 的任务，
+    // V1 下 01/02/03 各放 1 个文件，方便弹窗里默认勾选全部三组。
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const proj = d
+      .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
+      .get('海南升学集训营')
+
+    const packDir = join(ws, proj.folder_name, '海南招生海报-导出测试')
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    for (const sub of SUB) mkdirSync(join(packDir, 'V1', sub), { recursive: true })
+    writeFileSync(join(packDir, 'V1', '01-成品', '海报终稿.png'), 'x'.repeat(300 * 1024), 'utf-8')
+    writeFileSync(join(packDir, 'V1', '02-素材', '底图.png'), 'y'.repeat(200 * 1024), 'utf-8')
+    writeFileSync(join(packDir, 'V1', '03-工程', '工程源文件.psd'), 'z'.repeat(100 * 1024), 'utf-8')
+
+    d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run('海南招生海报-导出测试', '海报', packDir, proj.id, now, now)
+    d.close()
+
+    wsm.scanAll(ws)
+    say('seeded export pack    : ' + packDir)
   }
 
   const errs = []
@@ -2407,6 +2447,114 @@ app.whenReady().then(async () => {
     await shot('shot-b13-4-detail.png')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(600)
+  } else if (SCEN === 'export') {
+    // ============================================================
+    // 第 16 批：M5 交付打包（包详情 → 打包交付 → 生成 zip）
+    // ============================================================
+    const exportPackName = '海南招生海报-导出测试'
+
+    // (1) 点击任务卡片打开详情弹窗
+    const clickedCard = await js(`(() => {
+      const cards = [...document.querySelectorAll('.grid .pack-card')]
+      const c = cards.find(el => ((el.querySelector('.name') || {}).innerText || '').includes(${JSON.stringify(exportPackName)}))
+      if (!c) return 'no-card'
+      c.click(); return 'ok'
+    })()`)
+    ok(clickedCard === 'ok', '找到并点击「' + exportPackName + '」任务卡片')
+    await wait(900)
+
+    // (2) 详情弹窗里有「打包交付」按钮并点击
+    const exportBtn = await js(`(() => {
+      const b = [...document.querySelectorAll('.modal .btn')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(COPY.exportPack.btn)})
+      if (!b) return 'no-btn'
+      b.click(); return 'ok'
+    })()`)
+    ok(exportBtn === 'ok', '详情弹窗里出现并点击「' + COPY.exportPack.btn + '」')
+    await wait(800)
+
+    // (3) 导出弹窗出现，标题正确
+    const modalTitle = await js(
+      `(() => { const m = document.querySelector('.pack-export-modal'); return m ? ((m.querySelector('h3') || {}).innerText || '').trim() : '' })()`
+    )
+    ok(modalTitle.includes(plain(COPY.exportPack.title).replace('{name}', '').trim()), '导出弹窗标题正确（' + modalTitle + '）')
+
+    // (4) 默认输出位置就是任务文件夹
+    const outputPath = await js(
+      `(() => { const el = document.querySelector('.pack-export-modal input.ep-path'); return el ? el.value : '' })()`
+    )
+    ok(outputPath.includes(exportPackName), '默认输出位置是任务文件夹（' + outputPath + '）')
+
+    // (5) 默认 zip 名包含项目名与任务名
+    const zipNameVal = await js(
+      `(() => { const inputs = document.querySelectorAll('.pack-export-modal .ep-output input[type=text]'); return inputs[0] ? inputs[0].value : '' })()`
+    )
+    ok(zipNameVal.includes('海南升学集训营') && zipNameVal.includes(exportPackName), '默认 zip 名含项目名与任务名（' + zipNameVal + '）')
+
+    // (6) 默认勾选三组，未归属不勾
+    const groupChecks = await js(`(() => {
+      const out = {}
+      document.querySelectorAll('.pack-export-modal .ep-check').forEach(lab => {
+        const txt = lab.innerText.trim()
+        const inp = lab.querySelector('input[type=checkbox]')
+        if (inp && (txt.includes('成品') || txt.includes('素材') || txt.includes('工程') || txt.includes('未归属'))) {
+          out[txt.split('(')[0].trim()] = inp.checked
+        }
+      })
+      return out
+    })()`)
+    ok(
+      groupChecks &&
+        groupChecks[COPY.exportPack.groupDone] === true &&
+        groupChecks[COPY.exportPack.groupMaterial] === true &&
+        groupChecks[COPY.exportPack.groupProject] === true,
+      '默认勾选成品/素材/工程：' + JSON.stringify(groupChecks)
+    )
+    ok(
+      !groupChecks || groupChecks[COPY.exportPack.groupUnassigned] !== true,
+      '默认不勾选未归属：' + JSON.stringify(groupChecks)
+    )
+
+    // (7) 点击「开始打包」
+    const startBtn = await js(`(() => {
+      const b = [...document.querySelectorAll('.pack-export-modal .foot .btn')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(COPY.exportPack.start)})
+      if (!b) return 'no-btn'
+      b.click(); return 'ok'
+    })()`)
+    ok(startBtn === 'ok', '点击「' + COPY.exportPack.start + '」')
+
+    // 等打包完成（zip 约 600KB，通常 1 秒内完成）
+    let done = false
+    for (let i = 0; i < 30; i++) {
+      done = await js(`!document.querySelector('.pack-export-modal')`)
+      if (done) break
+      await wait(500)
+    }
+    ok(done, '导出弹窗已关闭')
+
+    // (8) 成功 toast 出现
+    let toastOk = false
+    for (let i = 0; i < 20; i++) {
+      toastOk = await js(
+        `(() => {
+          const t = [...document.querySelectorAll('.toast')].find(el => el.classList.contains('ok'))
+          return t ? t.innerText.includes(${JSON.stringify(plain(COPY.exportPack.done).split('{path}')[0].trim())}) : false
+        })()`
+      )
+      if (toastOk) break
+      await wait(300)
+    }
+    ok(toastOk, '出现成功 toast')
+
+    // (9) 磁盘上真的生成了 zip 且非空
+    const zipFiles = require('fs').readdirSync(outputPath).filter((f) => f.endsWith('.zip'))
+    ok(zipFiles.length > 0, '任务文件夹下生成了 zip：' + zipFiles.join(' | '))
+    const zipPath = join(outputPath, zipFiles[0])
+    const zipStat = require('fs').statSync(zipPath)
+    ok(zipStat.size > 1000, '生成的 zip 非空（' + Math.round(zipStat.size / 1024) + ' KB）')
+
+    await shot('shot-b16-1-export-done.png')
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

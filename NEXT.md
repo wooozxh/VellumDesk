@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `main` | `f20fa3d`（标签 `v1.1.0`） | 第 1~10 批全部功能（入库 / 缩略图 / 标签 / 打包 / 工作区 / 三级结构 / 生命周期 / 丢失标记 / 版本管理 / 类别同源） | **已封存，不许动**；1.1.0 安装包已发同事，等装机验收 |
 | `feature/incr` | `64ffc9e` | 第 11~12 批增量：**文案字典** + 术语统一「包→任务」+ `tools/copy-sheet` 在线表格控制台 + **软件改名**「营销中心-素材库」（version 1.2.0） | 已提交、已验收（accept 620 项全过 / 9 场景 0 FAIL）、**未出安装包**（已被 TM 的第 14 批 1.3.0 包取代） |
-| **`TM`**（当前） | `feature/incr` + 第 13 批工单模块 + **第 14 批上线前优化与 UI 打磨**（提交 `b682558`…`deadd2d`） | 第 13 批：**「工单」模块**（企微智能表格 ↔ 任务 ↔ 物料文件）；第 14 批：**扫描进度反馈 + 缩略图并发 / 预制清单换成本厂那套 / 砍状态维度 / 未归属新图标 / 颜色按钮修圆** | ✅ 两批均已关单；第 14 批验收通过（accept 664 项 + 10 场景全绿）。**1.3.0 是坏包**（真机装完双击无反应，GPU 进程崩溃，见 DECISIONS 第 15 批），**1.3.1 热修已出**（GPU 三件套 + 向导装可选目录 + asar 瘦身） |
+| **`TM`**（当前） | `feature/incr` + 第 13 批工单模块 + 第 14 批上线前优化 + 第 15 批热修 + **第 16 批 M5 交付打包** | 第 13 批：**「工单」模块**；第 14 批：**扫描进度反馈 + 缩略图并发 / UI 打磨**；第 15 批：**GPU 热修 + 向导装 + asar 瘦身**；第 16 批：**M5 交付打包** | ✅ 全部关单；accept **671 项全过** + **11 个界面场景全绿**（含新增 export 交付打包场景）；版本 **1.3.2**；`D:\_accept_ws\rel_out\v1.3.2` 已生成并 bare-start 验证 |
 
 要点：
 
@@ -23,7 +23,7 @@
   - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
   - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
   - `D:\_accept_ws\backup\素材管家-1.1.0-安装包.exe`（179.5 MB）
-- **版本号往下走，别重号**：1.1.0 已发同事；**1.3.0 = `TM` 当前代码（工单模块 + 第 14 批优化），安装包已出**
+- **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 是热修包；**1.3.2 = `TM` 当前代码（工单模块 + 第 14 批优化 + M5 交付打包）**
   → `D:\_accept_ws\rel_out\v1.3.0\营销中心-素材库-1.3.0-安装包.exe`（179.6 MB，2026-10-01 出炉，**未签名**）；
   再往后才用 1.3.1 / 1.4.0。
 
@@ -61,10 +61,10 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  node out/test/accept.cjs（当前 664 项，只许增不许减）；界面改动再跑
-  node _shotapp/run-verify4.cjs banner|version|wslist|threelevel|lifecycle|missing|tagcount|category|versions|tickets
+  NODE_OPTIONS= node out/test/accept.cjs（当前 671 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node _shotapp/run-verify4.cjs banner|version|wslist|threelevel|lifecycle|missing|tagcount|category|versions|tickets|export
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
-- 跑测试前环境变量 CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000；
+- **跑测试/场景前必须清空 `NODE_OPTIONS=`**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，导致第 4/5 批假失败）；
   跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
 
 先别写代码。读完档案把候选建议给我，等我拍板这一批做什么。
@@ -110,6 +110,9 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 | 第 11 批 | 文案字典（505 条集中管理 + 术语统一「包→任务」+ `tools/copy-sheet` 表格控制台） | ✅ 2026-09-30，**620 项断言全过**（提交 `64ffc9e`，在 `feature/incr`） |
 | 第 12 批 | 软件改名「营销中心-素材库」+ userData 目录钉死 + 窗口标题单一来源 | ✅ 2026-09-30，已验收；**安装包未出**（用户取消了那次打包） |
 | **第 13 批** | **工单模块**（TM 分支：企业微信智能表格 ↔ 任务 ↔ 物料文件） | ✅ **2026-10-01 人工验收通过、关单**（658 项断言 + 10 场景全绿，返修三轮） |
+| 第 14 批 | 上线前优化与 UI 打磨（扫描进度反馈 / 缩略图并发 / 预制清单换本厂 / 砍状态维度 / 未归属新图标 / 颜色按钮修圆） | ✅ 2026-10-01 关单（664 项断言 + 10 场景全绿） |
+| 第 15 批 | 热修（GPU 三件套 / 向导装可选目录 / asar 瘦身） | ✅ 2026-10-01 关单（版本 1.3.1） |
+| **第 16 批（M5）** | **交付打包**（任务包 → 按版本/分组/文件选 → 标准化命名 zip + 交付记录） | ✅ **2026-10-01 关单**（671 项断言 + 10 场景全绿；版本 1.3.2；`release/win-unpacked` 已生成并 bare-start 验证） |
 
 **第 13 批落地细节**（详见 `docs/15-工单模块方案.md`）：
 - 只读同步：手动按钮 → wecom-cli 异步拉两张子表 → 编号 upsert 本地 `tickets` 表（唯一键=审批单编号，sheet_id 只是出生地属性）

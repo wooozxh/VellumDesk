@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ScanProgress } from '../shared/types'
+import type { ScanProgress, PackExportInput } from '../shared/types'
 
 /**
  * 暴露给界面的接口。约定见方案 6.1：全部走 invoke（ipcMain.handle），
@@ -129,7 +129,12 @@ const api = {
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),
-  openFolder: (p: string) => ipcRenderer.invoke('shell:openPath', p)
+  openFolder: (p: string) => ipcRenderer.invoke('shell:openPath', p),
+
+  // 第 15 批：交付打包（M5，docs/18）
+  packExport: (input: PackExportInput) => ipcRenderer.invoke('pack:export', input),
+  packDeliveryRecords: (packId: number) => ipcRenderer.invoke('pack:deliveryRecords', packId),
+  pickOutputDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:pickOutputDir', defaultPath)
 }
 
 if (process.contextIsolated) {

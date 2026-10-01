@@ -84,6 +84,9 @@ import {
   type TicketSheetConfig
 } from './tickets'
 import { extractDocid, fetchIdentity, fetchSheetRecords, fetchSheets } from './ticketsWecom'
+// 第 15 批：交付打包（M5，docs/18）
+import { executePackExport, listDeliveryRecords } from './exportPack'
+import type { PackExportInput, PackExportResult } from '../shared/types'
 
 /**
  * 主进程 / 界面的全部通信接口。
@@ -1035,5 +1038,33 @@ export function registerIpc(): void {
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     }
+  })
+
+  // ---------- 第 15 批：交付打包（M5，docs/18） ----------
+  ipcMain.handle('pack:export', async (_e, input: PackExportInput) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    try {
+      return await executePackExport(input)
+    } catch (e) {
+      return { ok: false, error: (e as Error).message } as PackExportResult
+    }
+  })
+
+  ipcMain.handle('pack:deliveryRecords', (_e, packId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return listDeliveryRecords(packId)
+  })
+
+  ipcMain.handle('dialog:pickOutputDir', async (_e, defaultPath?: string) => {
+    const r = await dialog.showOpenDialog({
+      title: COPY.exportPack.pickOutputDirTitle,
+      buttonLabel: COPY.exportPack.pickOutputDirBtn,
+      defaultPath,
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+    return { ok: true, dir: r.filePaths[0] }
   })
 }

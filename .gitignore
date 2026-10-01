@@ -8,10 +8,15 @@ out
 
 # 界面验证截图与测试产物（本地产物，不入库）
 shot-*.png
-shot-*.txt
+shot*.txt
 shot-*.json
-accept-result.txt
+accept-*.txt
 accept.cjs
+# 会话临时脚本（本地一次性工具，不入库）
+_probe_*.js
+_probe_*.cjs
+_*.py
+clean_out.py
 # 会话临时日志（验收/场景/构建/打包的输出，测试证据但不必入库）
 _junk/
 _junk*.txt
