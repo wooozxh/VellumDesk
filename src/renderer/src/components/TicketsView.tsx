@@ -205,6 +205,8 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
         <span className="c-no">编号</span>
         <span className="c-title">物料名称</span>
         <span className="c-state">状态</span>
+        <span className="c-applicant">申请人</span>
+        <span className="c-project">业务归属</span>
         <span className="c-designer">设计师</span>
         <span className="c-due">交稿日期</span>
         <span className="c-task">关联任务</span>
@@ -237,6 +239,10 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
                 <span className={`tk-state ${stateClass(t.approvalState)}`}>
                   {t.approvalState ?? '—'}
                 </span>
+              </span>
+              <span className="c-applicant">{t.applicantName ?? '—'}</span>
+              <span className="c-project" title={t.projectName ?? ''}>
+                {t.projectName ?? '—'}
               </span>
               <span className="c-designer">
                 {t.designerName ?? (

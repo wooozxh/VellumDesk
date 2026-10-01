@@ -2470,7 +2470,7 @@ svg {
 /* 列表行（表头 + 数据行共用栅格） */
 .tk-row {
   display: grid;
-  grid-template-columns: 52px 118px minmax(160px, 1.4fr) 86px 96px 92px minmax(150px, 1fr);
+  grid-template-columns: 48px 112px minmax(150px, 1.2fr) 78px 72px minmax(88px, 0.8fr) 88px 84px minmax(140px, 1fr);
   gap: 8px;
   align-items: center;
   padding: 7px 10px;
@@ -2499,7 +2499,9 @@ svg {
   opacity: 0.45;
 }
 .tk-row .c-title,
-.tk-row .c-task {
+.tk-row .c-task,
+.tk-row .c-applicant,
+.tk-row .c-project {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

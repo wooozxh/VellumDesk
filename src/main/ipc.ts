@@ -894,7 +894,7 @@ export function registerIpc(): void {
       const rows = db
         .prepare(
           `SELECT t.id, t.ticket_no, t.ticket_type, t.title, t.approval_state,
-             t.designer_name, t.project_name, t.due_date, t.submit_time,
+             t.designer_name, t.applicant_name, t.project_name, t.due_date, t.submit_time,
              t.is_history, t.need_confirm, t.row_gone, t.dup_warn, t.reassigned_to,
              t.pack_id, p.name AS pack_name, p.project_id AS pack_project_id
            FROM tickets t LEFT JOIN packs p ON p.id = t.pack_id
@@ -909,6 +909,7 @@ export function registerIpc(): void {
         title: (r.title as string) ?? null,
         approvalState: (r.approval_state as string) ?? null,
         designerName: (r.designer_name as string) ?? null,
+        applicantName: (r.applicant_name as string) ?? null,
         projectName: (r.project_name as string) ?? null,
         dueDate: (r.due_date as string) ?? null,
         submitTime: (r.submit_time as string) ?? null,

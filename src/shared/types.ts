@@ -341,6 +341,7 @@ export interface TicketListItem {
   title: string | null
   approvalState: string | null
   designerName: string | null
+  applicantName: string | null
   projectName: string | null
   dueDate: string | null
   submitTime: string | null
