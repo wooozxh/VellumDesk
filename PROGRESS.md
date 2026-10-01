@@ -626,6 +626,52 @@
 
 ---
 
+### 2026-10-01（第 18 次会话）—— 第 14 批工单二期：开工复述 + 实探 + 方案出稿（未动代码）
+
+- **做了什么**：
+  - 读六份档案复述（分支 / 658 断言 / 第 13 批交付），用户拍板**本批做工单二期**（状态写回 + 定时自动同步 + wecom-cli 打进安装包）
+  - **实探三块能力的底**（全部实测，只读未写）：
+    1. **CLI 本体是单文件 exe**（`@wecom/cli-win32-x64/bin/wecom-cli.exe`，10 MB、MIT、零依赖）——`bin/wecom.js` 只是启动器；**凭据存用户主目录（`~/.workbuddy/connectors/*/.credentials.v3.json`）与安装位置无关**（exe 拷到 D:\ 别处跑 whoami 照样 authorized）→ 打包可行性极佳，直接 extraResources 随包 +10 MB，不再需要 node 中转
+    2. **写回命令钉死**：`smartsheet records update --json {docid, sheet_id, type:"update", key_type:"field_title", records:[{record_id, values:{列名:值}}]}`（单次上限 2000 行）；CLI 身份说明明确**智能表格允许跨身份写入**（机器人代授权真人写）——权限面只剩表格成员要升「可编辑」
+    3. **授权有独立命令**：`auth init --noninteractive --output-qrcode <png>` 可出扫码二维码 → 同事授权能做成**软件内点按钮扫码**，不用开命令行
+  - **方案出稿 → `docs/16-工单二期方案.md`**（11 节）：写回（本地即时存 + pending 标记 + 异步写回 + 失败补写；冲突规则=表为权威、pending 期本地守住）、定时同步（主进程定时器 + 默认开/30 分钟/启动 15 秒首拉 + 第一个主→渲染推送通道 `ticket:synced`）、CLI 内置（exe 随包 + 软件内扫码授权引导）；§7 六个待拍板项（状态选项 / 谁能改 / 默认值 / 版本号 1.3.0 / 补写策略 / CLI 版本钉 1.3.2）
+- **改了哪些文件**：新增 `docs/16-工单二期方案.md`；本文件（本条日志）
+- **遇到的问题**：无（CLI 授权当次有效，实探全程未触发 850003）
+- **验收结果**：方案阶段（铁律 ①②），未动任何代码，accept 658 项基线不变
+- **下一步**：~~用户过方案~~ → **会话后段用户改主意（2026-10-01）**：软件着急上线，**工单二期搁置**（方案 `docs/16` 存档不删，捡起即开工），M6-06 版本对比 / M8-02 重复检测 / 报表导出一并押后；**下一批转向上线前的软件优化与 UI 调整**（具体条目待用户点名，候选含：进度条与性能、图标替换、UI 细节打磨、1.2.0 安装包欠账）
+- **转向后补充（同会话）**：用户拍板本批做 **UI 细节打磨（待点名）+ 代码签名/安装体验 + 进度反馈与性能**，上线形态＝TM 出包发同事装机。实探两块：① 进度现状＝主→渲染**零推送通道**、`scan:refresh` 单 IPC 一口气跑完、缩略图**串行**生成（`onProgress` 钩子存在但无人消费）；② 代码签名行情＝OV 约 1800~3200 元/年（需企业资质 + USB Token 邮寄）、EV 约 3100 起（立即 SmartScreen 信誉）、无签名则同事装机撞「未知发布者」蓝条（可「更多信息→仍要运行」绕过）。**方案出稿 `docs/17-上线前优化与UI打磨方案.md`**（A 进度反馈与性能 / B 签名三路线 / C UI 打磨占位待点名）。**改了哪些文件（补充）**：新增 `docs/17`、NEXT.md 第四节重排（主线改第 14 批、工单二期移入"已押后"）。**下一步（补充）**：等用户给 C 块 UI 痛点清单 + 拍板证书路线 / 版本号 / 进度样式 → 方案补全确认后开工
+
+---
+
+### 2026-10-01（第 19 次会话）—— 第 14 批上线前优化：A 进度反馈与性能 + C UI 打磨，验收全绿
+
+- **拍板（方案 §5，用户填完）**：代码证书＝**本轮不签名**（同事装机走「更多信息 → 仍要运行」，B 块只落文档不做签名）；版本号 **1.3.0**；进度样式＝**顶栏文字 + 刷新按钮百分比**
+- **A 块 —— 刷新扫描的进度反馈与缩略图并发**：
+  - **本项目第一条主 → 渲染推送通道**：`scan:refresh` handler 里 `e.sender.send('scan:progress', {stage, label, done, total})`；preload 新增 `onScanProgress(cb)`（返回退订函数）；shared/renderer types 新增 `ScanProgress`
+  - `thumbs.ts` 新增受限并发池 `runPool(items, limit, handle, onProgress)` 与极简信号量 `createLimiter(n)`；**缩略图从串行改并发 3**（视频额外过 `videoGate` 限 2，防解码器打满）；四类元数据并发化（图片 4 / 视频 2 / PSD 4 / PDF 保留串行 1），全部接受 `onProgress`
+  - 六个阶段推送，文案全走 `COPY.scan.*`：扫描 / 缩略图 / 图片元数据 / 视频元数据 / PSD 元数据 / PDF 元数据
+  - 界面：顶栏新增 `.scan-prog`（`{label} {done}/{total}`，`font-variant-numeric: tabular-nums` 防抖字）+ 刷新按钮同时显示百分比；`doRefresh` 起手 `setScanProgress(null)`
+- **C 块 —— UI 细节打磨（用户点名 5 条）**：
+  1. **颜色按钮外圆内方** → `.tm-color` 改 20×20 正方形 + `overflow:hidden`，`::-webkit-color-swatch-wrapper` / `::-webkit-color-swatch` 各自 `border-radius:50%`
+  2. **标签面板预制「我的标签」** → `TAG_DIMENSIONS` 全部换成本厂在用的：类别 11 项 / 渠道 7 项（presets 与 colors 逐项对应）
+  3. **项目面板预制「我的项目」** → 迁移 3 的 seed 换成 6 个本厂项目（海南升学集训营 #4f8cff / 精英升学先修营 #f0603f / 精英志愿填报中心 #8fa83d / 一对一项目部 #2bb5b5 / 精英岛 #a884ff / 总部 #f0603f）
+  4. **未归属图标不对** → 新增 `fileLoose` 图标（两张错落的 rect + 一条短划线），左栏筛选项与空态都换掉；`inbox` 保留给「认领进包 / 待归类包归位」
+  5. **砍掉「目前状态」标签维度** → 新增**迁移 11** 删除 `dimension='status'` 的标签（删前先 `backupStatusTags()` 留痕到 `_system/backup/tags-status-<时间戳>.json`）；`DimensionKey` 收窄为 `'category' | 'channel'`；字典里 `stDraft/stReview/stDelivered/stArchived` 等一并清掉
+- **改了哪些文件**：`src/main/thumbs.ts`、`src/main/ipc.ts`、`src/main/db.ts`（迁移 3 换 seed + 迁移 11 + `backupStatusTags`）、`src/main/tags.ts`、`src/preload/index.ts` + `.d.ts`、`src/shared/types.ts`、`src/shared/copy.ts`、`src/renderer/src/{App.tsx,types.ts,assets/main.css,components/{Icon.tsx,TagManagerModal.tsx,TagPanel.tsx,ProjectModal.tsx}}`、`accept.ts`（658 → 664）、`_shotapp/v4/main.cjs`、`package.json`（1.2.0 → 1.3.0）、`docs/17`（§3/§5 补全 + 状态改「已施工」）、本文件、`NEXT.md`、`DECISIONS.md`
+- **遇到的问题**：
+  - **accept 三处 FAIL**（预制项目数 3 → 6、建包清单、类别名）—— 断言没跟上预制清单变更，逐处改后 664 全过
+  - **tagcount 场景 hover 项目行偶发不生效**（`hovered=false` → 后续 `no-btn`）：左栏标签面板变长后目标行落到可视区外，且取坐标与滚动/重排存在时序竞态（加调试输出反而过，典型 flaky）。修法：`hoverProjectRow` 改成确定性动作 + **整体重试 3 轮**（① 鼠标先挪到左上角清残留 hover，否则「已经在行上」不会再触发 mouseenter ② `scrollIntoView({block:'center'})` ③ rect 读两次等稳定 ④ 两步移入 + 轮询 2 秒），连跑 3 遍全过
+  - accept 必须**后台跑 + stdout 落盘**（前台跑会被超时 SIGTERM，输出为空）
+- **验收结果**：typecheck 0 错；accept **664 项全过**（658 基线只增不减）；`banner/version/wslist/threelevel/lifecycle/tagcount/missing/versions/category/tickets` **10 个界面场景全绿**；软件可启动
+- **同会话收尾（出包 + 在线表刷新）**：
+  - `node tools/copy-sheet/publish.cjs` 刷新在线表镜像 —— **542 + 31 行写入成功**（此前表停在 483 + 22 行，工单那批的条目一直没上去）；回读校验：`scan.*` 已在表、`dim.status` / `seed.st*` / `seed.chDouyin` 已清、有内容最大行 = 541 / 30，与导出条数一致
+  - 出包：① `npm run build`（typecheck 0 错 + 主/预加载/渲染三份产物重打）② `npx electron-builder --win --output=D:/_accept_ws/rel_out/v1.3.0`（**两个镜像都设**、输出到项目外空目录、`CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`）
+  - 产物：**`D:\_accept_ws\rel_out\v1.3.0\营销中心-素材库-1.3.0-安装包.exe`**（179.6 MB，NSIS x64，oneClick，perMachine=false）；附带 `win-unpacked\`
+  - **产物自检**（asar 二进制直接查）：`scan:progress` 出现 4 次、`onScanProgress` 3 次、渲染产物 hash `index-Czhe4FRt.js` / `index-D1Va0K43.css` 与 `out/renderer/index.html` 引用**逐个对上** → 确认新界面确实进了包，不是拿旧产物打的
+- **下一步**：**发同事装机**（无签名会撞 SmartScreen → 装机说明：点「更多信息 → 仍要运行」）；冒烟三看：桌面/开始菜单名 = 营销中心-素材库、任务栏标题、老工作区配置还在（`%APPDATA%\proj_media`）；收反馈后决定下一批（工单二期 / M6-06 / M8-02 / 报表，见 NEXT 第四节）
+
+---
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

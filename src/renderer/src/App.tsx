@@ -6,6 +6,7 @@ import type {
   DimensionGroup,
   PackCard as PackCardType,
   ProjectWithCount,
+  ScanProgress,
   UnboundProject,
   UpdatePackPatch,
   WorkspaceEntry,
@@ -112,6 +113,8 @@ export default function App(): React.JSX.Element {
   const [showRelocate, setShowRelocate] = useState(false)
 
   const [scanning, setScanning] = useState(false)
+  /** 第 14 批：刷新扫描的阶段进度（主进程推送；null = 没有在跑） */
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
 
   const toastId = useRef(0)
@@ -122,6 +125,16 @@ export default function App(): React.JSX.Element {
   }, [])
 
   // ---------------- 数据加载 ----------------
+
+  // 第 14 批：订阅「刷新扫描」的阶段进度（主进程推送）。
+  // 卸载时退订 —— 这是全项目第一条 push 通道，订阅必须成对收尾。
+  useEffect(() => window.api.onScanProgress((p) => setScanProgress(p)), [])
+
+  /** 顶栏按钮里的百分比（拿不到总数时不显示，退化成「处理中...」） */
+  const scanPercent = useMemo(() => {
+    if (!scanProgress || scanProgress.total <= 0) return null
+    return Math.min(100, Math.round((scanProgress.done / scanProgress.total) * 100))
+  }, [scanProgress])
 
   const loadWs = useCallback(async (refresh = false): Promise<WsInfo> => {
     const i = await window.api.wsInfo(refresh ? { refresh: true } : undefined)
@@ -459,6 +472,7 @@ export default function App(): React.JSX.Element {
   const doRefresh = async (): Promise<void> => {
     if (!requireWs()) return
     setScanning(true)
+    setScanProgress(null)
     try {
       const r = await window.api.refreshScan()
       await reloadAll()
@@ -484,6 +498,7 @@ export default function App(): React.JSX.Element {
       toast(COPY.toast.scanFailed + (e as Error).message, 'err')
     } finally {
       setScanning(false)
+      setScanProgress(null)
     }
   }
 
@@ -841,9 +856,27 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
 
+        {/* 第 14 批：扫描阶段进度（主进程推送）—— 让用户知道跑到哪、还剩多少 */}
+        {scanning && (
+          <span className="scan-prog" title={COPY.top.rescanTip}>
+            {scanProgress && scanProgress.total > 0
+              ? fmt(COPY.scan.progressText, {
+                  label: scanProgress.label,
+                  done: scanProgress.done,
+                  total: scanProgress.total
+                })
+              : (scanProgress?.label ?? COPY.top.rescanning)}
+          </span>
+        )}
+
         <button className="btn" onClick={doRefresh} disabled={scanning} title={COPY.top.rescanTip}>
           {scanning ? (
-            COPY.top.rescanning
+            <>
+              <Icon name="refresh" size={13} />{' '}
+              {scanPercent !== null
+                ? fmt(COPY.scan.progressPct, { pct: scanPercent })
+                : COPY.top.rescanning}
+            </>
           ) : (
             <>
               <Icon name="refresh" size={13} />  {COPY.top.rescan}
@@ -1027,7 +1060,7 @@ export default function App(): React.JSX.Element {
             }}
           >
             <span>
-              <Icon name="inbox" size={13} />  {COPY.side.unassigned}
+              <Icon name="fileLoose" size={13} />  {COPY.side.unassigned}
             </span>
             <span className="n">{stats.unassigned}</span>
           </button>
@@ -1226,7 +1259,7 @@ export default function App(): React.JSX.Element {
               <div className="empty">
                 <div className="big">
                   <Icon
-                    name={unassignedOnly ? 'inbox' : missingOnly ? 'check' : 'search'}
+                    name={unassignedOnly ? 'fileLoose' : missingOnly ? 'check' : 'search'}
                     size={34}
                     strokeWidth={1.1}
                   />

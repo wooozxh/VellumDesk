@@ -1,7 +1,7 @@
 import { COPY } from '../shared/copy'
 import Database from 'better-sqlite3'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 
 /**
  * 数据库层。
@@ -174,7 +174,7 @@ export function openDb(workspaceRoot: string): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  migrate(db)
+  migrate(db, workspaceRoot)
   return db
 }
 
@@ -208,8 +208,41 @@ export function setMeta(key: string, value: string): void {
     .run(key, value)
 }
 
+/**
+ * 第 14 批：砍掉「目前状态」维度时，把老库里残留的 status 标签**留痕**再删。
+ * 跟包清理一个路数（`workspace.ts` 的 `backupPackRecords`）：`_system` 下划线开头，
+ * 扫描自动跳过；只是留证，永不自动删除。留痕失败**不拦住删除本身**。
+ */
+function backupStatusTags(
+  workspaceRoot: string,
+  tags: Array<{ id: number; name: string; color: string }>,
+  links: unknown[]
+): void {
+  try {
+    const dir = join(workspaceRoot, '_system', 'backup')
+    mkdirSync(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    writeFileSync(
+      join(dir, `tags-status-${stamp}.json`),
+      JSON.stringify(
+        {
+          at: new Date().toISOString(),
+          reason: '第 14 批：砍掉「目前状态」标签维度（用户拍板），删除前留痕',
+          tags,
+          assetLinks: links
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    )
+  } catch {
+    /* 留痕失败不拦住迁移 */
+  }
+}
+
 /** 建表 + 迁移。每次启动都跑，必须幂等 */
-function migrate(d: Database.Database): void {
+function migrate(d: Database.Database, workspaceRoot: string): void {
   // ---- 基础表 ----
   d.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -470,13 +503,38 @@ function migrate(d: Database.Database): void {
   }
   d.exec('CREATE INDEX IF NOT EXISTS idx_assets_version ON assets(version_id)')
 
-  // ---- 迁移 3：首次使用（空库）→ 落三个预制项目 ----
+  // ---- 迁移 11：砍掉「目前状态」标签维度（第 14 批，用户拍板）----
+  // 状态维度是第 3 批定的 3 个维度之一（单选，预制草稿/待审核/已交付/已归档），
+  // 实际上没人用（用户库里 0 条标签）—— 用户拍板整个维度砍掉。
+  // 维度常量删掉之后，老库里残留的 status 标签会变成「没有维度的孤儿」，这里显式清掉：
+  // 先留痕到 `_system/backup/`，再按 dimension 删除（asset_tags 有 ON DELETE CASCADE，
+  // 素材上的关联跟着一起走）。**幂等**：删完再跑就没有可删的了。
+  const statusTags = d
+    .prepare("SELECT id, name, color FROM tags WHERE dimension = 'status'")
+    .all() as Array<{ id: number; name: string; color: string }>
+  if (statusTags.length) {
+    const statusLinks = d
+      .prepare(
+        `SELECT at.asset_id, at.tag_id FROM asset_tags at
+          JOIN tags t ON t.id = at.tag_id WHERE t.dimension = 'status'`
+      )
+      .all()
+    backupStatusTags(workspaceRoot, statusTags, statusLinks)
+    d.prepare("DELETE FROM tags WHERE dimension = 'status'").run()
+  }
+
+  // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
+  // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。
+  // 仍是「空库才落」—— 已有库（含用户本机）不动，不会重复灌、也不覆盖用户改过的颜色。
   const projectCount = (d.prepare('SELECT COUNT(*) AS c FROM projects').get() as { c: number }).c
   if (projectCount === 0) {
     const seed = [
-      { name: COPY.seed.projCommonName, color: '#6b7280', note: COPY.projModal.notePresetCommon },
-      { name: COPY.seed.projEduName, color: '#4f8cff', note: COPY.projModal.notePresetEducation },
-      { name: COPY.seed.projCampName, color: '#3fb950', note: COPY.projModal.notePresetCamp }
+      { name: COPY.seed.projCampName, color: '#4f8cff', note: COPY.seed.projCampNote },
+      { name: COPY.seed.projPrepName, color: '#f0603f', note: COPY.seed.projPrepNote },
+      { name: COPY.seed.projFillName, color: '#8fa83d', note: COPY.seed.projFillNote },
+      { name: COPY.seed.projOneName, color: '#2bb5b5', note: COPY.seed.projOneNote },
+      { name: COPY.seed.projIslandName, color: '#a884ff', note: COPY.seed.projIslandNote },
+      { name: COPY.seed.projHqName, color: '#f0603f', note: COPY.seed.projHqNote }
     ]
     const ins = d.prepare(
       `INSERT INTO projects (name, color, note, sort_order, archived, created_at)
@@ -511,7 +569,7 @@ function migrate(d: Database.Database): void {
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义
 
-export type DimensionKey = 'category' | 'channel' | 'status'
+export type DimensionKey = 'category' | 'channel'
 
 export interface DimensionDef {
   key: DimensionKey
@@ -542,9 +600,15 @@ export const PROJECT_COLORS = [
 ] as const
 
 /**
- * 标签维度（需求文档 5.2 节定为 5 个，2026-09-24 用户拍板砍成 3 个）：
- * - 砍「所属项目」：与左栏项目面板重复，项目归属走 packs.project_id
- * - 砍「时间」：物料固有字段（信息行已显示），不值得单独出标签
+ * 标签维度。
+ * - 需求文档 5.2 节定为 5 个，2026-09-24 用户拍板砍成 3 个：
+ *   砍「所属项目」（与左栏项目面板重复，项目归属走 packs.project_id）、
+ *   砍「时间」（物料固有字段，信息行已显示）
+ * - **第 14 批（2026-10-01）用户再拍板砍掉「目前状态」** → 现只剩 2 个维度
+ *   （物料类别 / 使用场景）。老库里残留的 status 标签由**迁移 11** 清掉并留痕。
+ * - 预制清单第 14 批换成本厂实际清单（照真实库的标签名与配色）——
+ *   只在**空库初始化**时落（迁移 5），已有库不动。
+ * - `colors[i]` 与 `presets[i]` **逐项对应**（不再轮转配色池），改清单时两行一起改。
  */
 export const TAG_DIMENSIONS: readonly DimensionDef[] = [
   {
@@ -553,10 +617,22 @@ export const TAG_DIMENSIONS: readonly DimensionDef[] = [
     mode: 'multi',
     editable: true,
     presets: [
-      COPY.seed.catPoster, COPY.seed.catFolded, COPY.seed.catLongImage, COPY.seed.catShortVideo, COPY.seed.catPromo,
-      COPY.seed.catLive, COPY.seed.catFont, COPY.seed.catIcon, COPY.seed.catRef
+      COPY.seed.catBanner, // #4f8cff 蓝
+      COPY.seed.catFolded, // #3fb950 绿
+      COPY.seed.catSingle, // #e8a33d 橙
+      COPY.seed.catBooklet, // #a884ff 紫
+      COPY.seed.catStandee, // #f0603f 红
+      COPY.seed.catBook, // #2bb5b5 青
+      COPY.seed.catPoster, // #e86fa8 粉
+      COPY.seed.catEcomLong, // #8fa83d 橄榄
+      COPY.seed.catKvDigital, // #d9a0ff 浅紫
+      COPY.seed.catKvPrint, // #4f8cff 蓝
+      COPY.seed.catFestival // #3fb950 绿
     ],
-    colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5', '#e86fa8', '#8fa83d', '#d9a0ff'],
+    colors: [
+      '#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5',
+      '#e86fa8', '#8fa83d', '#d9a0ff', '#4f8cff', '#3fb950'
+    ],
     hint: COPY.dim.categoryHint
   },
   {
@@ -564,18 +640,17 @@ export const TAG_DIMENSIONS: readonly DimensionDef[] = [
     label: COPY.dim.channel,
     mode: 'multi',
     editable: true,
-    presets: [COPY.seed.chOfficial, COPY.seed.chMoments, COPY.seed.chVideo, COPY.seed.chDouyin, COPY.seed.chStore, COPY.seed.chWebsite],
-    colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5'],
+    presets: [
+      COPY.seed.chLecture, // #4f8cff 蓝
+      COPY.seed.chHandout, // #3fb950 绿
+      COPY.seed.chConsult, // #e8a33d 橙
+      COPY.seed.chGift, // #a884ff 紫
+      COPY.seed.chMoments, // #f0603f 红
+      COPY.seed.chGroup, // #2bb5b5 青
+      COPY.seed.chNewMedia // #4f8cff 蓝
+    ],
+    colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5', '#4f8cff'],
     hint: COPY.dim.channelHint
-  },
-  {
-    key: 'status',
-    label: COPY.dim.status,
-    mode: 'single',
-    editable: true,
-    presets: [COPY.seed.stDraft, COPY.seed.stReview, COPY.seed.stDelivered, COPY.seed.stArchived],
-    colors: ['#6b7280', '#e8a33d', '#3fb950', '#8fa83d'],
-    hint: COPY.dim.statusHint
   }
 ] as const
 

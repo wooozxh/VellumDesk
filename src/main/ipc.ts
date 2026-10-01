@@ -388,8 +388,22 @@ export function registerIpc(): void {
   )
 
   // ---------- A-10 刷新扫描 ----------
-  ipcMain.handle('scan:refresh', async () => {
+  ipcMain.handle('scan:refresh', async (e) => {
     const root = getWorkspaceRoot(appData)
+
+    /**
+     * 第 14 批：刷新扫描的进度推送。
+     * 这是全项目**第一条主 → 渲染的推送通道**（此前只有 invoke 请求-应答）。
+     * 为什么必须有它：整条链路（扫描 → 缩略图 → 四类元信息）在一个 IPC 里跑完，
+     * 大库 + 视频多时用户要干等好几分钟，界面只有一个转圈按钮，不知道跑到哪了。
+     * 推送用 `sender.send` 回到发起这次刷新的那个窗口，别广播到别的窗口。
+     */
+    const push = (stage: 'scan' | 'thumbs' | 'meta', label: string, done: number, total: number): void => {
+      if (e.sender.isDestroyed()) return
+      e.sender.send('scan:progress', { stage, label, done, total })
+    }
+
+    push('scan', COPY.scan.progressScan, 0, 0) // 目录扫描是同步的，拿不到细粒度 → 0/0 表示"进行中"
     const result = scanAll(root)
 
     const db = openDb(root)
@@ -404,31 +418,41 @@ export function registerIpc(): void {
       modified_at: string
     }>
 
-    const thumbs = await ensureThumbsForAssets(root, rows)
+    const thumbs = await ensureThumbsForAssets(root, rows, (done, total) =>
+      push('thumbs', COPY.scan.progressThumbs, done, total)
+    )
 
     // B-01：补图片尺寸 / 色彩模式（只处理还没有 width 的图片）
     const metaRows = db
       .prepare('SELECT id, abs_path, ext, width FROM assets')
       .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
-    const metas = await ensureImageMetaForAssets(metaRows)
+    const metas = await ensureImageMetaForAssets(metaRows, (done, total) =>
+      push('meta', COPY.scan.progressMetaImage, done, total)
+    )
 
     // B-02：补视频时长 / 编码 / 尺寸（只处理还没有 duration_ms 的视频）
     const videoRows = db
       .prepare('SELECT id, abs_path, ext, duration_ms FROM assets')
       .all() as Array<{ id: number; abs_path: string; ext: string; duration_ms: number | null }>
-    const videoMetas = await ensureVideoMetaForAssets(videoRows)
+    const videoMetas = await ensureVideoMetaForAssets(videoRows, (done, total) =>
+      push('meta', COPY.scan.progressMetaVideo, done, total)
+    )
 
     // B-04：补 PSD 画布尺寸 / 色彩模式（只处理还没有 width 的 psd/psb）
     const psdRows = db
       .prepare('SELECT id, abs_path, ext, width FROM assets')
       .all() as Array<{ id: number; abs_path: string; ext: string; width: number | null }>
-    const psdMetas = await ensurePsdMetaForAssets(psdRows)
+    const psdMetas = await ensurePsdMetaForAssets(psdRows, (done, total) =>
+      push('meta', COPY.scan.progressMetaPsd, done, total)
+    )
 
     // B-03：补 PDF 页数（只处理还没有 probe_info 的 pdf）
     const pdfRows = db
       .prepare('SELECT id, abs_path, ext, probe_info FROM assets')
       .all() as Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
-    const pdfMetas = await ensurePdfMetaForAssets(pdfRows)
+    const pdfMetas = await ensurePdfMetaForAssets(pdfRows, (done, total) =>
+      push('meta', COPY.scan.progressMetaPdf, done, total)
+    )
 
     return { ...result, thumbs, metas, videoMetas, psdMetas, pdfMetas }
   })

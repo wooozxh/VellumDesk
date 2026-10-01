@@ -29,5 +29,6 @@ export type {
   TicketDetail,
   TicketStatus,
   TicketSaveConfigResult,
-  TicketSyncResult
+  TicketSyncResult,
+  ScanProgress
 } from '../../shared/types'

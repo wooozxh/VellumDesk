@@ -178,6 +178,16 @@ input {
   flex: 1;
 }
 
+/* 第 14 批：刷新扫描的阶段进度文字（顶栏，按钮左侧）。
+   等宽数字 —— 否则「37/214」跳到「104/214」时整行宽度会抖。 */
+.scan-prog {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-right: 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 视图切换 */
 .tabs {
   display: flex;
@@ -1584,14 +1594,34 @@ body:has(.side-resizer.dragging) {
   text-align: right;
 }
 
+/* 第 14 批：手工改色的圆点按钮。
+   原生 <input type="color"> 的内层色块是个**方块**，而且不受外框圆角影响 ——
+   只给外框写 border-radius 会得到「外圆内方」（用户 2026-10-01 报的）。
+   两个伪元素都要压圆，尺寸也统一成 20×20 正方形（原来 24×20 的 50% 圆角其实是椭圆）。 */
 .tm-color {
-  width: 24px;
+  width: 20px;
   height: 20px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tm-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+  border-radius: 50%;
+}
+
+.tm-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.tm-color:hover {
+  border-color: var(--accent-line);
 }
 
 .tm-edit {

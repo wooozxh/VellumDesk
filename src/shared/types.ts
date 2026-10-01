@@ -266,6 +266,22 @@ export interface ScanResult {
 }
 
 /**
+ * 第 14 批：刷新扫描的**阶段进度**（全项目第一条主 → 渲染推送通道）。
+ *
+ * 为什么有它：扫描 → 缩略图 → 四类元信息整条链路在一个 IPC 里跑完，
+ * 大库 + 视频多时用户要干等好几分钟，此前界面只有一个转圈按钮。
+ */
+export interface ScanProgress {
+  stage: 'scan' | 'thumbs' | 'meta'
+  /** 阶段名（取自文案字典，界面直接显示） */
+  label: string
+  /** 已处理条数（含失败）。scan 阶段恒为 0 —— 目录扫描是同步的，拿不到细粒度 */
+  done: number
+  /** 总条数；0 表示进度不确定（只显示阶段名） */
+  total: number
+}
+
+/**
  * 第 8 批 M8-03：批量重新定位的候选（只出清单，用户勾选后才落库）。
  * `matchedPath` 为 null 表示这条没配上或校验不过，`reason` 里写清原因。
  */
@@ -540,6 +556,11 @@ export interface Api {
     category?: string
   }) => Promise<{ ok: boolean; pack?: PackCard; error?: string }>
   refreshScan: () => Promise<ScanResult>
+  /**
+   * 第 14 批：订阅「刷新扫描」的阶段进度推送。返回**退订函数**（组件卸载时务必调用）。
+   * 这是全项目第一条主 → 渲染推送通道 —— 其余接口仍是 invoke 请求-应答。
+   */
+  onScanProgress: (cb: (p: ScanProgress) => void) => () => void
   listPacks: () => Promise<PacksView>
   listAssets: (opts: {
     keyword?: string

@@ -54,9 +54,22 @@ export const COPY = {
     category: '物料类别',
     categoryHint: '此标签为多选类',
     channel: '使用场景',
-    channelHint: '此标签为多选类',
-    status: '目前状态',
-    statusHint: '此标签为单选类'
+    channelHint: '此标签为多选类'
+  },
+
+  // ==================== 刷新扫描：阶段进度（第 14 批） ====================
+  scan: {
+    /** 阶段名（扫描阶段拿不到细粒度，只报阶段名） */
+    progressScan: '扫描文件',
+    progressThumbs: '生成缩略图',
+    progressMetaImage: '读取图片信息',
+    progressMetaVideo: '读取视频信息',
+    progressMetaPsd: '读取 PSD 信息',
+    progressMetaPdf: '读取 PDF 页数',
+    /** 顶栏进度文字：{label} = 阶段名，{done}/{total} = 已处理 / 总数 */
+    progressText: '{label} {done}/{total}',
+    /** 按钮内百分比 */
+    progressPct: '{pct}%'
   },
 
   // ==================== 顶栏 ====================
@@ -346,9 +359,6 @@ export const COPY = {
 
   // ==================== 项目弹窗 ====================
   projModal: {
-    notePresetEducation: '教育咨询 + 异地升学办理',
-    notePresetCamp: '外回初三考生集训提分',
-    notePresetCommon: '不属于具体业务的通用素材',
     failed: '操作失败',
     titleEdit: '编辑项目',
     nameLabel: '项目名称',
@@ -561,31 +571,41 @@ export const COPY = {
 
   // ==================== 数据库默认数据（只影响以后新装的机器） ====================
   seed: {
-    projCommonName: '集团通用',
-    projEduName: '海南升学规划中心',
-    projCampName: '海南升学初三集训营',
+    // ---- 预制项目（第 14 批：换成营销中心实际在用的 6 个项目） ----
+    projCampName: '海南升学集训营',
+    projCampNote: '海南升学集训营相关物料',
+    projPrepName: '精英升学先修营',
+    projPrepNote: '精英升学先修营相关物料',
+    projFillName: '精英志愿填报中心',
+    projFillNote: '精英志愿填报中心相关物料',
+    projOneName: '一对一项目部',
+    projOneNote: '一对一项目相关物料',
+    projIslandName: '精英岛',
+    projIslandNote: '精英岛相关物料',
+    projHqName: '总部',
+    projHqNote: '总部相关物料',
 
-    catPoster: '海报',
+    // ---- 预制标签 · 物料类别（11 项，第 14 批：照实际清单） ----
+    catBanner: '横幅',
     catFolded: '折页',
-    catLongImage: '详情长图',
-    catShortVideo: '短视频',
-    catPromo: '宣传片',
-    catLive: '直播物料',
-    catFont: '字体',
-    catIcon: '图标素材',
-    catRef: '参考图',
+    catSingle: '单页',
+    catBooklet: '册子',
+    catStandee: '展架',
+    catBook: '书籍',
+    catPoster: '海报',
+    catEcomLong: '电商长图',
+    catKvDigital: 'KV-电子展示',
+    catKvPrint: 'KV-喷绘印刷',
+    catFestival: '节日海报-朋友圈',
 
-    chOfficial: '公众号',
+    // ---- 预制标签 · 使用场景（7 项） ----
+    chLecture: '线下讲座',
+    chHandout: '对外派发',
+    chConsult: '咨询展示',
+    chGift: '赠送',
     chMoments: '朋友圈',
-    chVideo: '视频号',
-    chDouyin: '抖音',
-    chStore: '线下门店',
-    chWebsite: '官网',
-
-    stDraft: '草稿',
-    stReview: '待审核',
-    stDelivered: '已交付',
-    stArchived: '已归档'
+    chGroup: '社群',
+    chNewMedia: '新媒体（直播、短视频）'
   },
 
   // ==================== 工作区（后端） ====================

@@ -287,16 +287,23 @@ async function main(): Promise<void> {
   // ============ 项目：预制 + 自建 ============
   log('\n[0] 项目管理：预制项目 + 用户自建')
   const preset = listProjectsWithCount()
-  ok(preset.length === 3, `首次使用自动落 3 个预制项目（实际 ${preset.length}）`)
+  ok(preset.length === 6, `首次使用自动落 6 个预制项目（实际 ${preset.length}）`)
   ok(
-    preset.some((p) => p.name === '集团通用') &&
-      preset.some((p) => p.name === '海南升学规划中心') &&
-      preset.some((p) => p.name === '海南升学初三集训营'),
-    `预制项目名称正确：${preset.map((p) => p.name).join(' / ')}`
+    preset.some((p) => p.name === '海南升学集训营') &&
+      preset.some((p) => p.name === '精英升学先修营') &&
+      preset.some((p) => p.name === '精英志愿填报中心') &&
+      preset.some((p) => p.name === '一对一项目部') &&
+      preset.some((p) => p.name === '精英岛') &&
+      preset.some((p) => p.name === '总部'),
+    `预制项目名称正确（第 14 批换成本厂清单）：${preset.map((p) => p.name).join(' / ')}`
   )
   ok(preset.every((p) => /^#[0-9a-f]{6}$/i.test(p.color)), '每个项目都分到了颜色')
+  ok(
+    preset.every((p) => p.note.length > 0),
+    `每个预制项目都带备注：${preset.map((p) => p.note).join(' / ')}`
+  )
 
-  const projPlan = preset.find((p) => p.name === '海南升学规划中心')!
+  const projPlan = preset.find((p) => p.name === '海南升学集训营')!
 
   // 用户自建项目（模拟"公司开了新业务"）
   const created = createProject({ name: '抖音短视频运营', color: '#e86fa8', note: '短视频号内容' })
@@ -326,7 +333,7 @@ async function main(): Promise<void> {
     workspaceRoot: WS
   })
   ok(p1.id > 0, `建包成功：id=${p1.id} name=${p1.name}`)
-  ok(p1.project_id === projPlan.id, `包已关联到项目 id=${projPlan.id}（海南升学规划中心）`)
+  ok(p1.project_id === projPlan.id, `包已关联到项目 id=${projPlan.id}（海南升学集训营）`)
   // 第 6 批：三级结构 —— 包文件夹不再直接躺在工作区根下，而是在**项目文件夹**里
   ok(
     p1.folder_path === join(WS, projPlan.folder_name, '海南招生海报-2026秋季'),
@@ -445,8 +452,26 @@ async function main(): Promise<void> {
     thumb_path: string | null
     modified_at: string
   }>
-  const n = await ensureThumbsForAssets(WS, rows)
+  // 第 14 批：并发化之后，进度回调仍要逐条、单调上报（界面顶栏就靠它显示"缩略图 37/214"）
+  const thumbProgress: Array<{ done: number; total: number }> = []
+  const n = await ensureThumbsForAssets(WS, rows, (done, total) => thumbProgress.push({ done, total }))
   ok(n >= 4, `生成 / 复用 ${n} 张缩略图`)
+  ok(
+    thumbProgress.length > 0,
+    `【第 14 批】缩略图批次进度回调 ${thumbProgress.length} 次（每条处理完报一次）`
+  )
+  ok(
+    thumbProgress.every((e, i) => i === 0 || e.done >= thumbProgress[i - 1].done),
+    '【第 14 批】进度 done 单调不减（并发跑也不会倒退）'
+  )
+  ok(
+    thumbProgress.length > 0 && thumbProgress[thumbProgress.length - 1].done === thumbProgress.length,
+    `【第 14 批】最后一推 done=${thumbProgress[thumbProgress.length - 1]?.done}（= 已处理条数 ${thumbProgress.length}）`
+  )
+  ok(
+    thumbProgress.every((e) => e.total === thumbProgress[0]?.total),
+    `【第 14 批】进度总数全程固定 total=${thumbProgress[0]?.total}（= 本轮待处理条数）`
+  )
   const thumbed = db
     .prepare("SELECT COUNT(*) AS c FROM assets WHERE thumb_path IS NOT NULL")
     .get() as { c: number }
@@ -472,7 +497,7 @@ async function main(): Promise<void> {
     !!card.coverPath && existsSync(join(WS, card.coverPath)),
     '封面文件在硬盘上真实存在（界面拿它转 dataURL）'
   )
-  ok(card.projectName === '海南升学规划中心', `包卡片带出项目名：${card.projectName}`)
+  ok(card.projectName === '海南升学集训营', `包卡片带出项目名：${card.projectName}`)
   ok(!!card.projectColor, `包卡片带出项目配色：${card.projectColor}`)
 
   // ============ A-08 点开包 → 三组 ============
@@ -620,7 +645,7 @@ async function main(): Promise<void> {
   // 场景 A：项目下有包 → 转移到另一个项目
   const beforeFiles = userFileCount(WS)
   const beforePacks = (db.prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
-  const projWithPacks = listProjectsWithCount().find((p) => p.name === '海南升学规划中心')!
+  const projWithPacks = listProjectsWithCount().find((p) => p.name === '海南升学集训营')!
   ok(projWithPacks.packCount > 0, `待删项目「${projWithPacks.name}」下有 ${projWithPacks.packCount} 个包`)
   const targetProj = listProjectsWithCount().find((p) => p.id !== projWithPacks.id)!
 
@@ -1105,26 +1130,38 @@ async function main(): Promise<void> {
   ok(pdfAgain === 0, `PDF 页数第二次运行处理 0 个（幂等）：实际 ${pdfAgain}`)
 
   // ============ 第 3 批 C-01：标签维度与预制标签 ============
-  log('\n[16] 第 3 批 C-01：3 个标签维度 + 预制标签')
+  log('\n[16] 第 3 批 C-01：2 个标签维度 + 预制标签（第 14 批换清单）')
 
   const dims = listTagDimensions()
-  ok(dims.length === 3, `维度数 = ${dims.length}（应为 3：类别/渠道/状态；项目/时间已砍）`)
+  ok(dims.length === 2, `维度数 = ${dims.length}（应为 2：物料类别/使用场景；项目/时间/状态已砍）`)
   ok(
-    dims.map((d) => d.key).join(',') === 'category,channel,status',
+    dims.map((d) => d.key).join(',') === 'category,channel',
     `维度顺序：${dims.map((d) => d.key).join(',')}`
   )
   const categoryDim = dims.find((d) => d.key === 'category')!
-  const statusDim = dims.find((d) => d.key === 'status')!
   ok(categoryDim.mode === 'multi', `类别维度为多选（mode=${categoryDim.mode}）`)
-  ok(statusDim.mode === 'single', `状态维度为单选（mode=${statusDim.mode}）`)
-  ok(categoryDim.tags.length >= 9, `类别预制标签 ${categoryDim.tags.length} 个（≥9）`)
+  ok(
+    !dims.some((d) => d.key === 'status'),
+    '【第 14 批】「目前状态」维度已砍掉，不再出现在维度列表'
+  )
+  ok(
+    (
+      getDb().prepare("SELECT COUNT(*) AS c FROM tags WHERE dimension = 'status'").get() as {
+        c: number
+      }
+    ).c === 0,
+    '【第 14 批】库里没有 status 维度的残留标签（迁移 11 已清）'
+  )
+  ok(categoryDim.tags.length >= 11, `类别预制标签 ${categoryDim.tags.length} 个（≥11）`)
   ok(categoryDim.tags.some((t) => t.name === '海报'), '类别含预制「海报」')
-  ok(categoryDim.tags.some((t) => t.name === '详情长图'), '类别含预制「详情长图」')
+  ok(categoryDim.tags.some((t) => t.name === 'KV-喷绘印刷'), '类别含预制「KV-喷绘印刷」')
   const channelDim = dims.find((d) => d.key === 'channel')!
-  ok(channelDim.tags.length >= 6, `渠道预制标签 ${channelDim.tags.length} 个（≥6）`)
-  ok(channelDim.tags.some((t) => t.name === '视频号'), '渠道含预制「视频号」')
-  ok(statusDim.tags.length >= 4, `状态预制标签 ${statusDim.tags.length} 个（≥4）`)
-  ok(statusDim.tags.some((t) => t.name === '待审核'), '状态含预制「待审核」')
+  ok(channelDim.tags.length >= 7, `场景预制标签 ${channelDim.tags.length} 个（≥7）`)
+  ok(channelDim.tags.some((t) => t.name === '社群'), '场景含预制「社群」')
+  ok(
+    channelDim.tags.some((t) => t.name === '新媒体（直播、短视频）'),
+    '场景含预制「新媒体（直播、短视频）」'
+  )
   ok(
     dims.every((d) => d.tags.every((t) => t.id > 0)),
     '标签 id 全为正数（项目维度已砍，不再有负数映射标签）'
@@ -1154,6 +1191,10 @@ async function main(): Promise<void> {
   const badDim = createTag({ dimension: 'nope', name: 'x' })
   ok(!badDim.ok, `不存在的维度被拒：${badDim.error}`)
 
+  // 第 14 批：已砍掉的 status 维度同样算"不存在"，建标签必须被拒（防回归）
+  const statusTry = createTag({ dimension: 'status', name: '想偷偷加回来' })
+  ok(!statusTry.ok, `【第 14 批】往已砍掉的 status 维度建标签被拒：${statusTry.error}`)
+
   const updTag = updateTag(mk1.tag!.id, { name: '验收改名后', color: '#ff0000' })
   ok(updTag.ok && updTag.tag?.name === '验收改名后', `改名生效：${updTag.tag?.name}`)
   ok(updTag.tag?.color === '#ff0000', `改色生效：${updTag.tag?.color}`)
@@ -1171,9 +1212,9 @@ async function main(): Promise<void> {
 
   const pick = allAssetIds.slice(0, 3)
   const posterTag = categoryDim.tags.find((t) => t.name === '海报')!
-  const douyinTag = channelDim.tags.find((t) => t.name === '抖音')!
+  const groupTag = channelDim.tags.find((t) => t.name === '社群')!
 
-  const r1 = applyTags({ assetIds: pick, tagIds: [posterTag.id, douyinTag.id] })
+  const r1 = applyTags({ assetIds: pick, tagIds: [posterTag.id, groupTag.id] })
   ok(r1.ok, `批量贴标签返回 ok（tagged=${r1.tagged}, cleared=${r1.cleared}）`)
   ok(r1.tagged === pick.length * 2, `张贴记录数 = ${r1.tagged}（3 素材 × 2 标签）`)
   ok(r1.cleared === 0, `首次贴无清除（cleared=${r1.cleared}）`)
@@ -1181,7 +1222,7 @@ async function main(): Promise<void> {
   const fromDb = tagsOfAssets(pick)
   ok(fromDb[pick[0]]?.length === 2, `第 1 条素材有 2 个标签：${fromDb[pick[0]]?.length}`)
   ok(
-    fromDb[pick[1]]?.some((t) => t.name === '海报') && fromDb[pick[1]]?.some((t) => t.name === '抖音'),
+    fromDb[pick[1]]?.some((t) => t.name === '海报') && fromDb[pick[1]]?.some((t) => t.name === '社群'),
     '两个标签都贴上了'
   )
 
@@ -1199,8 +1240,8 @@ async function main(): Promise<void> {
     '旧类别标签「海报」被清掉（同维度覆盖）'
   )
   ok(
-    after2[pick[0]]?.some((t) => t.name === '抖音') === true,
-    '非同维度标签「抖音」不受影响，仍保留'
+    after2[pick[0]]?.some((t) => t.name === '社群') === true,
+    '非同维度标签「社群」不受影响，仍保留'
   )
 
   // ============ 第 3 批 C-04：去标签 / 使用量 / 删标签 ============
@@ -1239,10 +1280,10 @@ async function main(): Promise<void> {
   // ============ 第 3 批 C-05：多维筛选（并且语义） ============
   log('\n[20] 第 3 批 C-05：多维筛选「并且」语义')
 
-  // 造一组确定数据：3 条素材，A 组贴【折页 + 抖音】，B 组贴【折页】
+  // 造一组确定数据：3 条素材，A 组贴【折页 + 社群】，B 组贴【折页】
   const groupA = pick
   const groupB = allAssetIds.slice(3, 5)
-  applyTags({ assetIds: groupA, tagIds: [foldTag.id, douyinTag.id] })
+  applyTags({ assetIds: groupA, tagIds: [foldTag.id, groupTag.id] })
   applyTags({ assetIds: groupB, tagIds: [foldTag.id] })
 
   const onlyFold = listAssets({ tagIds: [foldTag.id] })
@@ -1251,19 +1292,19 @@ async function main(): Promise<void> {
     `按「折页」单选筛出 ${onlyFold.length} 条（≥${groupA.length + groupB.length}）`
   )
 
-  const foldAndDouyin = listAssets({ tagIds: [foldTag.id, douyinTag.id] })
+  const foldAndGroup = listAssets({ tagIds: [foldTag.id, groupTag.id] })
   ok(
-    foldAndDouyin.length === groupA.length,
-    `「折页 + 抖音」并且筛出 ${foldAndDouyin.length} 条（=${groupA.length}，跨维度 AND 生效）`
+    foldAndGroup.length === groupA.length,
+    `「折页 + 社群」并且筛出 ${foldAndGroup.length} 条（=${groupA.length}，跨维度 AND 生效）`
   )
   ok(
-    foldAndDouyin.every((a) => groupA.includes(a.id)),
+    foldAndGroup.every((a) => groupA.includes(a.id)),
     '筛出的正是 A 组（同维度旧标签被覆盖后不串味）'
   )
 
   // ---- 项目维度负数 id 兼容：listAssets 把 -projectId 换算成 packs.project_id 过滤 ----
   // 背景：项目维度标签已砍（2026-09-24），界面不再传负数 id，但该能力保留作防御
-  // （回归：上线首日用户实点「集团通用」筛出 0 条的 bug —— 负数 id 没换算成 project_id）
+  // （回归：上线首日用户实点「总部」筛出 0 条的 bug —— 负数 id 没换算成 project_id）
   // 注意：[10] 段的删项目测试会把前面的项目删掉，这里取「当前还活着且有包」的项目
   const liveProj = getDb()
     .prepare(
@@ -1761,7 +1802,7 @@ async function main(): Promise<void> {
 
   // (2) 项目 ↔ 文件夹
   const w6Projs = listProjectsWithCount()
-  ok(w6Projs.length === 3, `内置 3 个预制项目（实际 ${w6Projs.length}）`)
+  ok(w6Projs.length === 6, `内置 6 个预制项目（实际 ${w6Projs.length}）`)
   ok(
     w6Projs.every((p) => !!p.folder_name && existsSync(join(w6Ws, p.folder_name))),
     `每个项目在工作区里有对应文件夹：${w6Projs.map((p) => p.folder_name).join(' / ')}`
@@ -1786,13 +1827,13 @@ async function main(): Promise<void> {
   )
 
   // (3) 建包落在项目文件夹下
-  const w6Plan = listProjectsWithCount().find((p) => p.name === '海南升学规划中心')!
+  const w6Plan = listProjectsWithCount().find((p) => p.name === '海南升学集训营')!
   const w6PackA = mkPack({ name: '招生海报', projectId: w6Plan.id, workspaceRoot: w6Ws })
   ok(
     w6PackA.folder_path === join(w6Ws, w6Plan.folder_name, '招生海报'),
     `包落在项目文件夹下：…\\${w6Plan.folder_name}\\招生海报`
   )
-  const w6Camp = listProjectsWithCount().find((p) => p.name === '海南升学初三集训营')!
+  const w6Camp = listProjectsWithCount().find((p) => p.name === '精英升学先修营')!
   const w6PackB = mkPack({ name: '招生海报', projectId: w6Camp.id, workspaceRoot: w6Ws })
   ok(
     w6PackB.folder_path === join(w6Ws, w6Camp.folder_name, '招生海报'),
@@ -1867,7 +1908,7 @@ async function main(): Promise<void> {
   const w6PacksBefore = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
   const w6OldFolder = join(w6Ws, w6Plan.folder_name)
 
-  const w6Ren = updateProject(w6Plan.id, { name: '海南升学规划中心（南区）' }, w6Ws)
+  const w6Ren = updateProject(w6Plan.id, { name: '海南升学集训营（南区）' }, w6Ws)
   ok(w6Ren.ok, `项目改名成功：${w6Ren.project?.name}`)
   ok(
     !!w6Ren.renamed,
@@ -1915,8 +1956,8 @@ async function main(): Promise<void> {
   const w6PacksB4 = (getDb().prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c
   const w6FilesB4 = w6CountFiles(w6Ws)
 
-  const w6CampNow = listProjectsWithCount().find((p) => p.name === '海南升学初三集训营')!
-  const w6Common = listProjectsWithCount().find((p) => p.name === '集团通用')!
+  const w6CampNow = listProjectsWithCount().find((p) => p.name === '精英升学先修营')!
+  const w6Common = listProjectsWithCount().find((p) => p.name === '总部')!
   const w6DelA = removeProject(w6CampNow.id, { moveTo: w6Common.id }, w6Ws)
   ok(w6DelA.ok, `删项目（转移到「${w6Common.name}」）成功，动了 ${w6DelA.moved} 个包`)
   ok(
@@ -1929,7 +1970,7 @@ async function main(): Promise<void> {
   )
   ok(w6CountFiles(w6Ws) === w6FilesB4, `磁盘文件一个没少（${w6FilesB4} 个）`)
 
-  const w6Victim = listProjectsWithCount().find((p) => p.name === '集团通用')!
+  const w6Victim = listProjectsWithCount().find((p) => p.name === '总部')!
   // 用 id 而不是名字筛 —— 三级结构下不同项目可以有同名包，用名字会误伤
   const w6VictimPacks = listPacks().filter((p) => p.project_id === w6Victim.id)
   const w6VictimIds = w6VictimPacks.map((p) => p.id)
@@ -1975,7 +2016,7 @@ async function main(): Promise<void> {
   closeDb()
   openDb(w6bWs)
   const w6bProjs = listProjectsWithCount()
-  ok(w6bProjs.length === 3, '造老库：打开时落好 3 个预制项目')
+  ok(w6bProjs.length === 6, `造老库：打开时落好 6 个预制项目（实际 ${w6bProjs.length}）`)
   ok(getMeta('layout_version') === null, '造老库：还没有 layout_version 标记')
   const w6bTs = new Date().toISOString()
   const w6bIns = getDb().prepare(
@@ -3210,7 +3251,7 @@ async function main(): Promise<void> {
   // ---- (1) 两套合一：建包能选的 = 左栏「物料类别」里的（用户实测报的就是这两处不同步）----
   const eBase = eList()
   ok(
-    eBase.includes('海报') && eBase.includes('详情长图') && eBase.includes('参考图'),
+    eBase.includes('海报') && eBase.includes('KV-喷绘印刷') && eBase.includes('单页'),
     `【同源】建包清单就是左栏这一套（${eBase.length} 项：${eBase.join('、')}）`
   )
   ok(

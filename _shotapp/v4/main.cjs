@@ -171,7 +171,7 @@ app.whenReady().then(async () => {
     writeFileSync(join(loosePack, '01-成品', '随手做的.png'), 'png', 'utf-8')
 
     // 磁盘上已经存在、和项目同名的空文件夹（软件应识别并沿用，不再另建）
-    mkdirSync(join(ws, '海南升学初三集训营'), { recursive: true })
+    mkdirSync(join(ws, '精英升学先修营'), { recursive: true })
 
     // 用已有的 workspace 产物建库（它内部带着 db 模块，会建表 + 建两个收纳区）
     const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
@@ -182,8 +182,9 @@ app.whenReady().then(async () => {
     const d = new Database(join(ws, '_system', 'media.db'))
     d.pragma('foreign_keys = ON')
     const now = new Date().toISOString()
-    // 项目不用自己造 —— initWorkspace 首次使用会落 3 个预制项目（集团通用 / 海南升学规划中心 / 海南升学初三集训营）
-    const pid = d.prepare('SELECT id FROM projects WHERE name = ?').get('海南升学规划中心').id
+    // 项目不用自己造 —— initWorkspace 首次使用会落预制项目（第 14 批起是 6 个本厂项目：
+    // 海南升学集训营 / 精英升学先修营 / 精英志愿填报中心 / 一对一项目部 / 精英岛 / 总部）
+    const pid = d.prepare('SELECT id FROM projects WHERE name = ?').get('海南升学集训营').id
     const addPack = d.prepare(
       `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -204,7 +205,7 @@ app.whenReady().then(async () => {
     say('root entries          : ' + require('fs').readdirSync(ws).join(' | '))
     say(
       'migrated pack on disk : ' +
-        (require('fs').existsSync(join(ws, '海南升学规划中心', '海南招生海报-2026秋季', '01-成品', '海报终稿.png'))
+        (require('fs').existsSync(join(ws, '海南升学集训营', '海南招生海报-2026秋季', '01-成品', '海报终稿.png'))
           ? '包已进项目文件夹 ✅'
           : '❌ 包没被搬进项目文件夹')
     )
@@ -223,7 +224,7 @@ app.whenReady().then(async () => {
     const d = new Database(join(ws, '_system', 'media.db'))
     d.pragma('foreign_keys = ON')
     const now = new Date().toISOString()
-    const pid = d.prepare('SELECT id FROM projects WHERE name = ?').get('海南升学规划中心').id
+    const pid = d.prepare('SELECT id FROM projects WHERE name = ?').get('海南升学集训营').id
     const folder = d.prepare('SELECT folder_name FROM projects WHERE id = ?').get(pid).folder_name
     const SUB = ['01-成品', '02-素材', '03-工程']
 
@@ -278,10 +279,10 @@ app.whenReady().then(async () => {
     const d = new Database(join(ws, '_system', 'media.db'))
     d.pragma('foreign_keys = ON')
     const now = new Date().toISOString()
-    const projA = d.prepare('SELECT id, folder_name FROM projects WHERE name = ?').get('海南升学规划中心')
+    const projA = d.prepare('SELECT id, folder_name FROM projects WHERE name = ?').get('海南升学集训营')
     const projB = d
       .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
-      .get('海南升学初三集训营')
+      .get('精英升学先修营')
 
     const packDirA = join(ws, projA.folder_name, '计数甲包')
     const packDirB = join(ws, projB.folder_name, '计数乙包')
@@ -335,7 +336,7 @@ app.whenReady().then(async () => {
     const now = new Date().toISOString()
     const proj = d
       .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
-      .get('海南升学规划中心')
+      .get('海南升学集训营')
 
     const packDir = join(ws, proj.folder_name, '丢失演示包')
     for (const sub of SUB) mkdirSync(join(packDir, sub), { recursive: true })
@@ -403,7 +404,7 @@ app.whenReady().then(async () => {
     const now = new Date().toISOString()
     const proj = d
       .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
-      .get('海南升学规划中心')
+      .get('海南升学集训营')
     const packDir = join(ws, proj.folder_name, '海南招生海报-2026秋季')
 
     const seedVer = (folder, files) => {
@@ -463,8 +464,9 @@ app.whenReady().then(async () => {
   }
 
   if (SCEN === 'category') {
-    // 第 10 批：三个包各带一个类别（海报 / 短视频 / 折页）——
-    // 一会儿在左栏把「短视频」删掉，看它是不是只影响到用它的那个包。
+    // 第 10 批：三个包各带一个类别（海报 / 单页 / 折页）——
+    // 一会儿在左栏把「单页」删掉，看它是不是只影响到用它的那个包。
+    // （第 14 批换预制清单后，「短视频」不再是预制标签了，删除目标改用「单页」）
     rmSync(ws, { recursive: true, force: true })
     mkdirSync(ws, { recursive: true })
 
@@ -480,7 +482,7 @@ app.whenReady().then(async () => {
     const now = new Date().toISOString()
     const proj = d
       .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
-      .get('海南升学规划中心')
+      .get('海南升学集训营')
 
     const seedPack = (name, cat, files) => {
       const dir = join(ws, proj.folder_name, name)
@@ -495,12 +497,12 @@ app.whenReady().then(async () => {
       ['01-成品', '招生海报.png', 420],
       ['02-素材', '背景底图.png', 880]
     ])
-    seedPack('招生短视频-30秒', '短视频', [['01-成品', '成片30秒.mp4', 3200]])
+    seedPack('招生短视频-30秒', '单页', [['01-成品', '成片30秒.mp4', 3200]])
     seedPack('招生简章折页', '折页', [['01-成品', '折页正面.png', 380]])
     d.close()
 
     const scanned = wsm.scanAll(ws)
-    say('seeded packs          : 3（海报 / 短视频 / 折页）')
+    say('seeded packs          : 3（海报 / 单页 / 折页）')
     say('auto-recognized vers  : ' + scanned.newVersions)
   }
 
@@ -520,7 +522,7 @@ app.whenReady().then(async () => {
     const now = new Date().toISOString()
     const proj = d
       .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
-      .get('海南升学规划中心')
+      .get('海南升学集训营')
 
     // 给 T001 配一个真实任务（文件夹 + packs 记录 + 工单关联）
     const SUB = ['01-成品', '02-素材', '03-工程']
@@ -562,7 +564,7 @@ app.whenReady().then(async () => {
         '申请人甲', '营销中心',
         o.designer === undefined ? 'uME' : o.designer,
         o.designerName === undefined ? '测试设计师' : o.designerName,
-        o.project ?? '海南升学规划中心',
+        o.project ?? '海南升学集训营',
         o.due ?? '2026-10-05', now, o.cat ?? '海报', o.qty ?? 100,
         o.history ? 1 : 0, o.pending ? 1 : 0, o.dup ? 1 : 0,
         now, now, o.packId ?? null
@@ -581,7 +583,7 @@ app.whenReady().then(async () => {
     // 一张电子类型的（第二子表）
     addTicket.run(
       'tlT2', 'digital', '202610010009', 'rec_202610010009', '短视频封面-秋季', '审批中',
-      '申请人乙', '营销中心', 'uME', '测试设计师', '海南升学规划中心',
+      '申请人乙', '营销中心', 'uME', '测试设计师', '海南升学集训营',
       '2026-10-06', now, null, null, 0, 0, 0, now, now, null
     )
     d.close()
@@ -659,34 +661,78 @@ app.whenReady().then(async () => {
       if (!b) return 'no-btn'
       b.click(); return 'ok'
     })()`)
-  /** 真鼠标移到项目行上 —— React 的 onMouseEnter 只认真实事件 */
+  /**
+   * 真鼠标移到项目行上 —— React 的 onMouseEnter 只认真实事件。
+   * 第 14 批：预制项目 3 → 6 个，目标行可能落到左栏可视区之外；而且左栏标签面板
+   * 长起来之后机器一忙这步偶发失效（症状 hovered=false → 后续 no-btn，tagcount 踩过两次）。
+   * 所以这里做成确定性动作 + 整体重试 3 轮：
+   *   ① 先把鼠标挪到左上角，清掉上一次残留的 hover（否则「已经在行上」不会再触发 mouseenter）
+   *   ② scrollIntoView 把目标行滚进视野
+   *   ③ 取坐标读两次，等 rect 稳定再移鼠标（滚动/重排未落定时取到的坐标会打偏）
+   *   ④ 两步移入（-4px 再到位），轮询最多 2 秒等 React 渲染出悬浮按钮
+   */
   const hoverProjectRow = async (idx) => {
     if (idx < 0) {
-      // 别让上一次 hover 残留：React 收不到 mouseleave 就不会摘掉 proj-acts，
-      // 结果后面点到的会是上一步那个项目的按钮（真踩过）。
       win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
       await wait(250)
       return false
     }
-    const p = await js(`(() => {
-      const el = document.querySelectorAll('.side .proj-row')[${idx}]
-      if (!el) return null
-      const r = el.getBoundingClientRect()
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
-    })()`)
-    if (!p) return false
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x - 4, y: p.y, button: 'none' })
-    await wait(150)
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y, button: 'none' })
-    // 悬浮按钮是 React onMouseEnter 才渲染的，机器一忙 320ms 等不出来（偶发 no-btn），
-    // 改成轮询：最多再等 2 秒，按钮真出现才算 hover 成功
-    for (let i = 0; i < 10; i++) {
-      const has = await js(`!!document.querySelector('.side .proj-acts .mini')`)
-      if (has) {
-        await wait(80)
-        return true
+    const readRect = () =>
+      js(`(() => {
+        const el = document.querySelectorAll('.side .proj-row')[${idx}]
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return {
+          x: Math.round(r.left + r.width / 2),
+          y: Math.round(r.top + r.height / 2),
+          top: Math.round(r.top),
+          bottom: Math.round(r.bottom),
+          winH: window.innerHeight,
+          visible: r.top >= 0 && r.bottom <= window.innerHeight
+        }
+      })()`)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // ① 清残留 hover
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
+      await wait(120)
+      // ② 滚进视野
+      await js(`(() => {
+        const el = document.querySelectorAll('.side .proj-row')[${idx}]
+        if (el) el.scrollIntoView({ block: 'center' })
+        return 'ok'
+      })()`)
+      await wait(220)
+      // ③ 取坐标，读两次抹掉重排抖动
+      let p = await readRect()
+      if (!p) return false
+      const p2 = await readRect()
+      if (p2 && p2.y === p.y) p = p2
+      else if (p2) {
+        await wait(120)
+        p = (await readRect()) || p2
       }
-      await wait(200)
+      if (process.env.SHOT_DEBUG_HOVER) {
+        const dbg = await js(`(() => {
+          const rows = [...document.querySelectorAll('.side .proj-row')]
+          const list = rows.map((el, i) => { const r = el.getBoundingClientRect(); return { i, t: Math.round(r.top), b: Math.round(r.bottom) } })
+          const at = document.elementFromPoint(${p.x}, ${p.y})
+          return { win: { w: window.innerWidth, h: window.innerHeight }, count: rows.length, list, at: at ? (at.className + '|' + at.tagName) : 'null', p: ${JSON.stringify(p)}, attempt }
+        })()`)
+        say('HOVER_DBG ' + JSON.stringify(dbg))
+      }
+      // ④ 两步移入
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x - 4, y: p.y, button: 'none' })
+      await wait(150)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y, button: 'none' })
+      for (let i = 0; i < 10; i++) {
+        const has = await js(`!!document.querySelector('.side .proj-acts .mini')`)
+        if (has) {
+          await wait(80)
+          return true
+        }
+        await wait(200)
+      }
+      say(`HOVER_RETRY 第 ${attempt + 1} 轮没 hover 上（row=${idx} y=${p.y}）`)
     }
     return false
   }
@@ -815,11 +861,11 @@ app.whenReady().then(async () => {
     ok(looseEntry === '待归类', '根目录下的游离包让左栏多了「待归类」入口')
     ok(!leftPanelText.includes('未指定项目'), '老文案「未指定项目」已全部换成「待归类」')
     ok(
-      projNames.includes('海南升学规划中心') && projNames.includes('海南升学初三集训营'),
+      projNames.includes('海南升学集训营') && projNames.includes('精英升学先修营'),
       '两个项目都在左栏：' + JSON.stringify(projNames)
     )
     ok(
-      projTitles.some((t) => t.includes('磁盘位置：') && t.includes('海南升学规划中心')),
+      projTitles.some((t) => t.includes('磁盘位置：') && t.includes('海南升学集训营')),
       '项目行的悬浮提示写清了它在磁盘上的位置：' + JSON.stringify(projTitles[0] || '')
     )
     ok(
@@ -855,6 +901,96 @@ app.whenReady().then(async () => {
         JSON.stringify(noticeRow ? noticeRow.value : '') +
         '）'
     )
+
+    // ============================================================
+    // 第 14 批①：左栏「未归属」的图标换成「散件」
+    // 原样是 `inbox`（朝下的入库箭头），语义像"下载/导入"；用户在 2026-10-01 指出不对。
+    // 只改这一处：待归类包的「归位」按钮仍用 inbox（那是入库语义，本来就对）。
+    // ============================================================
+    const looseIconShape = await js(`(() => {
+      const b = [...document.querySelectorAll('.side .item')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.side.unassigned))}))
+      const svg = b ? b.querySelector('svg') : null
+      if (!svg) return null
+      return { rects: svg.querySelectorAll('rect').length, paths: svg.querySelectorAll('path').length }
+    })()`)
+    ok(
+      !!looseIconShape && looseIconShape.rects === 2 && looseIconShape.paths === 1,
+      `【第 14 批】「未归属」图标已换成散件（2 个矩形 + 1 条折线）：${JSON.stringify(looseIconShape)}`
+    )
+
+    // ============================================================
+    // 第 14 批②：刷新扫描的阶段进度推送（全项目第一条主 → 渲染推送通道）
+    // 先挂记录器再点扫描 —— 小库扫得飞快，晚挂就抓不到推送（会得到假失败）。
+    // ============================================================
+    ok(
+      await js(`typeof (window.api && window.api.onScanProgress) === 'function'`),
+      '【第 14 批】preload 暴露了 onScanProgress 订阅接口'
+    )
+    await js(`(() => {
+      window.__scanEvents = []
+      window.api.onScanProgress((p) => window.__scanEvents.push(p))
+      return 'hooked'
+    })()`)
+    const scanBtnLabel = plain(COPY.top.rescan)
+    const clickedScan = await clickByText('.topbar .btn', scanBtnLabel)
+    ok(clickedScan === 'ok', `点了「${scanBtnLabel}」（${clickedScan}）`)
+    let scanIdle = false
+    for (let i = 0; i < 120; i++) {
+      scanIdle = await js(`(() => {
+        const b = [...document.querySelectorAll('.topbar .btn')]
+          .find(x => x.innerText.includes(${JSON.stringify(scanBtnLabel)}))
+        return !!b && !b.disabled
+      })()`)
+      if (scanIdle) break
+      await wait(500)
+    }
+    ok(scanIdle, '扫描结束后按钮恢复可用（没有卡在「处理中」）')
+
+    const scanEvents = await js(`window.__scanEvents || []`)
+    ok(
+      Array.isArray(scanEvents) && scanEvents.length > 0,
+      `【第 14 批】扫描期间收到 ${Array.isArray(scanEvents) ? scanEvents.length : 0} 次进度推送（主 → 渲染通道通了）`
+    )
+    const scanStageLabels = [
+      COPY.scan.progressScan,
+      COPY.scan.progressThumbs,
+      COPY.scan.progressMetaImage,
+      COPY.scan.progressMetaVideo,
+      COPY.scan.progressMetaPsd,
+      COPY.scan.progressMetaPdf
+    ].map(plain)
+    ok(
+      Array.isArray(scanEvents) &&
+        scanEvents.every(
+          (e) =>
+            scanStageLabels.includes(e.label) &&
+            ['scan', 'thumbs', 'meta'].includes(e.stage) &&
+            Number.isFinite(e.done) &&
+            Number.isFinite(e.total) &&
+            e.done >= 0 &&
+            e.total >= 0
+        ),
+      `每条推送格式正确（阶段名 + done/total）：${JSON.stringify((scanEvents || []).slice(0, 3))}`
+    )
+    ok(
+      Array.isArray(scanEvents) && scanEvents[0] && scanEvents[0].stage === 'scan',
+      `第一条推送来自「${plain(COPY.scan.progressScan)}」阶段（目录扫描先报阶段名）`
+    )
+    const thumbsEvts = (scanEvents || []).filter((e) => e.stage === 'thumbs')
+    if (thumbsEvts.length) {
+      const lastThumbs = thumbsEvts[thumbsEvts.length - 1]
+      ok(
+        lastThumbs.done === lastThumbs.total,
+        `缩略图阶段最后一推 done=total（${lastThumbs.done}/${lastThumbs.total}，进度跑满不留尾巴）`
+      )
+      ok(
+        thumbsEvts.every((e, i) => i === 0 || e.done >= thumbsEvts[i - 1].done),
+        '缩略图阶段的 done 单调不减（并发跑也不会倒退）'
+      )
+    } else {
+      say('（本轮没有待生成的缩略图，跳过缩略图进度断言）')
+    }
   } else if (SCEN === 'lifecycle') {
     // ============================================================
     // 第 7 批：记录生命周期
@@ -916,12 +1052,12 @@ app.whenReady().then(async () => {
     ok(editOptions >= 3, `项目下拉里有 ${editOptions} 个选项（含「不指定项目」）`)
     await shot('shot-b7-1-lifecycle-home-before.png')
 
-    // 明确把目标项目选成「海南升学规划中心」（默认预选的是列表第一个，别靠运气）
+    // 明确把目标项目选成「海南升学集训营」（默认预选的是列表第一个，别靠运气）
     const picked = await js(
       `(() => {
          const sel = document.querySelector('.modal select')
          if (!sel) return 'no-select'
-         const opt = [...sel.options].find(o => o.text.includes('海南升学规划中心'))
+         const opt = [...sel.options].find(o => o.text.includes('海南升学集训营'))
          if (!opt) return 'no-option'
          const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
          setter.call(sel, opt.value)
@@ -929,12 +1065,12 @@ app.whenReady().then(async () => {
          return opt.text.trim()
        })()`
     )
-    ok(picked === '海南升学规划中心', `目标项目选成「${picked}」`)
+    ok(picked === '海南升学集训营', `目标项目选成「${picked}」`)
     await wait(300)
     const moveHint = await js(
       `(() => { const m = document.querySelector('.modal'); return m ? m.innerText : '' })()`
     )
-    ok(moveHint.includes(fmt(COPY.editPack.moveInto, { name: '海南升学规划中心' })), '弹窗提前说明了文件夹会搬去哪')
+    ok(moveHint.includes(fmt(COPY.editPack.moveInto, { name: '海南升学集训营' })), '弹窗提前说明了文件夹会搬去哪')
 
     const homeSubmit = await clickModalOk()
     ok(homeSubmit === 'ok', `点保存（${homeSubmit}）`)
@@ -975,18 +1111,18 @@ app.whenReady().then(async () => {
     ok(editBox.path.includes('招生折页-A4'), '弹窗里显示了当前文件夹在哪')
     await shot('shot-b7-2-lifecycle-editpack.png')
 
-    await clickByText('.modal .chips .chip', '短视频')
+    await clickByText('.modal .chips .chip', '单页')
     await wait(200)
     await clickModalOk()
     await wait(1200)
     const afterCategory = q('SELECT category, folder_path FROM packs WHERE name = ?', '招生折页-A4')
-    ok(afterCategory.category === '短视频', `类别已改成「${afterCategory.category}」`)
+    ok(afterCategory.category === '单页', `类别已改成「${afterCategory.category}」`)
     ok(afterCategory.folder_path === beforeCategory.folder_path, '只改类别：磁盘上的文件夹一动不动')
 
     // ---- (4) 解绑项目 ----
     const projRowsBefore = await projRowNames()
-    const unbindIdx = projRowsBefore.indexOf('海南升学规划中心')
-    ok(unbindIdx >= 0, `定位到要解绑的项目「海南升学规划中心」，在第 ${unbindIdx + 1} 行`)
+    const unbindIdx = projRowsBefore.indexOf('海南升学集训营')
+    ok(unbindIdx >= 0, `定位到要解绑的项目「海南升学集训营」，在第 ${unbindIdx + 1} 行`)
     const pkBeforeUnbind = (q('SELECT COUNT(*) AS c FROM packs') || {}).c
     const hovered = await hoverProjectRow(unbindIdx)
     ok(hovered, '鼠标移到项目行上（悬浮按钮才会出现）')
@@ -1009,7 +1145,7 @@ app.whenReady().then(async () => {
     await wait(1500)
     const projRowsAfter = await projRowNames()
     ok(projRowsAfter.length === projRowsBefore.length - 1, `左栏项目少了一个（${projRowsBefore.length} → ${projRowsAfter.length}）`)
-    ok(!projRowsAfter.includes('海南升学规划中心'), '被解绑的项目从左栏消失了')
+    ok(!projRowsAfter.includes('海南升学集训营'), '被解绑的项目从左栏消失了')
     const unboundEntry = await js(
       `(() => {
          const el = [...document.querySelectorAll('.side .item')].find(e => e.innerText.includes('已解绑'))
@@ -1017,7 +1153,7 @@ app.whenReady().then(async () => {
        })()`
     )
     ok(unboundEntry.includes('已解绑 1 个项目'), `左栏出现「已解绑」入口：${unboundEntry}`)
-    const unboundProj = q('SELECT archived, folder_name FROM projects WHERE name = ?', '海南升学规划中心')
+    const unboundProj = q('SELECT archived, folder_name FROM projects WHERE name = ?', '海南升学集训营')
     ok(unboundProj.archived === 1, '【库】项目标记 archived = 1')
     ok(
       (q('SELECT COUNT(*) AS c FROM packs') || {}).c === pkBeforeUnbind,
@@ -1056,7 +1192,7 @@ app.whenReady().then(async () => {
        })()`
     )
     ok(!!unboundModal && unboundModal.rows === 1, `弹窗里列出 1 个已解绑项目（${unboundModal && unboundModal.rows}）`)
-    ok(unboundModal.text.includes('海南升学规划中心'), '列的就是它')
+    ok(unboundModal.text.includes('海南升学集训营'), '列的就是它')
     ok(/_已解绑的项目/.test(unboundModal.text), '弹窗里写清了东西在 _已解绑的项目 里')
     ok(unboundModal.btn.includes('还原'), `每行给了「还原」按钮（${unboundModal.btn}）`)
 
@@ -1069,14 +1205,14 @@ app.whenReady().then(async () => {
     )
     ok(restoreClick === 'ok', `点了「还原」（${restoreClick}）`)
     await wait(1500)
-    const restored = q('SELECT archived, folder_name FROM projects WHERE name = ?', '海南升学规划中心')
+    const restored = q('SELECT archived, folder_name FROM projects WHERE name = ?', '海南升学集训营')
     ok(restored.archived === 0, '【库】还原后 archived = 0')
     ok(
       require('fs').existsSync(join(s.workspaceRoot, restored.folder_name)),
       '【盘】项目文件夹搬回了工作区根目录'
     )
     const restoredRows = await projRowNames()
-    ok(restoredRows.includes('海南升学规划中心'), '项目重新出现在左栏')
+    ok(restoredRows.includes('海南升学集训营'), '项目重新出现在左栏')
     const entryGone = await js(
       `!![...document.querySelectorAll('.side .item')].find(e => e.innerText.includes('已解绑'))`
     )
@@ -1091,13 +1227,13 @@ app.whenReady().then(async () => {
     await wait(300)
 
     // ---- (6) 删除项目：三选一 + 删进回收站 ----
-    const projIdx = (await projRowNames()).indexOf('海南升学规划中心')
-    ok(projIdx >= 0, `找到要删的项目「海南升学规划中心」，在第 ${projIdx + 1} 行`)
+    const projIdx = (await projRowNames()).indexOf('海南升学集训营')
+    ok(projIdx >= 0, `找到要删的项目「海南升学集训营」，在第 ${projIdx + 1} 行`)
     const pkTotalBefore = (q('SELECT COUNT(*) AS c FROM packs') || {}).c
     const pkOfTarget = (
       q(
         'SELECT COUNT(*) AS c FROM packs WHERE project_id = (SELECT id FROM projects WHERE name = ?)',
-        '海南升学规划中心'
+        '海南升学集训营'
       ) || {}
     ).c
     ok(pkOfTarget === 3, `【前置】这个项目名下挂着 3 个包（归位进来的也在里面）：${pkOfTarget}`)
@@ -1144,7 +1280,7 @@ app.whenReady().then(async () => {
     await clickModalOk()
     await wait(1500)
 
-    const gone = q('SELECT COUNT(*) AS c FROM projects WHERE name = ?', '海南升学规划中心')
+    const gone = q('SELECT COUNT(*) AS c FROM projects WHERE name = ?', '海南升学集训营')
     ok(gone.c === 0, '【库】项目记录已删')
     ok(
       q(
@@ -1162,7 +1298,7 @@ app.whenReady().then(async () => {
       `项目名下的 ${pkOfTarget} 条包记录一并摘除：${pkTotalBefore} → ${pkTotalAfter}`
     )
     const afterAll = await projRowNames()
-    ok(!afterAll.includes('海南升学规划中心'), '被删的项目从左栏消失了')
+    ok(!afterAll.includes('海南升学集训营'), '被删的项目从左栏消失了')
     const orphanTags = q(
       `SELECT COUNT(*) AS c FROM asset_tags at
         WHERE at.asset_id NOT IN (SELECT id FROM assets) OR at.tag_id NOT IN (SELECT id FROM tags)`
@@ -1187,12 +1323,12 @@ app.whenReady().then(async () => {
     ok(!!all0 && all0.title.includes('全库'), `悬停提示说清了范围：${all0 && all0.title}`)
 
     // (2) 甲项目 = 2 —— 数字必须跟着项目走（用户报的就是这里对不上）
-    const pickA = await pickSideItem('海南升学规划中心', '.side .proj-item')
-    ok(pickA === 'ok', `点了「海南升学规划中心」（${pickA}）`)
+    const pickA = await pickSideItem('海南升学集训营', '.side .proj-item')
+    ok(pickA === 'ok', `点了「海南升学集训营」（${pickA}）`)
     const a1 = await tagNum('海报')
     ok(a1 && a1.n === 2, `【甲项目】数字跟着变成 ${a1 && a1.n}（该项目下 2 个文件）`)
     ok(
-      !!a1 && a1.title.includes('海南升学规划中心'),
+      !!a1 && a1.title.includes('海南升学集训营'),
       `悬停提示跟着换范围：${a1 && a1.title}`
     )
 
@@ -1224,8 +1360,8 @@ app.whenReady().then(async () => {
     await pickSideItem(COPY.top.viewPacks, '.tabs button')
 
     // (4) 乙项目 = 1
-    const pickB = await pickSideItem('海南升学初三集训营', '.side .proj-item')
-    ok(pickB === 'ok', `点了「海南升学初三集训营」（${pickB}）`)
+    const pickB = await pickSideItem('精英升学先修营', '.side .proj-item')
+    ok(pickB === 'ok', `点了「精英升学先修营」（${pickB}）`)
     const b1 = await tagNum('海报')
     ok(b1 && b1.n === 1, `【乙项目】数字 ${b1 && b1.n}（该项目下 1 个文件）`)
 
@@ -1248,7 +1384,7 @@ app.whenReady().then(async () => {
 
     // (8) 解绑一个项目 → 全库数字立刻跟着减（原 bug：纹丝不动）
     const names = await projRowNames()
-    const idxB = names.indexOf('海南升学初三集训营')
+    const idxB = names.indexOf('精英升学先修营')
     ok(idxB >= 0, `定位到要解绑的项目（第 ${idxB + 1} 行）`)
     const hovered = await hoverProjectRow(idxB)
     ok(hovered, '鼠标移到项目行上')
@@ -1463,7 +1599,7 @@ app.whenReady().then(async () => {
         dd.close()
       }
     }
-    const projFolder = qv('SELECT folder_name AS f FROM projects WHERE name = ?', '海南升学规划中心').f || '海南升学规划中心'
+    const projFolder = qv('SELECT folder_name AS f FROM projects WHERE name = ?', '海南升学集训营').f || '海南升学集训营'
     const vPackDir = join(s.workspaceRoot, projFolder, '海南招生海报-2026秋季')
 
     await pickSideItem(COPY.top.viewPacks, '.tabs button')
@@ -1983,7 +2119,7 @@ app.whenReady().then(async () => {
   } else if (SCEN === 'category') {
     // ============================================================
     // 第 10 批：建包时的「物料类别」= 左栏筛选里那一套（用户实测报的 bug）
-    // 布景见上面的 seeding 段：3 个包（海报 / 短视频 / 折页）
+    // 布景见上面的 seeding 段：3 个包（海报 / 单页 / 折页）
     // ============================================================
     const openManager = async () => {
       await js(`(() => {
@@ -2092,11 +2228,11 @@ app.whenReady().then(async () => {
     await shot('shot-b10-2-new-category-sync.png')
     await closeTopModal()
 
-    // (4) 删掉被包用着的「短视频」：先把「有 N 个包在用」说清楚，确认才删
+    // (4) 删掉被包用着的「单页」：先把「有 N 个包在用」说清楚，确认才删
     await openManager()
     await js(`(() => {
       const row = [...document.querySelectorAll('.tm-row')]
-        .find(x => ((x.querySelector('.tm-name')||{}).innerText||'').trim() === '短视频')
+        .find(x => ((x.querySelector('.tm-name')||{}).innerText||'').trim() === '单页')
       if (!row) return 'no-row'
       const b = row.querySelector('.mini.danger')
       if (!b) return 'no-del'

@@ -15,8 +15,8 @@
 | 分支 | 是什么 | 状态 |
 |---|---|---|
 | `main` | 第 1~10 批（= 标签 `v1.1.0` = `f20fa3d`） | **已封存，不许动**；1.1.0 安装包已发同事 |
-| `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景），**1.2.0 安装包未出** |
-| **`TM`** | 第 13 批：**工单模块**（企业微信智能表格 ↔ 任务 ↔ 物料文件同步） | **当前分支**，方案未定（拟 `docs/15`） |
+| `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被 `TM` 的 1.3.0 包取代） |
+| **`TM`** | 第 13 批：**工单模块**（企业微信智能表格 ↔ 任务 ↔ 物料文件同步）；第 14 批：**上线前优化与 UI 打磨**（方案 `docs/15` / `docs/17`） | **当前分支**；两批均已验收关单（**664 断言 / 10 场景全绿**），**1.3.0 安装包已出** |
 
 - **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
 - 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
@@ -37,13 +37,20 @@ npm run build      # 类型检查 + 编译三端产物到 out/
 ## 出 Windows 安装包
 
 ```bash
-# 先设国内镜像（不设的话 NSIS/winCodeSign 会从 GitHub 拉，大概率卡死）
+# 先设国内镜像 —— 两个都要设，只设一个不够：
+#   ELECTRON_MIRROR 管 electron 本体（本机 electron-builder 缓存里没有它的 zip，
+#   漏设就去 GitHub 拉 39.8.10，能白等 9 分钟毫无输出）
+#   ELECTRON_BUILDER_BINARIES_MIRROR 管 NSIS / winCodeSign 等
+set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
 
 npm run build:win
 ```
 
 产物：`release/营销中心-素材库-<版本>-安装包.exe`
+
+> 在 AI 会话里出包时输出目录要改成项目外的全新空目录（见下），成品形如
+> `D:\_accept_ws\rel_out\v1.3.0\营销中心-素材库-1.3.0-安装包.exe`（约 180 MB）。
 
 要点（详见 `docs/06-第4批打包交付方案.md`）：
 
@@ -73,7 +80,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-node out/test/accept.cjs                        # 655 项断言，结果写 accept-result.txt
+node out/test/accept.cjs                        # 664 项断言，结果写 accept-result.txt
 
 node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -98,7 +105,7 @@ node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（
 > ⚠️ 这里的 `shutil.move` 是**唯一**允许用 move 的场景（判空而不判内容，丢了也无所谓）。
 > **改 `src` 源码树只许 `copytree`**，见下方「坑」表最后一行。
 
-**跑测试前抬高批量删除阈值**：护栏按「本轮请求」累计，一轮里跑完 accept + 9 个场景会远超 50 次。
+**跑测试前抬高批量删除阈值**：护栏按「本轮请求」累计，一轮里跑完 accept + 10 个场景会远超 50 次。
 不加这个环境变量会得到**大面积假失败**（工作区被判「连不上」→ 左栏空 → 断言连锁报红），
 很容易误判成代码回归：
 
@@ -214,7 +221,7 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 | AI 沙箱批量删除护栏拦 `npm run build`（按会话轮次累计） | 拆开跑：`npm run build` 成功后单独 `npx electron-builder --win` |
 | `node_modules` 里出现 `.DELETE.` 后缀文件 | npm 延迟删除残留，恢复文件名即可，不必重装依赖 |
 | 沙箱跑 Electron 会被拦（`ELECTRON_RUN_AS_NODE` + 无 GPU） | 用 `_shotapp/` 验证壳；截图壳工作区绝不与 `D:\素材工作区` 共用 |
-| 批量删除护栏让测试**大面积假失败**（工作区被判"连不上"→左栏空→断言连锁报红，像代码回归） | 跑 accept / 场景前 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`；护栏按轮次累计，一轮跑完 accept+9 场景必超 |
+| 批量删除护栏让测试**大面积假失败**（工作区被判"连不上"→左栏空→断言连锁报红，像代码回归） | 跑 accept / 场景前 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`；护栏按轮次累计，一轮跑完 accept+10 场景必超 |
 | `core.autocrlf=true`：`git checkout` 落盘 CRLF、编辑工具落盘 LF | 构建产物 CSS 不做空白压缩，**CRLF 版比 LF 版大 2.5KB**，会被误读成"样式被改"。判断"样式有没有变"要去掉 `\r` 再比字节；换行符不是「用户看到的字」 |
 | `bin/mcporter` 是 sh 包装（内部用 `dirname`/`sed`/`uname`） | Windows 下 Node `spawn` 它必失败（EBUSY/非可执行）。起 `node <...>/node_modules/mcporter/dist/cli.js`，且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 在沙箱里一律 EBUSY；argv 数组可避开 shell 引号转义与 32KB 命令行上限） |
 | 拿外网表格/接口当"数据通道"传大文本 | `--args '<json>'` 走命令行，Windows 上限 ~32767 字符；大数据必须**分块**（本次 484 行 / 12 次写入） |

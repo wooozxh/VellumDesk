@@ -3,10 +3,17 @@ import { useState } from 'react'
 import type { Project } from '../types'
 import { Icon } from './Icon'
 
+/**
+ * 备注快填候选（第 14 批）：跟着预制项目的备注风格走 —— 换预制项目时这里不用再单独维护，
+ * 但仍是**候选**而不是强制值，用户想写别的照样能写。
+ */
 const PRESET_NOTES = [
-  COPY.projModal.notePresetEducation,
-  COPY.projModal.notePresetCamp,
-  COPY.projModal.notePresetCommon
+  COPY.seed.projCampNote,
+  COPY.seed.projPrepNote,
+  COPY.seed.projFillNote,
+  COPY.seed.projOneNote,
+  COPY.seed.projIslandNote,
+  COPY.seed.projHqNote
 ]
 
 /**

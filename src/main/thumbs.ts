@@ -153,11 +153,77 @@ export async function ensureThumb(
   }
 }
 
+// ---------------------------------------------------------------- 第 14 批：进度回调与受限并发
+
+/** 进度回调：done = 已处理条数（含失败），total = 本轮待处理条数。done 只增不减。 */
+export type BatchProgress = (done: number, total: number) => void
+
+/**
+ * 受限并发的批处理（第 14 批引入）。
+ *
+ * - **为什么要并发**：缩略图原来是 `for` + `await` 一条条做，视频多时每个视频起一个
+ *   ffmpeg 子进程、串着跑，用户要干等好几分钟，而且界面连"跑到哪了"都不知道。
+ * - **为什么要有上限**：全放开会把 CPU 与 ffmpeg 进程数打满，同事的低配机器上反而更慢；
+ *   按任务类型给不同上限（ffmpeg 比 sharp 贵得多，见 `ensureThumbsForAssets`）。
+ * - 单条失败**绝不中断整批**（与串行版语义一致）；
+ * - `onProgress` 在每条**处理完成**时回调一次，计数含失败 —— 进度条不会因为
+ *   个别坏文件卡住不动。
+ */
+async function runPool<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+  onProgress?: BatchProgress
+): Promise<void> {
+  const total = items.length
+  let cursor = 0
+  let done = 0
+  const report = (): void => {
+    done += 1
+    onProgress?.(done, total)
+  }
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor
+      cursor += 1
+      if (i >= total) return
+      try {
+        await fn(items[i])
+      } catch {
+        // 单条失败不影响整批
+      }
+      report()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, total)) }, worker))
+}
+
+/**
+ * 极简信号量：把某类任务的并发数单独压住（第 14 批）。
+ * 缩略图池整体并发 3，但其中的视频抽帧要再受一层「最多 2 个 ffmpeg 子进程」的限制 ——
+ * 外层池保证吞吐、内层信号量防止 ffmpeg 把机器打满。
+ */
+function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise<T> {
+  let running = 0
+  const queue: Array<() => void> = []
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (running >= max) await new Promise<void>((resolve) => queue.push(resolve))
+    running += 1
+    try {
+      return await fn()
+    } finally {
+      running -= 1
+      const wake = queue.shift()
+      if (wake) wake()
+    }
+  }
+}
+
 /** 批量生成缩略图；图片走 sharp，视频走 FFmpeg 抽帧，PSD 走内嵌预览图，PDF 走 pdfjs 渲染 */
 export async function ensureThumbsForAssets(
   workspaceRoot: string,
   rows: Array<{ id: number; abs_path: string; size: number; ext: string; thumb_path: string | null; modified_at: string }>,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: BatchProgress
 ): Promise<number> {
   const db = getDb()
   const upd = db.prepare('UPDATE assets SET thumb_path = ? WHERE id = ?')
@@ -167,27 +233,30 @@ export async function ensureThumbsForAssets(
       !r.thumb_path &&
       (isImage(r.ext) || isVideo(r.ext) || isPsd(r.ext) || isPdf(r.ext))
   )
-  let done = 0
-  for (const r of pending) {
-    try {
-      const mtimeMs = new Date(r.modified_at).getTime()
-      const rel = isVideo(r.ext)
+  let ok = 0
+  // 视频抽帧 = 一个 ffmpeg 子进程，最多同时 2 个
+  const videoGate = createLimiter(2)
+
+  const handle = async (r: (typeof pending)[number]): Promise<void> => {
+    const mtimeMs = new Date(r.modified_at).getTime()
+    const gen = async (): Promise<string | null> =>
+      isVideo(r.ext)
         ? await ensureVideoThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
         : isPsd(r.ext)
           ? await ensurePsdThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
           : isPdf(r.ext)
             ? await ensurePdfThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
             : await ensureThumb(workspaceRoot, r.abs_path, r.size, mtimeMs)
-      if (rel) {
-        upd.run(rel, r.id)
-        done += 1
-      }
-    } catch {
-      // 单个失败不影响整批
+    const rel = isVideo(r.ext) ? await videoGate(gen) : await gen()
+    if (rel) {
+      upd.run(rel, r.id)
+      ok += 1
     }
-    onProgress?.(done, pending.length)
   }
-  return done
+
+  // 外层池并发 3：图片 sharp / PSD / PDF 都是同进程 IO，视频由内层闸门压到 2
+  await runPool(pending, 3, handle, onProgress)
+  return ok
 }
 
 // ---------------------------------------------------------------- B-01 图片尺寸与色彩模式
@@ -233,20 +302,27 @@ export async function readImageMeta(absPath: string): Promise<ImageMeta> {
 
 /** 批量补图片元信息（只处理缺 width 的图片行） */
 export async function ensureImageMetaForAssets(
-  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>,
+  onProgress?: BatchProgress
 ): Promise<number> {
   const db = getDb()
   const upd = db.prepare('UPDATE assets SET width = ?, height = ?, color_mode = ? WHERE id = ?')
 
   const pending = rows.filter((r) => r.width === null && isImage(r.ext))
   let done = 0
-  for (const r of pending) {
-    const meta = await readImageMeta(r.abs_path)
-    if (meta.width !== null || meta.height !== null) {
-      upd.run(meta.width, meta.height, meta.colorMode, r.id)
-      done += 1
-    }
-  }
+  // sharp 读元信息是同进程轻量操作，并发 4（第 14 批）
+  await runPool(
+    pending,
+    4,
+    async (r) => {
+      const meta = await readImageMeta(r.abs_path)
+      if (meta.width !== null || meta.height !== null) {
+        upd.run(meta.width, meta.height, meta.colorMode, r.id)
+        done += 1
+      }
+    },
+    onProgress
+  )
   return done
 }
 
@@ -346,7 +422,8 @@ export async function ensureVideoMetaForAssets(
     abs_path: string
     ext: string
     duration_ms: number | null
-  }>
+  }>,
+  onProgress?: BatchProgress
 ): Promise<number> {
   const db = getDb()
   const upd = db.prepare(
@@ -356,13 +433,19 @@ export async function ensureVideoMetaForAssets(
   if (!ffmpegReady()) return 0
   const pending = rows.filter((r) => r.duration_ms === null && isVideo(r.ext))
   let done = 0
-  for (const r of pending) {
-    const meta = await readVideoMeta(r.abs_path)
-    if (meta.durationMs !== null || meta.width !== null) {
-      upd.run(meta.width, meta.height, meta.durationMs, meta.videoCodec, meta.probeInfo, r.id)
-      done += 1
-    }
-  }
+  // ffprobe 也是起子进程，并发压到 2（第 14 批：原来串行，视频多时能等好几分钟）
+  await runPool(
+    pending,
+    2,
+    async (r) => {
+      const meta = await readVideoMeta(r.abs_path)
+      if (meta.durationMs !== null || meta.width !== null) {
+        upd.run(meta.width, meta.height, meta.durationMs, meta.videoCodec, meta.probeInfo, r.id)
+        done += 1
+      }
+    },
+    onProgress
+  )
   return done
 }
 
@@ -560,20 +643,27 @@ async function ensurePsdThumb(
 
 /** 批量补 PSD 元信息（只处理缺 width 的 psd/psb 行） */
 export async function ensurePsdMetaForAssets(
-  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>
+  rows: Array<{ id: number; abs_path: string; ext: string; width: number | null }>,
+  onProgress?: BatchProgress
 ): Promise<number> {
   const db = getDb()
   const upd = db.prepare('UPDATE assets SET width = ?, height = ?, color_mode = ? WHERE id = ?')
 
   const pending = rows.filter((r) => r.width === null && isPsd(r.ext))
   let done = 0
-  for (const r of pending) {
-    const meta = await readPsdMeta(r.abs_path)
-    if (meta.width !== null || meta.height !== null) {
-      upd.run(meta.width, meta.height, meta.colorMode, r.id)
-      done += 1
-    }
-  }
+  // 只读 26 字节文件头，并发 4（第 14 批）
+  await runPool(
+    pending,
+    4,
+    async (r) => {
+      const meta = await readPsdMeta(r.abs_path)
+      if (meta.width !== null || meta.height !== null) {
+        upd.run(meta.width, meta.height, meta.colorMode, r.id)
+        done += 1
+      }
+    },
+    onProgress
+  )
   return done
 }
 
@@ -667,42 +757,49 @@ async function renderPdfFirstPage(absPath: string, targetW: number): Promise<Buf
 
 /** 批量补 PDF 页数（probe_info = {"pages":N}，只处理还没有 probe_info 的 pdf 行） */
 export async function ensurePdfMetaForAssets(
-  rows: Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>
+  rows: Array<{ id: number; abs_path: string; ext: string; probe_info: string | null }>,
+  onProgress?: BatchProgress
 ): Promise<number> {
   const db = getDb()
   const upd = db.prepare('UPDATE assets SET probe_info = ? WHERE id = ?')
 
   const pending = rows.filter((r) => r.probe_info === null && isPdf(r.ext))
   let done = 0
-  for (const r of pending) {
-    try {
-      const fs = await import('fs')
-      const data = new Uint8Array(fs.readFileSync(r.abs_path))
-      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-      const loadingTask = pdfjs.getDocument({
-        data,
-        useSystemFonts: false,
-        disableFontFace: true
-      })
-      let pages = 0
+  // pdfjs 在同进程里解析 + 渲染，保持串行（并发 1）—— 内存开销大，并发会顶爆同事机器
+  await runPool(
+    pending,
+    1,
+    async (r) => {
       try {
-        const doc = await loadingTask.promise
-        pages = doc.numPages
-      } finally {
+        const fs = await import('fs')
+        const data = new Uint8Array(fs.readFileSync(r.abs_path))
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+        const loadingTask = pdfjs.getDocument({
+          data,
+          useSystemFonts: false,
+          disableFontFace: true
+        })
+        let pages = 0
         try {
-          void loadingTask.destroy()
-        } catch {
-          /* 忽略 */
+          const doc = await loadingTask.promise
+          pages = doc.numPages
+        } finally {
+          try {
+            void loadingTask.destroy()
+          } catch {
+            /* 忽略 */
+          }
         }
+        if (pages > 0) {
+          upd.run(JSON.stringify({ pages }), r.id)
+          done += 1
+        }
+      } catch {
+        // 单个失败不影响整批
       }
-      if (pages > 0) {
-        upd.run(JSON.stringify({ pages }), r.id)
-        done += 1
-      }
-    } catch {
-      // 单个失败不影响整批
-    }
-  }
+    },
+    onProgress
+  )
   return done
 }
 

@@ -1,5 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { ScanProgress } from '../shared/types'
 
 /**
  * 暴露给界面的接口。约定见方案 6.1：全部走 invoke（ipcMain.handle），
@@ -63,6 +64,15 @@ const api = {
   createPack: (input: { name?: string; projectId?: number | null; category?: string }) =>
     ipcRenderer.invoke('pack:create', input),
   refreshScan: () => ipcRenderer.invoke('scan:refresh'),
+  /**
+   * 第 14 批：刷新扫描的阶段进度推送（主进程 `sender.send`）。
+   * 返回退订函数 —— 组件卸载时必须调用，否则订阅会越积越多。
+   */
+  onScanProgress: (cb: (p: ScanProgress) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, p: ScanProgress): void => cb(p)
+    ipcRenderer.on('scan:progress', handler)
+    return () => ipcRenderer.off('scan:progress', handler)
+  },
 
   // 视图
   listPacks: () => ipcRenderer.invoke('view:packs'),
