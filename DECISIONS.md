@@ -570,3 +570,25 @@
   - `tools/copy-sheet/apply.cjs` 有硬自检「条目总数不变」，只支持**改值**、不支持增删条目。
     本批要新增 8 条（扫描阶段名 + 进度模板）、删除 7 条（状态维度 2 + 状态标签 4 + 备注候选 3），
     故**直接改 `copy.ts`，改完跑 `publish.cjs` 把在线表刷成最新镜像**（链接不变，之后照旧可在表上改文案）
+
+## 2026-10-01（第 15 批·热修：真机装完打不开）
+
+- **事故**：1.3.0 安装包在真机（开发机本人）装完双击无反应——无窗口、无报错框、无 SmartScreen，管理员运行同样死
+  - 诊断路径：bash 直接 exec 全是假复现（沙箱毒环境 + GUI 进程管道问题，exit=1 零输出，一度误导）；
+    真凶靠 `electron .` 裸跑抓到：**GPU 进程访问违例（0xC0000005）反复崩溃 →
+    窗口永远到不了 ready-to-show → Chromium `FATAL: GPU process isn't usable. Goodbye.` 静默退出**
+  - 为什么 10 个场景全绿没拦住：**界面验证壳 `_shotapp` 一直带 `--no-sandbox --disable-gpu
+    --disable-software-rasterizer --in-process-gpu` 跑**，参数恰好绕开了崩溃点——验证环境和真实启动路径不一致，
+    这是本次最大教训
+- **决定：主进程叠加 GPU 三件套开关**（`src/main/index.ts`，必须在 `app.whenReady` 之前）
+  - `disableHardwareAcceleration()`（原有）**不够**——它只关硬件加速，Chromium 照样拉独立 GPU 进程做合成；
+    实测 `disable-gpu` 单独上也不够（GPU 进程仍会起）
+  - 最终配方：`disable-gpu` + `disable-software-rasterizer` + **`in-process-gpu`**（关键第三个，
+    让残余合成逻辑并进主进程，从根上不再起独立 GPU 子进程）
+  - 修后实测：进程稳定存活、窗口正常出现，仅剩无害告警（Failed to create shared context for virtualization）
+- **决定：主进程加 `uncaughtException` 兜底弹框**——以后再出事至少给用户一个可截图的报错框，不再静默退出
+- **决定（用户反馈）：安装器从一键装改为向导装** —— `nsis.oneClick: false` +
+  `allowToChangeInstallationDirectory: true`，用户可以自己选安装位置（`perMachine` 保持 false，不需要管理员）
+- **决定：asar 瘦身** —— 1.3.0 的 app.asar 里混进了 `_junk*` / `accept-result.txt` / `shot-*.txt` /
+  `tools/` / `out/test`（`files: ["**/*"]` 全收的锅）；补 5 条排除规则
+- **版本 1.3.0 → 1.3.1**（约定：同一版本号不能对应两份内容不同的包，1.3.0 已是坏包）

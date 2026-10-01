@@ -14,6 +14,7 @@ accept-result.txt
 accept.cjs
 # 会话临时日志（验收/场景/构建/打包的输出，测试证据但不必入库）
 _junk/
+_junk*.txt
 _shotapp/_userdata
 _shotapp/probe.cjs
 # 场景壳的文案字典桥（run-verify4.cjs 每次跑前自动用 esbuild 从 src/shared/copy.ts 重打）

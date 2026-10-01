@@ -1,5 +1,5 @@
 import { COPY } from '../shared/copy'
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -73,6 +73,31 @@ function createWindow(): void {
 // 禁用 GPU 硬件加速：本工具的缩略图走 sharp（CPU），界面软件渲染足够；
 // 换来的好处是任何显卡驱动有问题的办公机都能稳定启动（演示不翻车）
 app.disableHardwareAcceleration()
+// ⚠️ 仅 disableHardwareAcceleration 不够（1.3.0 真机踩坑，2026-10-01）：
+// 它只关硬件加速，Chromium 照样会拉起独立 GPU 进程做合成；显卡驱动或
+// 安全软件有问题时该进程直接访问违例（0xC0000005）反复崩溃，
+// 窗口永远到不了 ready-to-show，最终 Chromium 打出
+// 「GPU process isn't usable. Goodbye.」静默退出——用户看到的就是「双击没反应」。
+// 实测 disable-gpu 单独上也拦不住（GPU 进程仍会拉起），必须三件套：
+// disable-gpu 彻底不走 GPU；disable-software-rasterizer 关 SwiftShader 兜底；
+// in-process-gpu 让残余合成逻辑并进主进程、不再起独立 GPU 子进程。
+// （界面验证壳 _shotapp 一直带这组参数跑，所以场景全绿而真机裸启动会死。）
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+app.commandLine.appendSwitch('in-process-gpu')
+
+// 主进程兜底：任何未捕获异常至少弹个框，别再「静默退出让用户猜」
+process.on('uncaughtException', (err) => {
+  try {
+    dialog.showErrorBox(
+      `${COPY.app.name} 启动/运行异常`,
+      `软件遇到未处理的错误，请截图反馈：\n\n${String(err && err.stack ? err.stack : err)}`
+    )
+  } catch {
+    // showErrorBox 也不可用时只能放弃，保住退出码
+  }
+  app.exit(1)
+})
 
 // 用户数据目录锁定（B-11）：安装包的显示名会随版本调整（当前「营销中心-素材库」），
 // 而工作区配置就放在 userData/workspace.json 里。目录名一旦跟着产品名变，

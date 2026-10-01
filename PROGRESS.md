@@ -673,6 +673,22 @@
 
 ---
 
+### 2026-10-01（第 20 次会话）—— 第 15 批热修：1.3.0 真机装完打不开（GPU 进程崩溃）+ 安装器可选目录
+
+- **起因（用户装机实测报障）**：① 安装过程不让选安装位置；② 装完桌面快捷方式双击**打不开**——无窗口、无报错框、无 SmartScreen，管理员运行同样死
+- **做了什么**：
+  - **诊断**（走了弯路）：bash 直接 exec 安装版 exe 全是假复现（exit=1 零输出，沙箱毒环境干扰）；真凶用开发 electron 裸跑 `electron .` 抓到——**GPU 进程访问违例（0xC0000005）反复崩溃 → 窗口到不了 ready-to-show → Chromium `FATAL: GPU process isn't usable. Goodbye.` 静默退出**。10 个场景没拦住的原因：验证壳 `_shotapp` 一直带 `--no-sandbox --disable-gpu --disable-software-rasterizer --in-process-gpu`，恰好绕开崩溃点——**验证环境与真实启动路径不一致，本批最大教训**
+  - **修复**：`src/main/index.ts` 在 `whenReady` 前叠 GPU 三件套（`disable-gpu` + `disable-software-rasterizer` + **`in-process-gpu`**，实测第三个才是关键——`disableHardwareAcceleration` 和单独 `disable-gpu` 都拦不住 GPU 子进程拉起）；另加 `uncaughtException` 兜底弹框（以后出错至少给用户一个能截图的框）。修后实测：进程稳定、**窗口正常出现（标题「营销中心-素材库」）**，仅剩无害告警
+  - **安装器改向导装**：`nsis.oneClick: false` + `allowToChangeInstallationDirectory: true`（用户反馈①）
+  - **asar 瘦身**：排除 `_junk*` / `accept-result.txt` / `shot-*.txt` / `tools/` / `out/test`（1.3.0 全收进去了）
+  - **版本 1.3.0 → 1.3.1**（1.3.0 是坏包，同版本号不能对应两份内容）
+- **改了哪些文件**：`src/main/index.ts`、`package.json`（nsis 配置 + files 排除 + 版本号）、`DECISIONS.md`（第 15 批）、`NEXT.md`、`README.md`、本文件
+- **验收结果**：typecheck 0 错；accept **664 项全过**（重打三 bundle 后）；GPU 修复经 `electron .` 裸跑验证窗口出现
+- **出包**：`D:\_accept_ws\rel_out\v1.3.1\营销中心-素材库-1.3.1-安装包.exe`（向导式安装、可选目录、未签名）
+- **下一步**：用户重新安装 1.3.1 实测（先卸载 1.3.0 更干净）；装机说明补一句：本包未签名，同事首次运行弹 SmartScreen 时点「更多信息 → 仍要运行」
+
+---
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）
