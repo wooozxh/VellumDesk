@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { COPY, fmt } from '../../../shared/copy'
-import type { TicketDetail as TicketDetailT } from '../types'
+import type { TicketAssignInfo, TicketDetail as TicketDetailT } from '../types'
 import { Icon } from './Icon'
 
 /**
@@ -8,6 +8,10 @@ import { Icon } from './Icon'
  * 字段分三段：基本信息（自动同步的）/ 印刷专属（只有印刷单有）/ 关联任务卡。
  * 「打开审批（含附件）」跳浏览器 —— 一期不做附件下载，附件在审批详情页看（§1 实探结论 5）。
  * 历史单 / 项目未匹配的单给「建任务」手动兜底按钮（§2.2③）。
+ *
+ * 第 17 批（docs/19 §4）：顶部「指派设计师」区 —— 本机开关开的机器可选人指派
+ * （选定即存 → 异步写回企微表 → 通知设计师）；开关没开只读提示。改派走同一个下拉。
+ * 「在表格中打开」是逃生口：写回失败 / 权限不足 / CLI 不在时随时退回手工改表。
  */
 export function TicketDetailModal({
   ticketNo,
@@ -22,6 +26,16 @@ export function TicketDetailModal({
 }): React.JSX.Element {
   const [d, setD] = useState<TicketDetailT | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 第 17 批：指派区原料（开关 / 列可用性 / 候选池 / 表格链接） */
+  const [assignInfo, setAssignInfo] = useState<TicketAssignInfo | null>(null)
+  const [assigning, setAssigning] = useState(false)
+
+  useEffect(() => {
+    void window.api
+      .ticketAssignInfo()
+      .then((r) => setAssignInfo(r))
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async (): Promise<void> => {
     const r = await window.api.ticketDetail(ticketNo)
@@ -54,6 +68,28 @@ export function TicketDetailModal({
     } finally {
       setBusy(false)
     }
+  }
+
+  /** 第 17 批（docs/19 §4）：选定即存（无确认弹窗，§10 #8）——下拉本身就是明确选择 */
+  const doAssign = async (userid: string, name: string): Promise<void> => {
+    if (assigning) return
+    setAssigning(true)
+    try {
+      const r = await window.api.ticketAssignDesigner({ ticketNo, userid, name })
+      if (r.msg) onToast?.(r.msg)
+      else if (!r.ok) onToast?.(fmt(COPY.ticket.assignFailed, { msg: r.writeError ?? '' }))
+      await load()
+      await onChanged?.()
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  /** 第 17 批：逃生口 —— 在表格中打开（写回失败 / 权限不足时退回手工改表） */
+  const openTable = async (): Promise<void> => {
+    const url = assignInfo?.tableUrl ?? ''
+    if (!/^https?:\/\//i.test(url)) return
+    await window.api.ticketOpenApproval(url)
   }
 
   const row = (label: string, v: string | number | null | undefined): React.JSX.Element | null =>
@@ -94,6 +130,52 @@ export function TicketDetailModal({
               )}
               {d.rowGone && <span className="tk-dim">{COPY.ticket.rowGoneLabel}</span>}
             </div>
+
+            {/* 第 17 批（docs/19 §4）：指派设计师区。历史/待确认/已删行的单不给入口；
+                开关没开的机器只读提示「等待指派」；改派走同一个下拉（§4 末条） */}
+            {(!d.designerName || assignInfo?.allow) &&
+              !d.isHistory &&
+              !d.needConfirm &&
+              !d.rowGone && (
+                <div className="tk-assign">
+                  <span className="k">{COPY.ticket.assignSection}</span>
+                  {assignInfo === null ? (
+                    <span className="tk-dim">{COPY.common.loading}</span>
+                  ) : !assignInfo.allow ? (
+                    <span className="tk-dim">{COPY.ticket.assignNotAllowed}</span>
+                  ) : !assignInfo.designerColOk ? (
+                    <span className="tk-warn">{COPY.ticket.assignColBad}</span>
+                  ) : (
+                    <span className="tk-assign-pick">
+                      <select
+                        disabled={assigning}
+                        onChange={(e) => {
+                          const c = assignInfo.candidates.find(
+                            (x) => x.userid === e.target.value
+                          )
+                          if (c) void doAssign(c.userid, c.name)
+                          e.currentTarget.value = ''
+                        }}
+                      >
+                        {/* 第一项是占位/当前值：选完人它显示新设计师；改派 = 换个人选 */}
+                        <option value="">
+                          {assigning
+                            ? COPY.common.saving
+                            : (d.designerName ?? COPY.ticket.assignPlaceholder)}
+                        </option>
+                        {assignInfo.candidates.map((c) => (
+                          <option key={c.userid} value={c.userid}>
+                            {c.name}（{fmt(COPY.ticket.assignBusyLabel, { n: c.activeCount })}）
+                          </option>
+                        ))}
+                      </select>
+                      {assignInfo.candidates.length === 0 && (
+                        <span className="tk-dim">{COPY.ticket.assignEmptyHint}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
 
             <h4>{COPY.ticket.basicSection}</h4>
             <div className="tk-fields">
@@ -176,6 +258,12 @@ export function TicketDetailModal({
             )}
 
             <div className="tk-actions">
+              {/* 第 17 批：逃生口 —— 写回失败/权限不足/CLI 不在时退回手工改表（docs/19 §2） */}
+              {assignInfo?.tableUrl && (
+                <button className="btn" onClick={() => void openTable()}>
+                  {COPY.ticket.openTable}
+                </button>
+              )}
               <button
                 className="btn"
                 onClick={() => void openApproval()}

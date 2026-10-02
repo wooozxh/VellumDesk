@@ -832,6 +832,59 @@ export const COPY = {
     rowGoneLabel: '已不在表中',
     dupWarnLabel: '编号重复',
     pendingLabel: '待确认',
-    projectMismatchLabel: '项目未匹配'
+    projectMismatchLabel: '项目未匹配',
+    /* ---- 第 17 批：设计师指派（docs/19） ---- */
+    /** 待指派徽标（顶栏工单格角标 + 悬停提示） */
+    badgeUnassigned: '待指派 {n}',
+    /** 同步后视图头部的提示条 */
+    newUnassignedHint: '本轮同步新增 {n} 张未指派工单',
+    /** 提示条上的「去指派」按钮 */
+    goAssign: '去指派',
+    /** 同步 toast 里补的待指派数 */
+    syncDoneAssign: '待指派 {n}',
+    /** 详情弹窗的指派区标题 */
+    assignSection: '指派设计师',
+    /** 指派下拉的占位 */
+    assignPlaceholder: '选择设计师…',
+    /** 候选池空态提示 */
+    assignEmptyHint: '候选设计师为空：先在表格里填一次设计师，软件会记住',
+    /** 候选项的「在办 N 单」标注 */
+    assignBusyLabel: '在办 {n} 单',
+    /** 已指派 + 通知送达 */
+    assignOkNotified: '已指派给 {name}，已发送通知',
+    /** 已指派 + 通知发不出去 */
+    assignOkNotifyFailed: '已指派给 {name}，通知未送达（可在企微里直接转告）',
+    /** 已指派 + 写回失败（保 pending，下次同步补写） */
+    assignOkWriteFailed: '已指派给 {name}，写回表格失败：{msg}（下次同步自动补写，也可在表格中手动改）',
+    /** 指派被拒（状态门槛） */
+    assignFailed: '指派失败：{msg}',
+    /** 本机开关未开时的只读提示 */
+    assignNotAllowed: '等待指派（在工单设置里开启「允许在本机指派设计师」后可指派）',
+    /** 历史单不能指派 */
+    assignHistoryHint: '历史单请在表格中指派',
+    /** 待确认单不能指派 */
+    assignPendingHint: '待确认单放行后才能指派',
+    /** 已删行的单不能指派 */
+    assignRowGoneHint: '该单已不在表中，无法指派',
+    /** 设计师列缺失/不是成员类型 */
+    assignColBad: '表格里的「设计师」列不可用（缺失或被改名），请检查表格',
+    /** 引擎兜底：工单不存在 */
+    assignTicketMissing: '工单不存在（可能已被清理，刷新工单列表看看）',
+    /** 引擎兜底：record_id / sheet_id 缺失 */
+    assignNoRecordId: '该单缺少表格记录标识（重新同步一次可修复）',
+    /** 补写失败的单条警告 */
+    assignWriteRetryItem: '工单 {no} 写回失败：{msg}',
+    /** 同步后补写结果（拼进 toast） */
+    writeBackRetryInfo: '写回补写：成功 {ok} · 失败 {fail}（失败的单将在下次同步继续重试）',
+    /** 指派通知的消息模板（发给设计师的企微消息） */
+    notifyTemplate: '新工单：{title}（{project}），期望 {due}，请查收',
+    /** 交期为空时的兜底词 */
+    notifyDueEmpty: '尽快',
+    /** 工单设置：允许指派开关 */
+    allowAssignLabel: '允许在本机指派设计师',
+    /** 开关说明 */
+    allowAssignHint: '开启后可在工单详情里指派设计师并写回企微表格（需要表格可编辑权限）',
+    /** 详情弹窗「在表格中打开」逃生口 */
+    openTable: '在表格中打开'
   }
 } as const

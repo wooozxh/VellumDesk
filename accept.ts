@@ -89,6 +89,17 @@ import {
   takeLink,
   META_KEYS,
   writeTicketSheets,
+  // 第 17 批：设计师指派（docs/19）
+  allowAssignEnabled,
+  designerColName,
+  designerColUsable,
+  evaluateDesignerCol,
+  executeAssignDesigner,
+  listDesignerCandidates,
+  retryPendingDesignerWrites,
+  setAllowAssignEnabled,
+  unassignedTicketCount,
+  type DesignerWriteAdapter,
   type SheetPayload,
   type TicketRawRecord,
   type TicketSheetConfig
@@ -3829,7 +3840,252 @@ async function main(): Promise<void> {
   closeDb()
   hardRm(p15Root)
 
-  // ============ 汇总 ============
+  // ============ 第 17 批 T-01：迁移 13（方案 19 §8，指派四列） ============
+  log('\n[32] 第 17 批：迁移 13 —— tickets 指派四列（designer_write_pending / assigned_by / assigned_at / notify_state）')
+  {
+    const aRoot = join('D:\\_accept_ws', `wstest17a_${RUN_ID}`)
+    const aWs = join(aRoot, 'ws')
+    hardRm(aRoot)
+    mkdirSync(aWs, { recursive: true })
+    closeDb()
+    openDb(aWs)
+    initWorkspace(aWs)
+
+    const aCols = getDb().prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+    for (const c of ['designer_write_pending', 'assigned_by', 'assigned_at', 'notify_state']) {
+      ok(aCols.some((x) => x.name === c), `tickets 表有 ${c} 列（迁移 13 幂等补列）`)
+    }
+    const pendCol = aCols.find((x) => x.name === 'designer_write_pending') as
+      | { name: string; dflt_value: string | null }
+      | undefined
+    ok(!!pendCol && pendCol.dflt_value === '0', 'designer_write_pending 默认 0（老库行为不变）')
+
+    closeDb()
+    hardRm(aRoot)
+  }
+
+  // ============ 第 17 批 T-02：指派引擎（docs/19 §4~§6，写回适配器全部喂 mock） ============
+  log('\n[33] 第 17 批：指派引擎（本地即时 / pending / 写回 / 冲突三态 / 补写 / 通知 / 候选池 / 计数）')
+  {
+    const bRoot = join('D:\\_accept_ws', `wstest17b_${RUN_ID}`)
+    const bWs = join(bRoot, 'ws')
+    hardRm(bRoot)
+    mkdirSync(bWs, { recursive: true })
+    closeDb()
+    openDb(bWs)
+    initWorkspace(bWs)
+
+    /** mock 适配器：写回成败可编程，通知内容留底 */
+    let writeShouldOk = true
+    let notifyShouldOk = true
+    const writtenRows: Array<{ record_id: string; sheet_id: string; userid: string }> = []
+    const notified: Array<{ userid: string; content: string }> = []
+    const mockAdapter: DesignerWriteAdapter = {
+      updateDesigner: async (record_id, sheet_id, designer_userid) => {
+        if (!writeShouldOk) return { ok: false, error: 'MOCK_WRITE_FAIL' }
+        writtenRows.push({ record_id, sheet_id, userid: designer_userid })
+        return { ok: true }
+      },
+      notify: async (userid, content) => {
+        if (!notifyShouldOk) return { ok: false, error: 'MOCK_NOTIFY_FAIL' }
+        notified.push({ userid, content })
+        return { ok: true }
+      }
+    }
+
+    const bRec = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        业务归属: [{ text: '工单测试项目' }],
+        ...over
+      }
+    })
+    const bPayload = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheetP',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const bIdentity = { userid: 'uME', name: '本机测试员' }
+    const bTicket = (no: string): Record<string, unknown> =>
+      getDb().prepare('SELECT * FROM tickets WHERE ticket_no = ?').get(no) as Record<string, unknown>
+
+    /**
+     * 全量同步助手：删行判定是「本次批里没有 → row_gone」（§4.2 步骤5），
+     * 所以每轮同步都必须带上**全部活着的记录** —— live 集维护当前全量。
+     */
+    const live = new Map<string, TicketRawRecord>()
+    const put = (no: string, over: Record<string, unknown> = {}): void => {
+      live.set(no, bRec(no, over))
+    }
+    const syncAll = (structureChanged = false) =>
+      applySync({
+        payloads: [bPayload([...live.values()])],
+        structureChanged,
+        identity: bIdentity,
+        workspaceRoot: bWs
+      })
+
+    createProject({ name: '工单测试项目', workspaceRoot: bWs })
+    // 首次同步快照：3 张历史（其中 A1 已派设计师 uOLD —— 候选池种子）
+    put('A1', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
+    put('A2', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    put('A3')
+    syncAll()
+
+    // ---- (1) 候选池：历史工单设计师去重 + 在办计数 ----
+    put('B1')
+    put('B2')
+    syncAll()
+    // B3 派给本机、已通过 → 建了任务 = 在办 1 张（A2 是历史单不算在办）
+    put('B3', { 设计师: [{ userId: 'uME', userName: '本机测试员' }], 当前审批状态: [{ text: '已通过' }] })
+    syncAll()
+    const cands = listDesignerCandidates()
+    ok(cands.length === 2, `候选池 = 历史设计师去重（2 人，实际 ${cands.length}）`)
+    const candOld = cands.find((c) => c.userid === 'uOLD')
+    const candMe = cands.find((c) => c.userid === 'uME')
+    ok(!!candOld && candOld.name === '老设计师', '历史单的设计师也在候选池（历史派过活的人就是候选）')
+    ok(!!candMe && candMe.activeCount === 1, `在办计数只算活跃单（uME 在办 1，实际 ${candMe?.activeCount}）`)
+    ok(!!candOld && candOld.activeCount === 0, '历史单不算在办（uOLD 在办 0）')
+
+    // ---- (2) 本机开关：默认关，读写可切 ----
+    ok(allowAssignEnabled() === false, '「允许在本机指派」默认关（docs/19 §10 #3）')
+    setAllowAssignEnabled(true)
+    ok(allowAssignEnabled() === true, '开关可开（meta 落库）')
+    setAllowAssignEnabled(false)
+
+    // ---- (3) 指派本地即时生效 + pending + 留痕 + 通知 ----
+    writeShouldOk = true
+    notifyShouldOk = true
+    const ar1 = await executeAssignDesigner('B1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const tB1 = bTicket('B1')
+    ok(ar1.ok && tB1.designer_userid === 'uOLD' && tB1.designer_name === '老设计师', '指派本地即时生效（不等写回）')
+    ok(tB1.designer_write_pending === 0, '写回成功 → pending 已清')
+    ok(tB1.assigned_by === 'uME' && !!tB1.assigned_at, '留痕：谁派的 / 什么时候派的（assigned_by / assigned_at）')
+    ok(ar1.notifyState === 'sent' && notified.length === 1, '写回成功后通知设计师（notify_state=sent）')
+    ok(
+      notified[0]?.userid === 'uOLD' && notified[0]?.content.includes('物料-B1') && notified[0]?.content.includes('工单测试项目'),
+      `通知内容走模板（标题+项目）：${notified[0]?.content ?? '—'}`
+    )
+    ok(writtenRows[0]?.record_id === 'rec_B1' && writtenRows[0]?.userid === 'uOLD', '写回拿到了 record_id + userid')
+    // 通知防重复：再补写一次（pending 已清不会触发）→ notified 不涨
+    await retryPendingDesignerWrites(mockAdapter)
+    ok(notified.length === 1, 'notify_state=sent 防重复推送（补写不再通知）')
+
+    // ---- (4) 写回失败：保 pending + 同步不被表值覆盖 + 下次同步自动补写 ----
+    writeShouldOk = false
+    const ar2 = await executeAssignDesigner('B2', 'uOLD', '老设计师', mockAdapter, 'uME')
+    ok(ar2.ok && ar2.writeOk === false, '写回失败不回滚指派（本地已生效）')
+    ok(bTicket('B2').designer_write_pending === 1, '写回失败 → pending 保住（数据不丢）')
+    // 同步时表里设计师是别人（uME）≠ 本地 pending 值（uOLD）→ 本地守住不被覆盖（冲突三态之二）
+    put('B2', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    syncAll()
+    ok(
+      bTicket('B2').designer_write_pending === 1 && bTicket('B2').designer_userid === 'uOLD',
+      '有 pending 时本地守住不被表值覆盖（我改的还没写出去，覆盖等于白改）'
+    )
+    writeShouldOk = true
+    const retry1 = await retryPendingDesignerWrites(mockAdapter)
+    ok(retry1.retried === 1 && retry1.succeeded === 1, '下次同步自动补写成功（B2）')
+    ok(bTicket('B2').designer_write_pending === 0, '补写成功 → pending 清掉')
+    // 收敛：表值同步回本地，两边一致
+    put('B2', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
+    syncAll()
+    ok(bTicket('B2').designer_name === '老设计师' && bTicket('B2').designer_write_pending === 0, '冲突三态收敛：写回成功后表值=本地值')
+
+    // ---- (5) 冲突三态之一：无 pending → 采纳表值 ----
+    put('B2', { 设计师: [{ userId: 'uOTHER', userName: '表格里改的人' }] })
+    syncAll()
+    ok(
+      bTicket('B2').designer_userid === 'uOTHER' && bTicket('B2').designer_name === '表格里改的人',
+      '无 pending 时采纳表值（别的机器/表格里改的，表是权威）'
+    )
+
+    // ---- (6) 指派给本机身份 → 下轮同步自动建任务（复用一期条件链，零分支） ----
+    const ar3b = await executeAssignDesigner('B1', 'uME', '本机测试员', mockAdapter, 'uME')
+    ok(ar3b.ok && bTicket('B1').designer_userid === 'uME', '把 B1 改派给本机身份（改派走同一管路）')
+    put('B1', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    const sB1 = syncAll()
+    ok(sB1.tasksCreated === 1 && bTicket('B1').pack_id !== null, '指派给本机身份 → 下轮同步自动建出任务（条件链零改动）')
+    // 指派给他人 → 不建任务
+    writeShouldOk = true
+    await executeAssignDesigner('B2', 'uOLD', '老设计师', mockAdapter, 'uME')
+    put('B2', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
+    syncAll()
+    ok(bTicket('B2').pack_id === null, '指派给别人 → 本机不建任务（他的机器同步到自会建）')
+
+    // ---- (7) 状态门槛：待确认 / 已删行 / 历史单不可指派 ----
+    put('C1', { 设计师: [] })
+    syncAll()
+    getDb().prepare('UPDATE tickets SET need_confirm = 1 WHERE ticket_no = ?').run('C1')
+    const arC1 = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    ok(!arC1.ok && arC1.msg === '待确认单放行后才能指派', '待确认单不能指派（record_id 可能未放行）')
+    getDb().prepare('UPDATE tickets SET need_confirm = 0, row_gone = 1 WHERE ticket_no = ?').run('C1')
+    const arC1b = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    ok(!arC1b.ok && arC1b.msg === '该单已不在表中，无法指派', '已删行（row_gone）不能指派（record_id 已失效，写也白写）')
+    const arA3 = await executeAssignDesigner('A3', 'uOLD', '老设计师', mockAdapter, 'uME')
+    ok(!arA3.ok && arA3.msg === '历史单请在表格中指派', '历史单不能指派（§10 #7 默认拍板）')
+
+    // ---- (8) 通知失败不阻断指派 ----
+    notifyShouldOk = false
+    writeShouldOk = true
+    getDb().prepare('UPDATE tickets SET row_gone = 0 WHERE ticket_no = ?').run('C1')
+    const arC2 = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    ok(arC2.ok && arC2.writeOk === true && arC2.notifyState === 'failed', '通知发不出去：指派与写回照常完成（不阻断）')
+    ok(bTicket('C1').notify_state === 'failed', '通知失败留痕 notify_state=failed')
+
+    // ---- (9) 设计师列可用性：列缺失 → 指派拒绝（降级不崩） ----
+    setMeta(META_KEYS.designerOk, '0')
+    ok(designerColUsable() === false, '同步检测到列缺失 → designerColUsable=false')
+    const arC3 = await executeAssignDesigner('B2', 'uME', '本机测试员', mockAdapter, 'uME')
+    ok(!arC3.ok, '列不可用时指派被拒（入口置灰的后端兜底）')
+    setMeta(META_KEYS.designerOk, '1')
+    // evaluateDesignerCol：按 sheets list 的 fields 判定
+    evaluateDesignerCol([{ sheet_id: 'sheetP', title: 'x' }], {
+      sheetP: [{ field_title: '设计师', field_type: 'user' }]
+    })
+    ok(designerColUsable() === true, 'evaluateDesignerCol：列在且是 user 类型 → 可用')
+    evaluateDesignerCol([{ sheet_id: 'sheetP', title: 'x' }], {
+      sheetP: [{ field_title: '#设计师', field_type: 'user' }]
+    })
+    ok(designerColUsable() === false, 'evaluateDesignerCol：列被改名（# 前缀隐身）→ 不可用')
+    evaluateDesignerCol([{ sheet_id: 'sheetP', title: 'x' }], {
+      sheetP: [{ field_title: '设计师', field_type: 'text' }]
+    })
+    ok(designerColUsable() === false, 'evaluateDesignerCol：列在但不是成员类型 → 不可用')
+    // 列名 meta：读写同源
+    setMeta(META_KEYS.designerCol, '设计负责人')
+    ok(designerColName() === '设计负责人', '设计师列名走 meta 配置（改名只改这一处）')
+    setMeta(META_KEYS.designerCol, '')
+    setMeta(META_KEYS.designerOk, '1') // 复位（最后一条评估把状态留在了 0）
+
+    // ---- (10) newUnassigned 计数 + 未指派存量 ----
+    put('D1', { 设计师: [] })
+    put('D2', { 设计师: [] })
+    put('D3', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    const sN = syncAll()
+    ok(sN.newUnassigned === 2, `本轮新增未指派计数（2 张新单没派，实际 ${sN.newUnassigned}）`)
+    put('D9', { 设计师: [] })
+    const sN2 = syncAll()
+    ok(sN2.newUnassigned === 1, '非首同步的新未指派单照常计数')
+    const cnt = unassignedTicketCount()
+    ok(cnt >= 2, `未指派存量数（顶栏徽标口径 = 未指派筛选，≥2，实际 ${cnt}）`)
+
+    // ---- (11) 写回补写失败也要有错误清单 ----
+    writeShouldOk = false
+    await executeAssignDesigner('D1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const retryFail = await retryPendingDesignerWrites(mockAdapter)
+    ok(retryFail.retried === 1 && retryFail.failed === 1 && retryFail.errors.length === 1, '补写失败返回错误清单（界面拼警告）')
+    ok(bTicket('D1').designer_write_pending === 1, '补写失败 → pending 继续（下次同步再试）')
+
+    closeDb()
+    hardRm(bRoot)
+  }
+
+// ============ 汇总 ============
   log('\n' + '='.repeat(62))
   log(failed === 0 ? `全部通过 ✅  共 ${lines.filter((l) => l.includes('[OK]') || l.includes('[FAIL]')).length} 项断言` : `有 ${failed} 项失败 ❌`)
   log('='.repeat(62))

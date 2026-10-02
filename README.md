@@ -16,7 +16,7 @@
 |---|---|---|
 | `main` | 第 1~10 批（= 标签 `v1.1.0` = `f20fa3d`） | **已封存，不许动**；1.1.0 安装包已发同事 |
 | `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被 `TM` 的 1.3.0 包取代） |
-| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包** | **当前分支**；版本 **1.3.2**；accept 671 项 + 10 场景全绿 |
+| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（未指派提示 + 软件内指派写回企微表 + 机器人通知，方案 `docs/19`） | **当前分支**；版本 **1.4.0**；accept 715 项 + 11 场景全绿 |
 
 - **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
 - 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
@@ -79,7 +79,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 671 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 715 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -90,7 +90,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs tagcount          # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
-NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5 交付打包（包详情 → 打包交付 → 生成 zip，第 16 批）
 ```
 
@@ -132,10 +132,10 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 
 ## 改文案（文案字典 + 在线表格）
 
-全软件 **505 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
+全软件 **637 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
 
 - 表：**素材管家 · 文案清单** → https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD
-  （`1-界面文案` 483 条 / `2-默认数据` 22 条，`改成（你填这列）` **留空 = 不改**）
+  （`1-界面文案` 607 条 / `2-默认数据` 30 条，`改成（你填这列）` **留空 = 不改**）
 - 完整流程与脚本说明：**`tools/copy-sheet/README.md`**
 - 一句话流程：**表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`**
   （`publish.cjs` 把 `copy.ts` 刷回同一张表、清空「改成」列，**链接不变可反复改**）

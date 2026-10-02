@@ -2376,7 +2376,11 @@ app.whenReady().then(async () => {
       })()`)
 
     // (1) 顶栏出现第三格「工单」，点进去
-    const tabOk = await pickSideItem(COPY.ticket.viewTab, '.tabs button')
+    // ⚠️ 第 17 批起这颗按钮里可能带「待指派 N」徽标（innerText 变成「工单1」），
+    // 全等匹配会点不进去 —— 用前缀匹配（clickByText 的全等是给别的场景用的，不动）
+    const tabOk = await js(
+      `(() => { const b = [...document.querySelectorAll('.tabs button')].find(x => x.innerText.trim().startsWith(${JSON.stringify(COPY.ticket.viewTab)})); if (b) { b.click(); return 'ok' } return 'no-el' })()`
+    )
     ok(tabOk === 'ok', `顶栏第三格「${COPY.ticket.viewTab}」出现了`)
     await wait(1200)
 
@@ -2447,6 +2451,78 @@ app.whenReady().then(async () => {
     await shot('shot-b13-4-detail.png')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(600)
+
+    // (7) 第 17 批：顶栏「工单」格待指派徽标（种子 1 张未指派 → 徽标 1）
+    const badge = await js(
+      `(() => { const b = document.querySelector('.tabs .tab-badge'); return b ? b.innerText.trim() : '' })()`
+    )
+    ok(badge === '1', `顶栏待指派徽标显示存量 1（实际「${badge}」）`)
+
+    // (8) 第 17 批：配置态有设置入口（齿轮）→ 开关默认关 → 未指派详情只读提示
+    const gearBtn = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => (x.getAttribute('title')||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)})); return b ? 'ok' : 'no' })()`
+    )
+    ok(gearBtn === 'ok', '配置态工具栏有「工单同步设置」入口（齿轮）')
+    await clickChip(COPY.ticket.filterAll)
+    await js(
+      `(() => { const r = [...document.querySelectorAll('.tk-list .tk-row')].find(x => x.innerText.includes('202610010005')); if (r) r.click(); return r ? 'ok' : 'no-row' })()`
+    )
+    await wait(900)
+    const assignRo = await js(
+      `(() => { const a = document.querySelector('.tk-assign'); if (!a) return null; return { k: ((a.querySelector('.k')||{}).innerText||'').trim(), ro: ((a.querySelector('.tk-dim')||{}).innerText||'').trim() } })()`
+    )
+    ok(
+      !!assignRo && assignRo.k === plain(COPY.ticket.assignSection),
+      `未指派单详情出现「${COPY.ticket.assignSection}」区`
+    )
+    ok(
+      !!assignRo && assignRo.ro.includes(COPY.ticket.assignNotAllowed.split('（')[0].slice(0, 4)),
+      `开关未开 → 只读提示「等待指派」（${assignRo ? assignRo.ro : '—'}）`
+    )
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+
+    // (9) 第 17 批：设置弹窗里开「允许在本机指派设计师」
+    await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => (x.getAttribute('title')||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)})); if (b) b.click(); return 'ok' })()`
+    )
+    await wait(700)
+    const swBefore = await js(`(() => { const c = document.querySelector('.tk-allowassign input'); return c ? c.checked : null })()`)
+    ok(swBefore === false, '「允许在本机指派设计师」开关默认关')
+    await js(`(() => { const c = document.querySelector('.tk-allowassign input'); if (c) c.click(); return 'ok' })()`)
+    await wait(700)
+    const swAfter = await js(`(() => { const c = document.querySelector('.tk-allowassign input'); return c ? c.checked : null })()`)
+    ok(swAfter === true, '开关点开即存（meta 落库）')
+    await shot('shot-b17-1-settings-switch.png')
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+
+    // (10) 第 17 批：开关开了 → 未指派详情有指派下拉（候选 + 在办标注）+「在表格中打开」逃生口
+    // ⚠️ 这里只验证形态，不真选人 —— 选人会走真写回（wecom-cli），真企微不进自动测试
+    //（写回链路的全部行为由 accept 的 mock 适配器断言盖住，人工验收盖真表）
+    await js(
+      `(() => { const r = [...document.querySelectorAll('.tk-list .tk-row')].find(x => x.innerText.includes('202610010005')); if (r) r.click(); return 'ok' })()`
+    )
+    await wait(900)
+    const assignUi = await js(
+      `(() => { const a = document.querySelector('.tk-assign'); if (!a) return null; const sel = a.querySelector('select'); return { k: ((a.querySelector('.k')||{}).innerText||'').trim(), hasSelect: !!sel, options: sel ? sel.options.length : 0, optText: sel ? [...sel.options].map(o => o.innerText).join(' | ') : '' } })()`
+    )
+    ok(!!assignUi && assignUi.hasSelect, '开关开了 → 指派下拉出现')
+    ok(
+      !!assignUi && assignUi.options === 3,
+      `候选池 2 人 + 1 占位项（实际 ${assignUi ? assignUi.options : 0}：${assignUi ? assignUi.optText : '—'}）`
+    )
+    ok(
+      !!assignUi && assignUi.optText.includes(COPY.ticket.assignBusyLabel.split('{n}')[0]),
+      '候选项带「在办 N 单」标注（辅助判断谁有空，不替人派）'
+    )
+    const openTableBtn = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-actions .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.openTable)})); return b ? 'ok' : 'no' })()`
+    )
+    ok(openTableBtn === 'ok', `「${COPY.ticket.openTable}」逃生口在（写回失败时退回手工改表）`)
+    await shot('shot-b17-2-assign.png')
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
   } else if (SCEN === 'export') {
     // ============================================================
     // 第 16 批：M5 交付打包（包详情 → 打包交付 → 生成 zip）

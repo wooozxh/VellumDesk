@@ -117,6 +117,16 @@ export default function App(): React.JSX.Element {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
 
+  // ---- 第 17 批（docs/19 §3）：顶栏「工单」格的待指派徽标（存量常显）----
+  const [tkUnassigned, setTkUnassigned] = useState(0)
+  useEffect(() => {
+    // 启动时拉一次；之后由 TicketsView 在每次同步/加载后回调刷新（onUnassignedCount）
+    void window.api
+      .ticketUnassignedCount()
+      .then((n) => setTkUnassigned(n))
+      .catch(() => {})
+  }, [])
+
   const toastId = useRef(0)
   const toast = useCallback((text: string, kind: 'ok' | 'err' | 'info' = 'info'): void => {
     const id = ++toastId.current
@@ -853,6 +863,11 @@ export default function App(): React.JSX.Element {
           <button className={view === 'tickets' ? 'on' : ''} onClick={() => setView('tickets')}>
 
             {COPY.ticket.viewTab}
+            {tkUnassigned > 0 && (
+              <span className="tab-badge" title={fmt(COPY.ticket.badgeUnassigned, { n: tkUnassigned })}>
+                {tkUnassigned}
+              </span>
+            )}
           </button>
         </div>
 
@@ -894,7 +909,10 @@ export default function App(): React.JSX.Element {
         {/* 第 13 批：工单视图独占主体（自带筛选与同步，不复用左栏） */}
         {view === 'tickets' ? (
           <div className="main tk-main">
-            <TicketsView onToast={(m) => toast(m)} />
+            <TicketsView
+              onToast={(m) => toast(m)}
+              onUnassignedCount={(n) => setTkUnassigned(n)}
+            />
           </div>
         ) : (
           <>

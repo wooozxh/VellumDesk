@@ -122,13 +122,23 @@ export async function fetchIdentity(): Promise<CliResult<WecomIdentity>> {
 
 // ============================================================ 子表清单
 
+export interface WecomFieldRef {
+  field_title: string
+  field_type: string
+}
+
 export interface SheetsInfo {
   docName: string | null
   sheets: WecomSheetRef[]
+  /** 第 17 批（docs/19 §7）：各子表的列清单 —— 用于检测「设计师」成员列在不在/是不是 user 类型 */
+  fieldsBySheet?: Record<string, WecomFieldRef[]>
 }
 
 export async function fetchSheets(docid: string): Promise<CliResult<SheetsInfo>> {
-  const r = await runCliJson<{ name?: string; sheets?: Array<{ sheet_id: string; title: string }> }>([
+  const r = await runCliJson<{
+    name?: string
+    sheets?: Array<{ sheet_id: string; title: string; fields?: Array<{ field_title: string; field_type: string }> }>
+  }>([
     'smartsheet',
     'sheets',
     'list',
@@ -136,12 +146,20 @@ export async function fetchSheets(docid: string): Promise<CliResult<SheetsInfo>>
     JSON.stringify({ docid })
   ])
   if (!r.ok || !r.data) return { ok: false, kind: r.kind ?? 'unknown', error: r.error }
+  const fieldsBySheet: Record<string, WecomFieldRef[]> = {}
+  const sheets: WecomSheetRef[] = []
+  for (const s of r.data.sheets ?? []) {
+    sheets.push({ sheet_id: s.sheet_id, title: s.title })
+    if (Array.isArray(s.fields)) {
+      fieldsBySheet[s.sheet_id] = s.fields.map((f) => ({
+        field_title: f.field_title,
+        field_type: f.field_type
+      }))
+    }
+  }
   return {
     ok: true,
-    data: {
-      docName: r.data.name ?? null,
-      sheets: (r.data.sheets ?? []).map((s) => ({ sheet_id: s.sheet_id, title: s.title }))
-    }
+    data: { docName: r.data.name ?? null, sheets, fieldsBySheet }
   }
 }
 
@@ -187,4 +205,78 @@ export async function fetchSheetRecords(
     cursor = next
   }
   return { ok: true, data: { sheet_id, title, type, records } }
+}
+
+// ============================================================ 写回（第 17 批 docs/19，真表实探钉死）
+
+/** 一次写回的入参：值按「列名 → 企微原生结构」传（成员列 = [{userId}] 嵌套对象数组） */
+export interface UpdateRecordsInput {
+  docid: string
+  sheet_id: string
+  records: Array<{ record_id: string; values: Record<string, unknown> }>
+}
+
+/**
+ * 批量更新智能表格记录（一次只写几张单，远用不到 2000 行上限）。
+ *
+ * 实探结论（docs/19 §15，2026-10-02 真表验证）：
+ *  - `values` 里成员列的值传**嵌套数组对象**（`[{userId:...}]`）；
+ *    CLI schema 声明的「值=JSON 字符串」形式会被服务端拒收（值类型与列类型不符）
+ *  - ⚠️ **errcode=0 ≠ 写成功**：写不进去时 errcode 也是 0，拒绝原因藏在 helper_msg 里
+ *    （"全部 N 条 record 的单元格都不可写入/已跳过"）—— 这里把 helper_msg 含
+ *    "跳过/不可写入"字样判为失败，errcode 只作辅助
+ */
+export async function updateRecords(input: UpdateRecordsInput): Promise<CliResult<null>> {
+  const body = {
+    docid: input.docid,
+    sheet_id: input.sheet_id,
+    type: 'update' as const,
+    key_type: 'field_title' as const,
+    records: input.records
+  }
+  const r = await runCliJson<{ errcode?: number; errmsg?: string; helper_msg?: string }>([
+    'smartsheet',
+    'records',
+    'update',
+    '--json',
+    JSON.stringify(body)
+  ])
+  if (!r.ok || !r.data) return { ok: false, kind: r.kind ?? 'unknown', error: r.error }
+  if (typeof r.data.errcode === 'number' && r.data.errcode !== 0) {
+    return { ok: false, kind: 'unknown', error: r.data.errmsg || `errcode ${r.data.errcode}` }
+  }
+  const helper = r.data.helper_msg ?? ''
+  if (helper.includes('跳过') || helper.includes('不可写入')) {
+    return { ok: false, kind: 'unknown', error: helper.trim().slice(0, 300) }
+  }
+  return { ok: true, data: null }
+}
+
+/**
+ * 机器人发 markdown 消息（第 17 批：指派成功后通知设计师）。
+ * 单聊的 chat_id = 接收成员的 userid（实探验证，docs/19 §15）。
+ * 已知约束：设计师若从未与机器人有过消息往来，可能发不出去 —— 调用方按失败降级。
+ */
+export async function sendBotTextMessage(
+  userid: string,
+  content: string
+): Promise<CliResult<null>> {
+  const r = await runCliJson<{ success?: boolean; errcode?: number; errmsg?: string }>([
+    'message',
+    'aibot',
+    'send',
+    '--json',
+    JSON.stringify({
+      chat_id: userid,
+      msg_type: 'markdown',
+      markdown: { content }
+    })
+  ])
+  if (!r.ok || !r.data) return { ok: false, kind: r.kind ?? 'unknown', error: r.error }
+  if (r.data.success === true) return { ok: true, data: null }
+  if (typeof r.data.errcode === 'number' && r.data.errcode !== 0) {
+    return { ok: false, kind: 'unknown', error: r.data.errmsg || `errcode ${r.data.errcode}` }
+  }
+  if (r.data.success === false) return { ok: false, kind: 'unknown', error: '机器人消息发送失败' }
+  return { ok: true, data: null }
 }

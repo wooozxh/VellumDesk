@@ -463,6 +463,12 @@ export interface TicketStatus {
   }>
   identity: { userid: string; name: string } | null
   firstSyncDone: boolean
+  /** 第 17 批（docs/19 §10 #3）：允许在本机指派设计师（本机开关，默认关） */
+  allowAssign: boolean
+  /** 第 17 批：未指派存量数（顶栏徽标，口径 = 「未指派」筛选） */
+  unassignedCount: number
+  /** 第 17 批：表格链接（详情弹窗「在表格中打开」逃生口） */
+  tableUrl: string | null
 }
 
 /** 保存配置（探活：列子表 + 读授权身份，通了才落库） */
@@ -493,7 +499,43 @@ export interface TicketSyncResult {
   rowBack: number
   needConfirm: number
   dupWarned: number
+  /** 第 17 批：本轮同步新入库的未指派单数（提示条 + toast） */
+  newUnassigned: number
   warnings: string[]
+}
+
+// ---------------- 第 17 批：设计师指派（docs/19） ----------------
+
+/** 候选设计师（历史工单设计师去重 + 在办单数） */
+export interface DesignerCandidate {
+  userid: string
+  name: string
+  /** 在办单数（非历史、非删行、审批中/已通过） */
+  activeCount: number
+}
+
+/** 详情弹窗指派区的原料 */
+export interface TicketAssignInfo {
+  /** 本机开关是否开启（关 = 只读提示） */
+  allow: boolean
+  /** 设计师成员列可用吗（同步时检测；false = 入口置灰 + 提示） */
+  designerColOk: boolean
+  candidates: DesignerCandidate[]
+  /** 表格链接（「在表格中打开」逃生口） */
+  tableUrl: string | null
+}
+
+/** 一次指派的结果（toast 的原料） */
+export interface TicketAssignResult {
+  /** 本地指派是否生效 */
+  ok: boolean
+  msg?: string
+  /** 写回企微表是否成功（失败保 pending，下次同步自动补写） */
+  writeOk: boolean
+  writeError?: string
+  /** 通知状态（写回成功才有） */
+  notifyState: 'sent' | 'failed' | null
+  designerName?: string
 }
 
 export interface Api {
@@ -694,6 +736,16 @@ export interface Api {
   ) => Promise<{ ok: boolean; packId?: number; packName?: string; msg?: string }>
   /** 打开审批链接（浏览器） */
   ticketOpenApproval: (url: string) => Promise<{ ok: boolean; error?: string }>
+
+  // ---------------- 第 17 批：设计师指派（docs/19） ----------------
+  /** 详情弹窗指派区原料：开关 / 列可用性 / 候选池 / 表格链接 */
+  ticketAssignInfo: () => Promise<TicketAssignInfo>
+  /** 指派设计师（本地即时生效 → 标 pending → 异步写回 → 通知） */
+  ticketAssignDesigner: (input: { ticketNo: string; userid: string; name: string }) => Promise<TicketAssignResult>
+  /** 工单设置：允许在本机指派设计师 开关 */
+  ticketSetAllowAssign: (v: boolean) => Promise<{ ok: boolean; allow: boolean }>
+  /** 未指派存量数（顶栏徽标） */
+  ticketUnassignedCount: () => Promise<number>
 
   // ---------------- 第 15 批：交付打包（M5） ----------------
   /** 执行打包，生成 zip 并写交付记录 */

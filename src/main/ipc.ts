@@ -59,7 +59,7 @@ import {
   readAsDataUrl,
   isImage
 } from './thumbs'
-import { PROJECT_COLORS, getDb, setMeta } from './db'
+import { PROJECT_COLORS, getDb, getMeta, setMeta } from './db'
 import {
   listTagDimensions,
   createTag,
@@ -73,17 +73,33 @@ import {
 } from './tags'
 // 第 13 批：工单（docs/15）—— 引擎在 tickets.ts，企微适配在 ticketsWecom.ts
 import {
+  allowAssignEnabled,
   applySync,
   confirmPendingTickets,
   createTaskForTicketManually,
   detectStructure,
+  designerColName,
+  evaluateDesignerCol,
+  executeAssignDesigner,
+  listDesignerCandidates,
+  retryPendingDesignerWrites,
+  setAllowAssignEnabled,
+  unassignedTicketCount,
   META_KEYS,
   readTicketConfig,
   writeTicketSheets,
+  type DesignerWriteAdapter,
   type SheetPayload,
   type TicketSheetConfig
 } from './tickets'
-import { extractDocid, fetchIdentity, fetchSheetRecords, fetchSheets } from './ticketsWecom'
+import {
+  extractDocid,
+  fetchIdentity,
+  fetchSheetRecords,
+  fetchSheets,
+  sendBotTextMessage,
+  updateRecords
+} from './ticketsWecom'
 // 第 15 批：交付打包（M5，docs/18）
 import { executePackExport, listDeliveryRecords } from './exportPack'
 import type { PackExportInput, PackExportResult } from '../shared/types'
@@ -776,7 +792,13 @@ export function registerIpc(): void {
         enabled: s.enabled
       })),
       identity: cfg.identity,
-      firstSyncDone: cfg.firstSyncDone
+      firstSyncDone: cfg.firstSyncDone,
+      // 第 17 批（docs/19 §10 #3）：本机开关（默认关，派单的人自己开）
+      allowAssign: allowAssignEnabled(),
+      // 第 17 批：待指派存量（顶栏徽标口径 = 「未指派」筛选口径）
+      unassignedCount: unassignedTicketCount(),
+      // 第 17 批：表格链接（详情弹窗「在表格中打开」逃生口）
+      tableUrl: cfg.docid ? `https://doc.weixin.qq.com/smartsheet/${cfg.docid}` : null
     }
   })
 
@@ -853,6 +875,7 @@ export function registerIpc(): void {
       rowBack: 0,
       needConfirm: 0,
       dupWarned: 0,
+      newUnassigned: 0,
       warnings: [] as string[]
     }
     if (!cfg.docid || !cfg.identity)
@@ -861,6 +884,11 @@ export function registerIpc(): void {
     if (!sheetsRes.ok || !sheetsRes.data)
       return { ok: false, kind: sheetsRes.kind, error: sheetsRes.error, ...zero }
     const check = detectStructure(cfg.sheets, sheetsRes.data.sheets)
+    // 第 17 批（docs/19 §7）：同步时评估「设计师」成员列可用性（缺失/改名 → 指派入口置灰）
+    evaluateDesignerCol(
+      check.resolved.map((r) => ({ sheet_id: r.sheet_id, title: r.cfg.title })),
+      sheetsRes.data.fieldsBySheet
+    )
     const payloads: SheetPayload[] = []
     for (const r of check.resolved) {
       const pr = await fetchSheetRecords(cfg.docid, r.sheet_id, r.cfg.title, r.cfg.type)
@@ -886,6 +914,14 @@ export function registerIpc(): void {
           return hit ? { ...s, sheet_id: hit.sheet_id } : s
         })
       )
+    }
+    // 第 17 批（docs/19 §5）：同步后补写 pending 的指派（写回失败积压的，每次同步自动重试）
+    const retry = await retryPendingDesignerWrites(wecomDesignerAdapter)
+    if (retry.retried > 0) {
+      result.warnings.push(
+        fmt(COPY.ticket.writeBackRetryInfo, { ok: retry.succeeded, fail: retry.failed })
+      )
+      result.warnings.push(...retry.errors)
     }
     return result
   })
@@ -1038,6 +1074,71 @@ export function registerIpc(): void {
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     }
+  })
+
+  // ---------- 第 17 批：设计师指派（docs/19 §4~§7） ----------
+
+  /**
+   * 企微写回适配器（tickets.ts 引擎的注入实现 —— 架构铁律：引擎不碰网络，真企微不进自动测试）。
+   * 写回格式按真表实探钉死（docs/19 §15）：成员列传嵌套数组对象 [{userId}]，errcode=0 还要
+   * 检查 helper_msg（写不进去时 errcode 也是 0）—— 这两道判定都在 ticketsWecom.updateRecords 里。
+   */
+  const wecomDesignerAdapter: DesignerWriteAdapter = {
+    updateDesigner: async (record_id, sheet_id, designer_userid) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      const cfg = readTicketConfig()
+      if (!cfg.docid) return { ok: false, error: COPY.ticket.notConfigured }
+      const r = await updateRecords({
+        docid: cfg.docid,
+        sheet_id,
+        records: [
+          { record_id, values: { [designerColName()]: [{ userId: designer_userid }] } }
+        ]
+      })
+      return r.ok ? { ok: true } : { ok: false, error: r.error }
+    },
+    notify: async (designer_userid, content) => {
+      const r = await sendBotTextMessage(designer_userid, content)
+      return r.ok ? { ok: true } : { ok: false, error: r.error }
+    }
+  }
+
+  /** 详情弹窗的指派区原料：开关状态 + 列可用性 + 候选池 + 表格链接（逃生口） */
+  ipcMain.handle('ticket:assignInfo', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const cfg = readTicketConfig()
+    return {
+      allow: allowAssignEnabled(),
+      designerColOk: getMeta('ticket_designer_ok') !== '0',
+      candidates: listDesignerCandidates(),
+      tableUrl: cfg.docid ? `https://doc.weixin.qq.com/smartsheet/${cfg.docid}` : null
+    }
+  })
+
+  ipcMain.handle('ticket:assignDesigner', async (_e, input: { ticketNo: string; userid: string; name: string }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    // 「本机开关」门槛（docs/19 §10 #3 用户拍板：开关即门槛，不做身份校验）
+    if (!allowAssignEnabled()) {
+      return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignNotAllowed }
+    }
+    const cfg = readTicketConfig()
+    return executeAssignDesigner(input.ticketNo, input.userid, input.name, wecomDesignerAdapter, cfg.identity?.userid ?? null)
+  })
+
+  ipcMain.handle('ticket:setAllowAssign', (_e, v: boolean) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    setAllowAssignEnabled(!!v)
+    return { ok: true, allow: allowAssignEnabled() }
+  })
+
+  ipcMain.handle('ticket:unassignedCount', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return unassignedTicketCount()
   })
 
   // ---------- 第 15 批：交付打包（M5，docs/18） ----------

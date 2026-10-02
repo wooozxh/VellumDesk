@@ -174,6 +174,14 @@ export interface TicketRow {
   pack_id: number | null
   /** 二期预留：印刷状态（本地值，写回表） */
   print_status: string | null
+  /** 第 17 批（docs/19 §5）：设计师指派待写回 —— 1 = 本地已改、企微表还没写成功 */
+  designer_write_pending: number
+  /** 第 17 批：谁派的（本机 CLI 授权真人 userid，纯留痕，不参与门槛判定） */
+  assigned_by: string | null
+  /** 第 17 批：什么时候派的 */
+  assigned_at: string | null
+  /** 第 17 批：指派通知状态 null=没发过 / sent=已送达 / failed=发不出去（防重复推送） */
+  notify_state: string | null
 }
 
 /** 打开（或新建）工作区数据库 */
@@ -551,6 +559,24 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_delivery_records_pack ON delivery_records(pack_id);
   `)
+
+  // ---- 迁移 13：tickets 加指派四列（第 17 批 docs/19 §8，设计师指派写回）----
+  // 幂等：缺列才补（迁移 8/9 同一模式）。老库升级后 designer_write_pending=0、
+  // notify_state=NULL，软件行为与升级前完全一致（老单没有被指派过）。
+  // print_status 等其余二期列本批不加（印刷状态写回仍押后，不加无用列）。
+  const ticketCols13 = d.prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+  if (!ticketCols13.some((c) => c.name === 'designer_write_pending')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN designer_write_pending INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!ticketCols13.some((c) => c.name === 'assigned_by')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN assigned_by TEXT')
+  }
+  if (!ticketCols13.some((c) => c.name === 'assigned_at')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN assigned_at TEXT')
+  }
+  if (!ticketCols13.some((c) => c.name === 'notify_state')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN notify_state TEXT')
+  }
 
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。

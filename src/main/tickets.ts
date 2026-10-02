@@ -77,6 +77,8 @@ export interface SyncResult {
   rowBack: number
   needConfirm: number
   dupWarned: number
+  /** 第 17 批（docs/19 §3）：本轮同步新入库且未指派、非历史非待确认的单数（提示条用） */
+  newUnassigned: number
   warnings: string[]
 }
 
@@ -87,8 +89,33 @@ export const META_KEYS = {
   docname: 'ticket_docname',
   sheets: 'ticket_sheets',
   identity: 'ticket_identity',
-  firstSyncDone: 'ticket_first_sync_done'
+  firstSyncDone: 'ticket_first_sync_done',
+  /** 第 17 批（docs/19 §8）：设计师成员列的列名（读写同源，默认「设计师」） */
+  designerCol: 'ticket_designer_col',
+  /** 第 17 批：允许在本机指派设计师（'1'/'0'，默认关 —— 派单的人自己在工单设置里开） */
+  allowAssign: 'ticket_allow_assign',
+  /** 第 17 批：设计师列可用性（'0' = 同步时检测到列缺失/不是成员类型；未设 = 视为可用） */
+  designerOk: 'ticket_designer_ok'
 } as const
+
+/** 设计师成员列的列名（meta 配置，默认「设计师」；改列名只改这一处，读写同源） */
+export function designerColName(): string {
+  return getMeta(META_KEYS.designerCol) || '设计师'
+}
+
+/** 本机是否允许指派设计师（docs/19 §10 #3：开关即门槛，不做身份校验） */
+export function allowAssignEnabled(): boolean {
+  return getMeta(META_KEYS.allowAssign) === '1'
+}
+
+export function setAllowAssignEnabled(v: boolean): void {
+  setMeta(META_KEYS.allowAssign, v ? '1' : '0')
+}
+
+/** 设计师列可用吗（同步时检测；未同步过 = 不设防，写失败有 toast 兜底） */
+export function designerColUsable(): boolean {
+  return getMeta(META_KEYS.designerOk) !== '0'
+}
 
 export function readTicketConfig(): {
   docid: string | null
@@ -266,7 +293,9 @@ function extractRow(rec: TicketRawRecord): {
   fields: Record<string, string | number | null>
 } {
   const v = rec.values ?? {}
-  const designer = takeUser(v[COL.designer])
+  // 设计师列名走 meta 配置（读写同源，docs/19 §8）——每次调用读一次 meta，
+  // 同步一轮几百条的量级下开销可忽略（better-sqlite3 简单查询 ~10 万次/秒）
+  const designer = takeUser(v[designerColName()])
   const applicant = takeUser(v[COL.applicant])
   const qtyText = takeText(v[COL.qty])
   const qty = qtyText ? parseInt(qtyText.replace(/[^\d]/g, ''), 10) : null
@@ -330,6 +359,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
     rowBack: 0,
     needConfirm: 0,
     dupWarned: 0,
+    newUnassigned: 0,
     warnings: []
   }
 
@@ -415,7 +445,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
   const insertedNos = new Set<string>()
 
   for (const row of flat) {
-    const bind = {
+    const bind: Record<string, unknown> = {
       sheet_id: row.sheet_id,
       ticket_type: row.ticket_type,
       ticket_no: row.ticket_no,
@@ -433,6 +463,12 @@ export function applySync(input: ApplySyncInput): SyncResult {
     seenNos.add(row.ticket_no)
     const existing = selByNo.get(row.ticket_no) as Record<string, unknown> | undefined
     if (existing) {
+      // 第 17 批（docs/19 §5 冲突三态）：本机有待写回（上次写回失败的积压）时，
+      // 设计师字段**不采纳表值**（本地守住，写出去再交权）——本轮同步后会自动补写
+      if (existing.designer_write_pending === 1) {
+        bind.designer_userid = (existing.designer_userid as string | null) ?? null
+        bind.designer_name = (existing.designer_name as string | null) ?? null
+      }
       updTicket.run(bind)
       res.updated++
     } else {
@@ -566,6 +602,23 @@ export function applySync(input: ApplySyncInput): SyncResult {
     }
   }
 
+  // ---- ⑥ 本轮新增未指派计数（docs/19 §3：提示条 + toast 的口径）----
+  // "新增" = 本轮新入库（ticket_no 首次出现）且 designer 为空；历史单（首次快照全标）
+  // 与待确认单（入口置灰）不算 —— 提示条指的路必须真的能走通。
+  if (insertedNos.size > 0) {
+    const selIns = db.prepare(
+      'SELECT designer_userid, is_history, need_confirm FROM tickets WHERE ticket_no = ?'
+    )
+    for (const no of insertedNos) {
+      const r = selIns.get(no) as
+        | { designer_userid: string | null; is_history: number; need_confirm: number }
+        | undefined
+      if (r && r.designer_userid == null && r.is_history === 0 && r.need_confirm === 0) {
+        res.newUnassigned++
+      }
+    }
+  }
+
   return res
 }
 
@@ -674,4 +727,245 @@ export function createTaskForTicketManually(
   } catch (e) {
     return { ok: false, msg: (e as Error).message }
   }
+}
+
+// ============================================================ 设计师指派（第 17 批 docs/19 §4~§6）
+
+/** 候选设计师（§5.4：历史工单设计师去重；activeCount = 在办单数，辅助判断谁有空） */
+export interface DesignerCandidate {
+  userid: string
+  name: string
+  /** 在办单数（非历史、非删行、状态 ∈ 审批中/已通过） */
+  activeCount: number
+}
+
+/**
+ * 候选池：所有工单里出现过的设计师去重（含历史单 —— 历史派过活的人也是候选）。
+ * 零接口零权限：不碰通讯录，纯本地库聚合。只做提示、不替人排序派活（铁律③）。
+ */
+export function listDesignerCandidates(): DesignerCandidate[] {
+  const db = getDb()
+  const all = db
+    .prepare(
+      `SELECT designer_userid AS userid, designer_name AS name FROM tickets
+       WHERE designer_userid IS NOT NULL GROUP BY designer_userid`
+    )
+    .all() as Array<{ userid: string; name: string | null }>
+  const active = db
+    .prepare(
+      `SELECT designer_userid AS userid, COUNT(*) AS c FROM tickets
+       WHERE designer_userid IS NOT NULL AND is_history = 0 AND row_gone = 0
+         AND approval_state IN ('审批中', '已通过')
+       GROUP BY designer_userid`
+    )
+    .all() as Array<{ userid: string; c: number }>
+  const activeMap = new Map(active.map((a) => [a.userid, a.c]))
+  return all
+    .map((a) => ({
+      userid: a.userid,
+      name: a.name ?? a.userid,
+      activeCount: activeMap.get(a.userid) ?? 0
+    }))
+    .sort((x, y) => y.activeCount - x.activeCount || x.name.localeCompare(y.name))
+}
+
+/** 一次指派的结果（界面 toast 的原料） */
+export interface AssignResult {
+  /** 本地指派是否生效（designer 字段已更新 + pending 已标） */
+  ok: boolean
+  msg?: string
+  /** 写回企微表是否成功（失败 = 保 pending，下次同步自动补写） */
+  writeOk: boolean
+  writeError?: string
+  /** 通知状态（写回成功才有；null = 没尝试） */
+  notifyState: 'sent' | 'failed' | null
+  designerName?: string
+}
+
+/**
+ * 写回适配器（架构铁律 §4.3 延续：**同步核心不碰网络**）。
+ * ipc.ts 传真适配器（wecom-cli），自动测试传 mock —— 真企微不进自动测试。
+ */
+export interface DesignerWriteAdapter {
+  /** 把设计师写回企微表的指定 record（列名由实现方按 meta 配置取） */
+  updateDesigner(record_id: string, sheet_id: string, designer_userid: string): Promise<{ ok: boolean; error?: string }>
+  /** 给设计师发企微机器人消息（markdown 文本） */
+  notify(designer_userid: string, content: string): Promise<{ ok: boolean; error?: string }>
+}
+
+/** 指派判定的行子集 */
+interface AssignableRow {
+  ticket_no: string
+  record_id: string | null
+  sheet_id: string
+  designer_name: string | null
+  title: string | null
+  project_name: string | null
+  due_date: string | null
+  is_history: number
+  need_confirm: number
+  row_gone: number
+  designer_write_pending: number
+  notify_state: string | null
+}
+
+function getAssignableRow(ticket_no: string): AssignableRow | undefined {
+  return getDb()
+    .prepare(
+      `SELECT ticket_no, record_id, sheet_id, designer_name, title, project_name, due_date,
+         is_history, need_confirm, row_gone, designer_write_pending, notify_state
+       FROM tickets WHERE ticket_no = ?`
+    )
+    .get(ticket_no) as AssignableRow | undefined
+}
+
+/**
+ * 指派设计师（§4 流向）：本地即时生效 → 标 pending → 异步写回 → 失败保 pending。
+ * 「本机开关」门槛由调用方（IPC）把关，引擎只管单子本身的状态门槛。
+ */
+export async function executeAssignDesigner(
+  ticket_no: string,
+  userid: string,
+  name: string,
+  adapter: DesignerWriteAdapter,
+  assignedBy?: string | null
+): Promise<AssignResult> {
+  const db = getDb()
+  const t = getAssignableRow(ticket_no)
+  if (!t) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignTicketMissing }
+  if (t.need_confirm) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignPendingHint }
+  if (t.row_gone) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignRowGoneHint }
+  if (t.is_history) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignHistoryHint }
+  if (!designerColUsable()) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignColBad }
+
+  // ① 本地即时生效（不等写回，界面即时反馈）+ 标 pending + 留痕 + 通知状态清零
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE tickets SET designer_userid = ?, designer_name = ?, designer_write_pending = 1,
+       assigned_by = ?, assigned_at = ?, notify_state = NULL WHERE ticket_no = ?`
+  ).run(userid, name, assignedBy ?? null, now, ticket_no)
+
+  // ② 异步写回（一次只写这一张单）
+  const wr = await writeBackOne(adapter, ticket_no)
+  if (!wr.ok) {
+    return {
+      ok: true,
+      writeOk: false,
+      writeError: wr.error,
+      notifyState: null,
+      designerName: name,
+      msg: fmt(COPY.ticket.assignOkWriteFailed, { name, msg: wr.error ?? '' })
+    }
+  }
+
+  // ③ 写回成功 → 通知设计师（失败不阻断指派，§6）
+  const notifyState = await notifyDesignerOne(adapter, ticket_no)
+  return {
+    ok: true,
+    writeOk: true,
+    notifyState,
+    designerName: name,
+    msg:
+      notifyState === 'sent'
+        ? fmt(COPY.ticket.assignOkNotified, { name })
+        : notifyState === 'failed'
+          ? fmt(COPY.ticket.assignOkNotifyFailed, { name })
+          : undefined
+  }
+}
+
+/** 一张单写回企微表；成功清 pending，失败保 pending（返回失败原因） */
+async function writeBackOne(
+  adapter: DesignerWriteAdapter,
+  ticket_no: string
+): Promise<{ ok: boolean; error?: string }> {
+  const t = getAssignableRow(ticket_no)
+  if (!t || !t.record_id || !t.sheet_id) {
+    return { ok: false, error: COPY.ticket.assignNoRecordId }
+  }
+  // record_id / sheet_id 变了（重拉表）→ 从库里取最新值再写
+  const row = getDb()
+    .prepare('SELECT designer_userid FROM tickets WHERE ticket_no = ?')
+    .get(ticket_no) as { designer_userid: string | null } | undefined
+  if (!row?.designer_userid) return { ok: false, error: COPY.ticket.assignNoRecordId }
+  const wr = await adapter.updateDesigner(t.record_id, t.sheet_id, row.designer_userid)
+  if (!wr.ok) return { ok: false, error: wr.error }
+  getDb().prepare('UPDATE tickets SET designer_write_pending = 0 WHERE ticket_no = ?').run(ticket_no)
+  return { ok: true }
+}
+
+/** 给被指派的设计师发通知（notify_state 防重复推送）；返回最终状态 */
+async function notifyDesignerOne(
+  adapter: DesignerWriteAdapter,
+  ticket_no: string
+): Promise<'sent' | 'failed' | null> {
+  const t = getAssignableRow(ticket_no)
+  if (!t) return null
+  if (t.notify_state === 'sent') return 'sent' // 已送达过，不重复推送
+  const row = getDb()
+    .prepare('SELECT designer_userid FROM tickets WHERE ticket_no = ?')
+    .get(ticket_no) as { designer_userid: string | null } | undefined
+  if (!row?.designer_userid) return null
+  const content = fmt(COPY.ticket.notifyTemplate, {
+    title: t.title ?? t.ticket_no,
+    project: t.project_name ?? '—',
+    due: t.due_date ? t.due_date.slice(0, 10) : COPY.ticket.notifyDueEmpty
+  })
+  const nr = await adapter.notify(row.designer_userid, content)
+  const state = nr.ok ? 'sent' : 'failed'
+  getDb().prepare('UPDATE tickets SET notify_state = ? WHERE ticket_no = ?').run(state, ticket_no)
+  return state
+}
+
+/** 同步后的写回补写（§2.2 管路：pending 的单每次同步自动重试，不做指数退避） */
+export async function retryPendingDesignerWrites(
+  adapter: DesignerWriteAdapter
+): Promise<{ retried: number; succeeded: number; failed: number; errors: string[] }> {
+  const db = getDb()
+  const pendings = db
+    .prepare(
+      'SELECT ticket_no FROM tickets WHERE designer_write_pending = 1 AND record_id IS NOT NULL'
+    )
+    .all() as Array<{ ticket_no: string }>
+  let succeeded = 0
+  const errors: string[] = []
+  for (const p of pendings) {
+    const wr = await writeBackOne(adapter, p.ticket_no)
+    if (wr.ok) {
+      succeeded++
+      // 补写成功也要补通知（notify_state 还是 null 的情况，比如上次指派时通知还没发就崩了）
+      await notifyDesignerOne(adapter, p.ticket_no)
+    } else {
+      errors.push(fmt(COPY.ticket.assignWriteRetryItem, { no: p.ticket_no, msg: wr.error ?? '' }))
+    }
+  }
+  return { retried: pendings.length, succeeded, failed: errors.length, errors }
+}
+
+/** 未指派存量数（顶栏徽标口径 = 「未指派」筛选口径，与点开条数严格一致） */
+export function unassignedTicketCount(): number {
+  const r = getDb()
+    .prepare('SELECT COUNT(*) AS c FROM tickets WHERE designer_userid IS NULL')
+    .get() as { c: number }
+  return r.c
+}
+
+/** 同步时评估设计师列可用性（sheets list 的 fields 里查列名 + user 类型） */
+export function evaluateDesignerCol(
+  enabledSheets: Array<{ sheet_id: string; title: string }>,
+  fieldsBySheet: Record<string, Array<{ field_title: string; field_type: string }>> | undefined
+): void {
+  // fields 拿不到（CLI 版本差异）→ 不设防（写失败有 toast 兜底），只看有数据的判断
+  if (!fieldsBySheet) return
+  const col = designerColName()
+  let allOk = true
+  let checked = 0
+  for (const s of enabledSheets) {
+    const fields = fieldsBySheet[s.sheet_id]
+    if (!fields) continue
+    checked++
+    const hit = fields.find((f) => f.field_title === col)
+    if (!hit || hit.field_type !== 'user') allOk = false
+  }
+  if (checked > 0) setMeta(META_KEYS.designerOk, allOk ? '1' : '0')
 }

@@ -257,6 +257,12 @@ input {
   cursor: not-allowed;
 }
 
+/* 第 17 批：提示条里的小号按钮（「去指派」） */
+.btn.small {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
 /* ---------------- 主体：左筛选栏 + 右主面板 ---------------- */
 
 .body {
@@ -2509,6 +2515,72 @@ svg {
   color: var(--text-3);
   cursor: pointer;
   padding: 2px;
+}
+
+/* 第 17 批（docs/19 §3②）：本轮新增未指派的提示条（蓝色系，区别于黄色警告条） */
+.tk-hint.assign {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  align-items: center;
+}
+.tk-hint.assign .btn.small {
+  flex-shrink: 0;
+}
+
+/* 第 17 批（§3①）：顶栏「工单」格的待指派徽标 */
+.tab-badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+  vertical-align: 1px;
+}
+
+/* 第 17 批（§4）：详情弹窗的「指派设计师」区 */
+.tk-assign {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+}
+.tk-assign .k {
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.tk-assign-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.tk-assign-pick select {
+  max-width: 240px;
+}
+.tk-assign-pick .tk-dim {
+  font-size: 11.5px;
+}
+
+/* 第 17 批（§10 #3）：工单设置里的「允许在本机指派设计师」开关 */
+.tk-allowassign {
+  margin: 4px 0;
+}
+.tk-allowassign em {
+  color: var(--text-3);
+  font-style: normal;
+  font-size: 11.5px;
 }
 
 /* 列表行（表头 + 数据行共用栅格） */

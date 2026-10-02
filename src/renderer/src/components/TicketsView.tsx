@@ -37,7 +37,14 @@ function stateClass(s: string | null): string {
   return ''
 }
 
-export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): React.JSX.Element {
+export function TicketsView({
+  onToast,
+  onUnassignedCount
+}: {
+  onToast?: (msg: string) => void
+  /** 第 17 批：同步/加载后回传未指派存量，顶栏徽标跟着刷新（App.tsx 只管显示） */
+  onUnassignedCount?: (n: number) => void
+}): React.JSX.Element {
   const [status, setStatus] = useState<TicketStatus | null>(null)
   const [list, setList] = useState<TicketListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -46,6 +53,8 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
   const [detailNo, setDetailNo] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [hint, setHint] = useState<string | null>(null)
+  /** 第 17 批（docs/19 §3②）：本轮同步新增的未指派数（>0 时显示提示条 + 去指派按钮） */
+  const [newUnassigned, setNewUnassigned] = useState(0)
 
   const toast = useCallback(
     (msg: string) => {
@@ -58,8 +67,10 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
   const loadStatus = useCallback(async (): Promise<TicketStatus | null> => {
     const st = await window.api.ticketStatus()
     setStatus(st)
+    // 第 17 批：徽标跟着 status 一起刷新（口径 = 未指派筛选，主进程算）
+    if (st && onUnassignedCount) onUnassignedCount(st.unassignedCount)
     return st
-  }, [])
+  }, [onUnassignedCount])
 
   const loadList = useCallback(async (view: TkFilter): Promise<void> => {
     setListLoading(true)
@@ -106,10 +117,16 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
         gone: r.rowGone,
         warns: r.warnings.length
       })
-      // 有附加信息才拼第二段，日常同步只有一句
+      // 有附加信息才拼第二段，日常同步只有一句；第 17 批：有待指派也拼一段（§3③）
       const extra =
-        r.needConfirm + r.reassigned + r.rowGone + r.warnings.length > 0 ? ` · ${more}` : ''
-      toast(head + extra)
+        r.needConfirm + r.reassigned + r.rowGone + r.warnings.length + r.newUnassigned > 0
+          ? ` · ${more}`
+          : ''
+      const assignExtra =
+        r.newUnassigned > 0 ? ` · ${fmt(COPY.ticket.syncDoneAssign, { n: r.newUnassigned })}` : ''
+      toast(head + extra + assignExtra)
+      // 第 17 批（§3②）：本轮确实新增了未指派单 → 提示条 + 「去指派」；无新增即消失
+      setNewUnassigned(r.newUnassigned)
       if (r.warnings.length > 0) setHint(r.warnings.join('\n'))
       else setHint(null)
       await loadStatus()
@@ -141,6 +158,7 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
         </div>
         {showSettings && (
           <TicketSettingsModal
+            initial={status}
             onClose={() => setShowSettings(false)}
             onSaved={async () => {
               setShowSettings(false)
@@ -176,6 +194,14 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
             {COPY.ticket.confirmBatch}
           </button>
         )}
+        {/* 第 17 批：配置态也要有设置入口（否则「允许指派」开关没地方开）——齿轮，悬停提示 */}
+        <button
+          className="btn"
+          onClick={() => setShowSettings(true)}
+          title={COPY.ticket.settingsTitle}
+        >
+          <Icon name="gear" size={13} />
+        </button>
         <button
           className="btn primary"
           onClick={() => void doSync()}
@@ -191,6 +217,27 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
         <div className="tk-hint">
           <div className="txt">{hint}</div>
           <button className="wx" onClick={() => setHint(null)}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* 第 17 批（docs/19 §3②）：本轮同步新增未指派 → 提示条 + 去指派（点掉或下次无新增即消失） */}
+      {newUnassigned > 0 && (
+        <div className="tk-hint assign">
+          <div className="txt">
+            {fmt(COPY.ticket.newUnassignedHint, { n: newUnassigned })}
+          </div>
+          <button
+            className="btn small"
+            onClick={() => {
+              setNewUnassigned(0)
+              void switchFilter('unassigned')
+            }}
+          >
+            {COPY.ticket.goAssign}
+          </button>
+          <button className="wx" onClick={() => setNewUnassigned(0)}>
             <Icon name="close" size={12} />
           </button>
         </div>
@@ -285,6 +332,7 @@ export function TicketsView({ onToast }: { onToast?: (msg: string) => void }): R
       )}
       {showSettings && (
         <TicketSettingsModal
+          initial={status}
           onClose={() => setShowSettings(false)}
           onSaved={async () => {
             setShowSettings(false)

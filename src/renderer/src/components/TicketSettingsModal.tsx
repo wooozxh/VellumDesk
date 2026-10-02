@@ -8,6 +8,9 @@ import { Icon } from './Icon'
  * 两步走：① 粘链接 → 「连接」探活（列子表 + 读授权身份，通了才进下一步）
  *        ② 勾选子表、标类型（印刷/电子）→ 保存落库
  * 首次同步的后果在界面上明说（§6.3）：当前表里所有工单都会标成历史单，不建任何任务。
+ *
+ * 第 17 批（docs/19 §10 #3）：「允许在本机指派设计师」开关 —— 用户拍板的门槛形态
+ * （部门里要派单的人自己开，不做身份校验；开 = 详情弹窗里能指派并写回企微表）。
  */
 interface SheetDraft {
   title: string
@@ -33,6 +36,18 @@ export function TicketSettingsModal({
   )
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  /** 第 17 批：允许在本机指派设计师（初始值来自 status；改动即存，不走「保存」按钮） */
+  const [allowAssign, setAllowAssign] = useState(initial?.allowAssign ?? false)
+
+  const toggleAllowAssign = async (v: boolean): Promise<void> => {
+    setAllowAssign(v)
+    try {
+      const r = await window.api.ticketSetAllowAssign(v)
+      if (!r.allow) setAllowAssign(false)
+    } catch {
+      setAllowAssign(!v)
+    }
+  }
 
   const probeOrSave = async (mode: 'probe' | 'save'): Promise<void> => {
     if (busy) return
@@ -141,6 +156,19 @@ export function TicketSettingsModal({
               </span>
             </div>
           )}
+
+          {/* 第 17 批（docs/19 §10 #3）：本机开关 —— 改动即存，独立于上方的表格配置 */}
+          <label className="tk-check tk-allowassign">
+            <input
+              type="checkbox"
+              checked={allowAssign}
+              onChange={(e) => void toggleAllowAssign(e.target.checked)}
+            />
+            <span>
+              {COPY.ticket.allowAssignLabel}
+              <em>（{COPY.ticket.allowAssignHint}）</em>
+            </span>
+          </label>
 
           {initial && !initial.firstSyncDone && (
             <div className="tk-firstwarn">{COPY.ticket.settingsFirstSyncWarn}</div>

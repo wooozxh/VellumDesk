@@ -126,6 +126,13 @@ const api = {
   ticketCreateTask: (ticketNo: string) => ipcRenderer.invoke('ticket:createTask', ticketNo),
   ticketOpenApproval: (url: string) => ipcRenderer.invoke('ticket:openApproval', url),
 
+  // 第 17 批：设计师指派（docs/19）
+  ticketAssignInfo: () => ipcRenderer.invoke('ticket:assignInfo'),
+  ticketAssignDesigner: (input: { ticketNo: string; userid: string; name: string }) =>
+    ipcRenderer.invoke('ticket:assignDesigner', input),
+  ticketSetAllowAssign: (v: boolean) => ipcRenderer.invoke('ticket:setAllowAssign', v),
+  ticketUnassignedCount: () => ipcRenderer.invoke('ticket:unassignedCount'),
+
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),

@@ -1,12 +1,12 @@
 # copy-sheet —— 文案字典的「在线表格」工作流
 
-软件所有界面文案都在 `src/shared/copy.ts`（505 条）。这套脚本让你**不用改代码**、
+软件所有界面文案都在 `src/shared/copy.ts`（637 条）。这套脚本让你**不用改代码**、
 在一张腾讯文档在线表格里改文案，然后一键落地。
 
 - 在线表：**素材管家 · 文案清单** → https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD
   - `file_id`：`TFHcDzWQzdBC`
-  - `1-界面文案` `sheet_id`：`BB08J2`（483 条）
-  - `2-默认数据` `sheet_id`：`c3qmog`（22 条）
+  - `1-界面文案` `sheet_id`：`BB08J2`（607 条）
+  - `2-默认数据` `sheet_id`：`c3qmog`（30 条）
 
 ---
 
