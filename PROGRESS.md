@@ -786,6 +786,13 @@
 - **改了哪些文件**：`src/main/db.ts`（迁移 15）、`src/main/tickets.ts`、`src/main/ticketsWecom.ts`（runCliJson export）、`src/main/thumbs.ts`（ensureAnyThumb）、`src/main/report.ts`（新）、`src/main/reportWecom.ts`（新）、`src/main/ipc.ts`、`src/shared/types.ts`、`src/preload/index.ts`、`src/shared/copy.ts`、`src/renderer/src/components/{TicketDetailModal,PackDetailModal,TicketsView,ExportReportModal(新)}.tsx`、`src/renderer/src/assets/main.css`、`accept.ts`、`_shotapp/v4/main.cjs`、`docs/22`
 - **待办（环境受限）**：① 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（累计 8 条新文案待 publish）；② **真表人工验收前，用户在工单队列手动加「缩略图」image 列**（同「设计师」列套路，软件只写值不建列）；③ 出包 **1.6.0**（两步法 + 项目外全新空目录）；④ 真表人工验收：完成任务 → 工单队列「缩略图」列真出图 → 同步后导出 → 「工单报表」新建子表、字段齐全、图正确、本地字段带出、绩效金额列为空待手填。
 
+### 2026-10-04（第 27 次会话）—— 第 19 批真机验收反馈修复：UI 打磨 + media upload 白名单热修
+
+- **用户真机测试导出报表功能**：功能没大问题，反馈两处 UI + 一个报错，全部已修（提交 `1bd1f2b`、本条）。
+- **UI 打磨（`1bd1f2b`，纯 main.css）**：① 导出报表弹窗元素贴边 → `.tk-settings` 补 `padding:18px`（工单设置弹窗同容器一并受益）；② 日期框文字发灰 → `.tk-date input` 补全深色样式（`color-scheme:dark` + bg-mute 底 + 胶囊边框 + `::-webkit-datetime-edit` 强制浅色文字）；③ 顺带 `.tk-settings input[type='text']` 统一深色（此前链接框是浏览器原生浅色外观）。tickets/export 场景全绿。
+- **真机报错热修（本条提交）**：点「完成任务」报 `缩略图上传失败：PermissionError 893006 目标路径超出可访问范围 D:\素材工作区\.thumbs\...（允许范围: D:\proj_media, Temp）`。**根因**：wecom-cli 的文件访问白名单 = 其工作目录 + 系统临时目录，`ticket:completeByPack` 直接把工作区缩略图路径传给 `media upload` 被拒；导出报表的重传链路没踩坑是因为 `rehostReportThumb` 先把图下载进了 Temp。**修复**：`uploadReportImage` 统一收口——先把源文件 `copyFile` 进系统临时目录再传副本，`finally` 删临时文件，与调用方路径解耦（两条链路都安全）。全项目仅此一处给 CLI 传本地路径（已 grep 确认）。
+- **验收**：typecheck 0 错；重打三个 bundle；accept **746 OK + 1 FAIL**（FAIL 仍是 `访学证.psd` 环境问题）。复制到 Temp 的逻辑属真企微链路，按铁律不进自动测试，待用户真机复点「完成任务」确认。
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

@@ -679,3 +679,11 @@
 - **边界**：0 条命中起止区间 → **直接成功不建表**（避免建出空子表污染报表文档）；报表 docid 存 meta `report_docid`（`readReportConfig`/`writeReportConfig`）。
 - **放弃**：引擎里直接调 CLI（耦合网络，测不动）；0 条也建空表（留脏子表）。
 
+
+## 2026-10-04　wecom-cli 文件访问白名单：media upload 一律复制进系统临时目录再传（真机实测 893006）
+
+- **决定**：`uploadReportImage` 统一收口——先把源文件 `copyFile` 进系统临时目录，用副本调 `media upload`，`finally` 删副本。调用方传什么路径都安全（「完成任务」传工作区 `.thumbs` 路径 / 导出重传传临时下载文件都覆盖）。
+- **原因**：真机实测点「完成任务」报 `PermissionError 893006 目标路径超出可访问范围 D:/素材工作区/.thumbs/...（允许范围: D:/proj_media, Temp）`——wecom-cli 的文件访问白名单 = **其工作目录 + 系统临时目录**，工作区路径一律被拒。导出报表的重传链路没踩坑只是侥幸（`rehostReportThumb` 恰好把图下载进了 Temp）。
+- **边界**：全项目仅 `uploadReportImage` 一处给 CLI 传本地文件路径（grep 确认）；复制逻辑属真企微链路，按铁律不进自动测试，靠真机人工验收覆盖。
+- **放弃**：spawn CLI 时把 cwd 改成工作区根（`runCliJson` 被全部工单 CLI 调用共用，改 cwd 影响面大且 CLI 相对路径行为未知）；指望 CLI 有放开白名单的参数（无文档依据）。
+- **教训**：以后凡是给 wecom-cli 传**本地文件路径**的调用（附件、图片、文件消息），路径必须落在「CLI 工作目录或系统临时目录」内，否则真机必炸 893006 —— 自动测试喂 mock 测不出这类问题。

@@ -12,9 +12,9 @@
  */
 import { runCliJson, type CliResult } from './ticketsWecom'
 import { createWriteStream } from 'fs'
-import { join } from 'path'
+import { join, extname } from 'path'
 import { tmpdir } from 'os'
-import { unlink } from 'fs/promises'
+import { copyFile, unlink } from 'fs/promises'
 import http from 'http'
 import https from 'https'
 
@@ -79,28 +79,45 @@ export async function addReportSheet(
 /**
  * 上传一张本地图片到目标智能表格的文档空间，返回图片 URL。
  * 两步：media upload（本地文件 → media_id）→ images upload（media_id + docid → url）。
+ *
+ * wecom-cli 的文件访问白名单 = 其工作目录 + 系统临时目录（真机实测 893006 PermissionError：
+ * 直接传工作区 .thumbs 下的缩略图被拒）。所以统一把源文件复制进系统临时目录再传副本，
+ * 传完即删 —— 与调用方传什么路径解耦（「完成任务」传工作区路径 / 导出重传传临时下载文件都安全）。
  */
 export async function uploadReportImage(docid: string, localPath: string): Promise<CliResult<string>> {
-  const up = await runCliJson<{ media_id?: string }>([
-    'media',
-    'upload',
-    '--json',
-    JSON.stringify({ file_path: localPath })
-  ])
-  if (!up.ok || !up.data || !up.data.media_id) {
-    return { ok: false, kind: up.kind ?? 'unknown', error: up.error ?? '媒体上传失败（拿不到 media_id）' }
+  const tmpPath = join(
+    tmpdir(),
+    `wb-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${extname(localPath) || '.bin'}`
+  )
+  try {
+    await copyFile(localPath, tmpPath)
+  } catch (e) {
+    return { ok: false, kind: 'unknown', error: `文件复制失败：${(e as Error).message}` }
   }
-  const img = await runCliJson<{ url?: string }>([
-    'smartsheet',
-    'images',
-    'upload',
-    '--json',
-    JSON.stringify({ media_id: up.data.media_id, docid })
-  ])
-  if (!img.ok || !img.data || !img.data.url) {
-    return { ok: false, kind: img.kind ?? 'unknown', error: img.error ?? '图片上传失败（拿不到 url）' }
+  try {
+    const up = await runCliJson<{ media_id?: string }>([
+      'media',
+      'upload',
+      '--json',
+      JSON.stringify({ file_path: tmpPath })
+    ])
+    if (!up.ok || !up.data || !up.data.media_id) {
+      return { ok: false, kind: up.kind ?? 'unknown', error: up.error ?? '媒体上传失败（拿不到 media_id）' }
+    }
+    const img = await runCliJson<{ url?: string }>([
+      'smartsheet',
+      'images',
+      'upload',
+      '--json',
+      JSON.stringify({ media_id: up.data.media_id, docid })
+    ])
+    if (!img.ok || !img.data || !img.data.url) {
+      return { ok: false, kind: img.kind ?? 'unknown', error: img.error ?? '图片上传失败（拿不到 url）' }
+    }
+    return { ok: true, data: img.data.url }
+  } finally {
+    await unlink(tmpPath).catch(() => {})
   }
-  return { ok: true, data: img.data.url }
 }
 
 /** 一次写多条记录（records add；values 的 key = 字段名，值格式由调用方按字段类型序列化） */
