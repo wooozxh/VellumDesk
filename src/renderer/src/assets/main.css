@@ -2837,6 +2837,26 @@ svg {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 18px;
+}
+/* 弹窗内裸文本输入框统一深色样式（导出报表链接框 / 工单设置链接框） */
+.tk-settings input[type='text'] {
+  padding: 8px 14px;
+  background: var(--bg-mute);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  outline: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.tk-settings input[type='text']:hover {
+  border-color: var(--line);
+}
+.tk-settings input[type='text']:focus {
+  border-color: var(--accent);
+  background: var(--bg-soft);
 }
 .tk-label {
   font-size: 12px;
@@ -2917,6 +2937,15 @@ svg {
   color: var(--text-3);
 }
 .tk-date input {
+  color: var(--text);
+  color-scheme: dark;
+  background: var(--bg-mute);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-pill);
+  padding: 7px 12px;
+  outline: none;
+}
+.tk-date input::-webkit-datetime-edit {
   color: var(--text);
 }
 
