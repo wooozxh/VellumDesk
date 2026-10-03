@@ -46,7 +46,8 @@ export const COPY = {
     know: '知道了',
     current: '当前',
     fileCount: '{n} 个文件',
-    confirmDelete: '确认删除'
+    confirmDelete: '确认删除',
+    failed: '操作失败'
   },
 
   // ==================== 标签维度默认名 ====================
@@ -893,6 +894,32 @@ export const COPY = {
     /** 开关说明 */
     allowAssignHint: '开启后可在工单详情里指派设计师并写回企微表格（需要表格可编辑权限）',
     /** 详情弹窗「在表格中打开」逃生口 */
-    openTable: '在表格中打开'
+    openTable: '在表格中打开',
+    /* ---- 第 19 批：导出报表 + 本地字段 + 完成任务（docs/22） ---- */
+    /** 本地扩展字段区块（印刷金额 / 绩效金额 / 备注，只存本地供报表导出） */
+    metricsSection: '报表统计',
+    metricsPrintCost: '印刷金额',
+    metricsPerformanceCost: '绩效金额',
+    metricsRemark: '备注',
+    /** 任务包「完成任务」按钮 */
+    completeBtn: '完成任务',
+    completeBtnTip: '生成成品缩略图并写回工单队列',
+    completeOk: '已完成：缩略图已写回工单队列',
+    completeNoTicket: '该任务未关联工单',
+    completeNoAsset: '未找到成品图（请先在任务包里放一张成品图）',
+    completeNoThumb: '缩略图生成失败',
+    completeNoRecord: '该单缺少表格记录标识（重新同步一次可修复）',
+    completeUploadFail: '缩略图上传失败：{msg}',
+    completeWriteFail: '写回工单队列失败：{msg}',
+    /** 工单面板「导出报表」按钮 + 弹窗 */
+    exportReportBtn: '导出报表',
+    exportReportTitle: '导出报表',
+    exportReportStart: '开始日期',
+    exportReportEnd: '结束日期',
+    exportReportLink: '报表表格链接',
+    exportReportRun: '导出',
+    exportReportNoLink: '请先粘贴报表表格链接',
+    exportReportEmpty: '该时间段没有已完成工单',
+    exportReportOk: '已导出 {n} 条到「工单报表」子表「{sheet}」'
   }
 } as const

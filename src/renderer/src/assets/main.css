@@ -2773,6 +2773,37 @@ svg {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 第 19 批（docs/22）：本地扩展字段输入框（报表统计区块） */
+.tk-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 18px;
+}
+.tk-metric {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 3px 0;
+}
+.tk-metric .k {
+  color: var(--text-3);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.tk-metric input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.tk-metric-wide {
+  grid-column: 1 / -1;
+}
 .tk-packcard {
   display: flex;
   align-items: center;
@@ -2872,6 +2903,21 @@ svg {
   background: var(--danger-soft);
   color: var(--text-2);
   font-size: 12px;
+}
+/* 第 19 批：导出报表弹窗的日期选择行 */
+.tk-daterow {
+  display: flex;
+  gap: 12px;
+}
+.tk-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.tk-date input {
+  color: var(--text);
 }
 
 /* ---------------- 第 15 批：交付打包弹窗 ---------------- */

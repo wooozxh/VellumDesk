@@ -608,6 +608,24 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
            )
   `)
 
+  // ---- 迁移 15：导出报表（第 19 批 docs/22 §3）----
+  // ① ticket_metrics：本地扩展字段（印刷金额 / 绩效金额 / 备注）——只存本地，不进工单队列。
+  //   一行一单（ticket_no 主键对齐 tickets.UNIQUE(ticket_no)），同步引擎零改动。
+  // ② tickets.thumb_url：工单队列「缩略图」image 列同步来的 URL（跨机器传到本机）。
+  // 幂等：CREATE TABLE IF NOT EXISTS + 缺列才 ALTER（迁移 8/9/13 同一模式）。
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS ticket_metrics (
+      ticket_no        TEXT PRIMARY KEY,
+      print_cost       REAL,
+      performance_cost REAL,
+      remark           TEXT
+    );
+  `)
+  const ticketCols15 = d.prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+  if (!ticketCols15.some((c) => c.name === 'thumb_url')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN thumb_url TEXT')
+  }
+
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。
   // 仍是「空库才落」—— 已有库（含用户本机）不动，不会重复灌、也不覆盖用户改过的颜色。

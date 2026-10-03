@@ -448,6 +448,17 @@ export interface TicketDetail extends TicketListItem {
   mine: boolean
   /** 关联任务的物料概况（文件数 / 最近更新），没建任务为 null */
   packSummary: { fileCount: number; lastUpdate: string | null } | null
+  /** 第 19 批：本地扩展字段（印刷金额 / 绩效金额 / 备注，只存本地） */
+  metrics: TicketMetrics
+  /** 第 19 批：工单队列「缩略图」image 列同步来的 URL */
+  thumbUrl: string | null
+}
+
+/** 第 19 批：工单本地扩展字段（docs/22 §3，只存本地不进工单队列） */
+export interface TicketMetrics {
+  printCost: number | null
+  performanceCost: number | null
+  remark: string | null
 }
 
 /** 工单配置（设置弹窗 + 未配置判定用） */
@@ -538,6 +549,34 @@ export interface TicketAssignResult {
   /** 通知状态（写回成功才有） */
   notifyState: 'sent' | 'failed' | null
   designerName?: string
+}
+
+// ---------------- 第 19 批：导出报表（docs/22） ----------------
+
+/** 任务包「完成任务」的结果（生成缩略图 + 写回工单队列） */
+export interface TicketCompleteResult {
+  ok: boolean
+  msg?: string
+  ticketNo?: string
+}
+
+/** 报表配置状态（导出弹窗预填链接 / 模板子表名） */
+export interface ReportStatus {
+  docid: string | null
+  templateSheet: string
+}
+
+/** 一次导出报表的结果（toast 的原料） */
+export interface ExportReportResult {
+  ok: boolean
+  /** 新建的子表名（= 起止日期） */
+  sheetTitle?: string
+  /** 导出的条数 */
+  count?: number
+  /** 字段缺失 / 类型不符 / 选项缺失的警告（不阻断导出） */
+  fieldWarnings?: string[]
+  kind?: 'cli-missing' | 'auth-expired' | 'unknown' | 'bad-link'
+  error?: string
 }
 
 export interface Api {
@@ -748,6 +787,23 @@ export interface Api {
   ticketSetAllowAssign: (v: boolean) => Promise<{ ok: boolean; allow: boolean }>
   /** 未指派存量数（顶栏徽标） */
   ticketUnassignedCount: () => Promise<number>
+
+  // ---------------- 第 19 批：导出报表（docs/22） ----------------
+  /** 读工单本地扩展字段（印刷金额 / 绩效金额 / 备注） */
+  ticketMetricsGet: (ticketNo: string) => Promise<TicketMetrics>
+  /** 写工单本地扩展字段（upsert；三值全空删行） */
+  ticketMetricsSet: (input: {
+    ticketNo: string
+    printCost: number | null
+    performanceCost: number | null
+    remark: string | null
+  }) => Promise<{ ok: boolean }>
+  /** 任务包「完成任务」：生成缩略图 + 写回工单队列 */
+  ticketCompleteByPack: (packId: number) => Promise<TicketCompleteResult>
+  /** 报表配置状态（预填导出弹窗） */
+  reportStatus: () => Promise<ReportStatus>
+  /** 导出报表：起止日期 → 建子表 → 写记录 */
+  reportExport: (input: { link: string; start: string; end: string }) => Promise<ExportReportResult>
 
   // ---------------- 第 15 批：交付打包（M5） ----------------
   /** 执行打包，生成 zip 并写交付记录 */

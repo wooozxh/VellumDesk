@@ -99,11 +99,26 @@ import {
   retryPendingDesignerWrites,
   setAllowAssignEnabled,
   unassignedTicketCount,
+  // 第 19 批：导出报表 + 完成任务（docs/22）
+  completeTicketTask,
+  readTicketMetrics,
+  thumbColName,
+  writeTicketMetrics,
   type DesignerWriteAdapter,
   type SheetPayload,
   type TicketRawRecord,
   type TicketSheetConfig
 } from './src/main/tickets'
+// 第 19 批：导出报表（docs/22）
+import {
+  buildReportRows,
+  exportReport,
+  reportSheetTitle,
+  REPORT_FIELD,
+  type ReportAdapter,
+  type ReportRow
+} from './src/main/report'
+import type { ReportField } from './src/main/reportWecom'
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
@@ -4272,6 +4287,184 @@ async function main(): Promise<void> {
     // ---- (9) 空集合指派被拒（API 无法清空成员列，docs/20 §2.1） ----
     const arEmpty = await executeAssignDesigners('M2', [], mockAdapter, 'uME')
     ok(!arEmpty.ok, '空集合指派被拒（成员列无法 API 清空，UI 层挡住最后一人）')
+
+    closeDb()
+    hardRm(bRoot)
+  }
+
+  // ============ 第 19 批 T-05：迁移 15（导出报表，docs/22 §3） ============
+  log('\n[36] 第 19 批：迁移 15 —— ticket_metrics 子表 + tickets.thumb_url 列')
+  {
+    const aRoot = join('D:\\_accept_ws', `wstest19a_${RUN_ID}`)
+    const aWs = join(aRoot, 'ws')
+    hardRm(aRoot)
+    mkdirSync(aWs, { recursive: true })
+    closeDb()
+    openDb(aWs)
+    initWorkspace(aWs)
+
+    const tables = getDb()
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_metrics'")
+      .all()
+    ok(tables.length === 1, '迁移 15 建 ticket_metrics 子表')
+    const tCols = getDb().prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+    ok(tCols.some((c) => c.name === 'thumb_url'), 'tickets 有 thumb_url 列（迁移 15 幂等补列）')
+    ok(thumbColName() === '缩略图', '缩略图列名 = 缩略图（读写同源）')
+
+    closeDb()
+    hardRm(aRoot)
+  }
+
+  // ============ 第 19 批 T-06：本地字段 + 缩略图映射 + 完成任务 + 导出组装（docs/22） ============
+  log('\n[37] 第 19 批：本地字段读写 / 缩略图列映射 / 完成任务 / 导出组装（mock 适配器）')
+  {
+    const bRoot = join('D:\\_accept_ws', `wstest19b_${RUN_ID}`)
+    const bWs = join(bRoot, 'ws')
+    hardRm(bRoot)
+    mkdirSync(bWs, { recursive: true })
+    closeDb()
+    openDb(bWs)
+    initWorkspace(bWs)
+
+    const bIdentity = { userid: 'uME', name: '本机测试员' }
+    const bRec = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        业务归属: [{ text: '工单测试项目' }],
+        ...over
+      }
+    })
+    const bPayload = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheetP',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const live = new Map<string, TicketRawRecord>()
+    const put = (no: string, over: Record<string, unknown> = {}): void => {
+      live.set(no, bRec(no, over))
+    }
+    const syncAll = (structureChanged = false) =>
+      applySync({
+        payloads: [bPayload([...live.values()])],
+        structureChanged,
+        identity: bIdentity,
+        workspaceRoot: bWs
+      })
+
+    createProject({ name: '工单测试项目', workspaceRoot: bWs })
+    put('A1', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
+    syncAll() // 首次快照
+
+    // ---- (1) 缩略图列映射：image 列值 → thumb_url ----
+    // 派给别的设计师（uOTHER）→ 不自动建任务，避免干扰后面的完成任务断言
+    put('R1', {
+      设计师: [{ userId: 'uOTHER', userName: '别的同事' }],
+      完成时间: [{ text: '2026-10-05' }],
+      缩略图: [{ id: 'img1', title: '图', imageUrl: 'https://wqpic.example/thumb1.jpg' }]
+    })
+    put('R2', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }], 完成时间: [{ text: '2026-10-15' }] })
+    put('R3', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }], 完成时间: [{ text: '2026-09-20' }] })
+    put('R4', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }] })
+    syncAll()
+    const tR1 = getDb().prepare('SELECT thumb_url FROM tickets WHERE ticket_no = ?').get('R1') as { thumb_url: string | null }
+    ok(tR1.thumb_url === 'https://wqpic.example/thumb1.jpg', 'image 列 URL → thumb_url')
+    const tR2 = getDb().prepare('SELECT thumb_url FROM tickets WHERE ticket_no = ?').get('R2') as { thumb_url: string | null }
+    ok(tR2.thumb_url === null, '无图 → thumb_url null')
+
+    // ---- (2) 本地字段读写（upsert + 全空删行）----
+    writeTicketMetrics('R1', { printCost: 1200.5, performanceCost: null, remark: '备注A' })
+    const m1 = readTicketMetrics('R1')
+    ok(m1.printCost === 1200.5 && m1.performanceCost === null && m1.remark === '备注A', '本地字段写读（金额 + 备注）')
+    writeTicketMetrics('R1', { printCost: 2000, performanceCost: 300, remark: '' })
+    const m2 = readTicketMetrics('R1')
+    ok(m2.printCost === 2000 && m2.performanceCost === 300, '本地字段 upsert 更新金额')
+    writeTicketMetrics('R2', { printCost: null, performanceCost: null, remark: null })
+    const cntR2 = getDb().prepare('SELECT COUNT(*) AS c FROM ticket_metrics WHERE ticket_no = ?').get('R2') as { c: number }
+    ok(cntR2.c === 0, '全空删行 → ticket_metrics 无残留')
+
+    // ---- (3) buildReportRows：按完成时间筛 + JOIN 本地字段 ----
+    writeTicketMetrics('R1', { printCost: 500, performanceCost: 100, remark: 'x' })
+    writeTicketMetrics('R2', { printCost: 800, performanceCost: 200, remark: '' })
+    const rows = buildReportRows('2026-10-01', '2026-10-31')
+    ok(rows.length === 2, `buildReportRows 只含 10 月内完成（2 条，实际 ${rows.length}）`)
+    ok(rows.every((r) => r.ticketNo === 'R1' || r.ticketNo === 'R2'), '范围外（9 月）与无完成时间的单被排除')
+    const rowR1 = rows.find((r) => r.ticketNo === 'R1')
+    ok(rowR1?.printCost === 500 && rowR1?.performanceCost === 100, '报表行 JOIN 本地扩展字段')
+
+    // ---- (4) 完成任务：找成品图 + 生成缩略图 ----
+    const projId = (getDb().prepare('SELECT id FROM projects WHERE name = ?').get('工单测试项目') as { id: number }).id
+    const pack = createPack({ name: '完成任务测试包', projectId: projId, workspaceRoot: bWs })
+    const v1 = getDb().prepare('SELECT folder_name FROM pack_versions WHERE pack_id = ? ORDER BY seq LIMIT 1').get(pack.id) as { folder_name: string }
+    const doneDir = join(pack.folder_path, v1.folder_name, '01-成品')
+    mkdirSync(doneDir, { recursive: true })
+    makePng(join(doneDir, '完成图.png'), 200, 150, [200, 80, 40])
+    scanAll(bWs)
+    getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack.id, 'R1')
+    const comp = await completeTicketTask(pack.id, bWs)
+    ok(comp.ok && comp.ticketNo === 'R1' && !!comp.thumbPath, '完成任务：找成品图 + 生成缩略图')
+    ok(!!comp.thumbPath && existsSync(comp.thumbPath), `缩略图文件已生成（${comp.thumbPath ?? '—'}）`)
+    const pack2 = createPack({ name: '空包', projectId: projId, workspaceRoot: bWs })
+    getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack2.id, 'R2')
+    const comp2 = await completeTicketTask(pack2.id, bWs)
+    ok(!comp2.ok, '无成品图 → 完成任务被拒')
+
+    // ---- (5) 导出：mock 适配器（真企微不进自动测试）----
+    const tplFields: ReportField[] = [
+      { field_title: '工单类型（印刷/电子）', field_type: 'single_select', property_single_select: { options: [{ id: 'opt_print', text: '印刷' }, { id: 'opt_digital', text: '电子' }] } },
+      { field_title: '编号', field_type: 'text' },
+      { field_title: '完成时间', field_type: 'date_time' },
+      { field_title: '物料名称', field_type: 'text' },
+      { field_title: '业务归属', field_type: 'text' },
+      { field_title: '申请人', field_type: 'user', property_user: { is_multiple: true } },
+      { field_title: '设计师', field_type: 'user', property_user: { is_multiple: true } },
+      { field_title: '缩略图', field_type: 'image' },
+      { field_title: '印刷数量', field_type: 'number' },
+      { field_title: '印刷金额', field_type: 'currency' },
+      { field_title: '绩效金额', field_type: 'currency' },
+      { field_title: '备注', field_type: 'text' }
+    ]
+    const addedSheets: Array<{ docid: string; sheetTitle: string; fields: ReportField[] }> = []
+    const rehosted: string[] = []
+    let addedRecords: Array<{ values: Record<string, unknown> }> = []
+    const mockReportAdapter: ReportAdapter = {
+      fetchTemplateFields: async () => ({ ok: true, data: tplFields }),
+      addSheet: async (docid, sheetTitle, fields) => {
+        addedSheets.push({ docid, sheetTitle, fields })
+        return { ok: true, data: null }
+      },
+      rehostThumb: async (sourceUrl) => {
+        rehosted.push(sourceUrl)
+        return { ok: true, data: 'https://report-space/thumb.jpg' }
+      },
+      addRecords: async (_docid, _sheetTitle, records) => {
+        addedRecords = records
+        return { ok: true, data: null }
+      }
+    }
+    const er = await exportReport(
+      { docid: 's3_REPORT', templateSheet: '报表模板', start: '2026-10-01', end: '2026-10-31' },
+      mockReportAdapter
+    )
+    ok(er.ok && er.count === 2 && er.sheetTitle === '2026-10-01~2026-10-31', `导出成功（2 条，子表名 = 起止日期，实际 ${er.count}/${er.sheetTitle}）`)
+    ok(addedSheets.length === 1 && addedSheets[0].fields.length === 12, '建子表复制 12 字段结构')
+    ok(rehosted.length === 1 && rehosted[0] === 'https://wqpic.example/thumb1.jpg', '有缩略图的单重新上传（1 张）')
+    ok(addedRecords.length === 2, '写 2 条记录')
+    const rec1 = addedRecords.find((r) => r.values[REPORT_FIELD.no] === 'R1')
+    const rec2 = addedRecords.find((r) => r.values[REPORT_FIELD.no] === 'R2')
+    ok(!!rec1 && !!rec2, '记录按编号写入')
+    const typeVal = rec1?.values[REPORT_FIELD.type] as Array<{ id?: string; text: string }> | undefined
+    ok(typeVal?.[0]?.text === '印刷' && typeVal?.[0]?.id === 'opt_print', '工单类型单选写 [{id,text}]')
+    const dsVal = rec1?.values[REPORT_FIELD.designers] as Array<{ userName: string }> | undefined
+    ok(dsVal?.length === 1 && dsVal?.[0]?.userName === '别的同事', '设计师成员列写 [{userName}]')
+    const thumbVal = rec1?.values[REPORT_FIELD.thumb] as Array<{ imageUrl: string }> | undefined
+    ok(thumbVal?.[0]?.imageUrl === 'https://report-space/thumb.jpg', '缩略图写报表空间 URL')
+    ok(rec1?.values[REPORT_FIELD.printCost] === 500, '印刷金额写货币数值')
+    ok(rec2?.values[REPORT_FIELD.performanceCost] === 200, '绩效金额写数值（R2）')
+    ok(rec2?.values[REPORT_FIELD.thumb] === undefined, '无缩略图的单不写图片字段')
 
     closeDb()
     hardRm(bRoot)

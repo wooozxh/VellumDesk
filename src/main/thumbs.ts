@@ -259,6 +259,20 @@ export async function ensureThumbsForAssets(
   return ok
 }
 
+/** 第 19 批（docs/22 §4）：单个素材按类型生成缩略图（图/视频/PSD/PDF 全接，返回相对路径） */
+export async function ensureAnyThumb(
+  workspaceRoot: string,
+  absPath: string,
+  size: number,
+  ext: string,
+  mtimeMs: number
+): Promise<string | null> {
+  if (isVideo(ext)) return ensureVideoThumb(workspaceRoot, absPath, size, mtimeMs)
+  if (isPsd(ext)) return ensurePsdThumb(workspaceRoot, absPath, size, mtimeMs)
+  if (isPdf(ext)) return ensurePdfThumb(workspaceRoot, absPath, size, mtimeMs)
+  return ensureThumb(workspaceRoot, absPath, size, mtimeMs)
+}
+
 // ---------------------------------------------------------------- B-01 图片尺寸与色彩模式
 
 export interface ImageMeta {

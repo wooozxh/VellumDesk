@@ -67,8 +67,8 @@ function runRaw(args: string[], timeoutMs: number): Promise<RawRun> {
   })
 }
 
-/** 跑 CLI 并解析 JSON 输出；识别授权过期 / 未安装 */
-async function runCliJson<T>(args: string[], timeoutMs = 60000): Promise<CliResult<T>> {
+/** 跑 CLI 并解析 JSON 输出；识别授权过期 / 未安装（第 19 批：导出 reportWecom 复用） */
+export async function runCliJson<T>(args: string[], timeoutMs = 60000): Promise<CliResult<T>> {
   const r = await runRaw(args, timeoutMs)
   if (r.spawnError === 'CLI_NOT_FOUND' || r.spawnError === 'ENOENT') {
     return { ok: false, kind: 'cli-missing', error: 'wecom-cli 未安装或路径未配置' }

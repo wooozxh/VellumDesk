@@ -133,6 +133,19 @@ const api = {
   ticketSetAllowAssign: (v: boolean) => ipcRenderer.invoke('ticket:setAllowAssign', v),
   ticketUnassignedCount: () => ipcRenderer.invoke('ticket:unassignedCount'),
 
+  // 第 19 批：导出报表（docs/22）
+  ticketMetricsGet: (ticketNo: string) => ipcRenderer.invoke('ticket:metricsGet', ticketNo),
+  ticketMetricsSet: (input: {
+    ticketNo: string
+    printCost: number | null
+    performanceCost: number | null
+    remark: string | null
+  }) => ipcRenderer.invoke('ticket:metricsSet', input),
+  ticketCompleteByPack: (packId: number) => ipcRenderer.invoke('ticket:completeByPack', packId),
+  reportStatus: () => ipcRenderer.invoke('report:status'),
+  reportExport: (input: { link: string; start: string; end: string }) =>
+    ipcRenderer.invoke('report:export', input),
+
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),

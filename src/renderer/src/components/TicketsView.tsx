@@ -4,6 +4,7 @@ import type { TicketDetail, TicketListItem, TicketStatus } from '../types'
 import { Icon } from './Icon'
 import { TicketDetailModal } from './TicketDetailModal'
 import { TicketSettingsModal } from './TicketSettingsModal'
+import { ExportReportModal } from './ExportReportModal'
 
 /**
  * 第 13 批：工单视图（docs/15 §6.1）—— 顶栏第三格「工单」。
@@ -52,6 +53,7 @@ export function TicketsView({
   const [syncing, setSyncing] = useState(false)
   const [detailNo, setDetailNo] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [hint, setHint] = useState<string | null>(null)
   /** 第 17 批（docs/19 §3②）：本轮同步新增的未指派数（>0 时显示提示条 + 去指派按钮） */
   const [newUnassigned, setNewUnassigned] = useState(0)
@@ -202,6 +204,14 @@ export function TicketsView({
         >
           <Icon name="gear" size={13} />
         </button>
+        {/* 第 19 批（docs/22 §6）：导出报表 */}
+        <button
+          className="btn"
+          onClick={() => setShowExport(true)}
+          title={COPY.ticket.exportReportBtn}
+        >
+          <Icon name="doc" size={13} /> {COPY.ticket.exportReportBtn}
+        </button>
         <button
           className="btn primary"
           onClick={() => void doSync()}
@@ -347,6 +357,9 @@ export function TicketsView({
             await loadList(filter)
           }}
         />
+      )}
+      {showExport && (
+        <ExportReportModal onClose={() => setShowExport(false)} onToast={toast} />
       )}
     </div>
   )

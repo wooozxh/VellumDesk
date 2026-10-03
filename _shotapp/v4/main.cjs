@@ -2418,6 +2418,25 @@ app.whenReady().then(async () => {
     )
     ok(syncBtn.includes(COPY.ticket.syncBtn), `「${COPY.ticket.syncBtn}」按钮在`)
 
+    // (2b) 第 19 批：顶栏「导出报表」按钮 + 弹窗形态（不真导出 —— 真企微不进自动测试）
+    const exportBtn = await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.exportReportBtn)})); return b ? b.innerText.trim() : '' })()`
+    )
+    ok(exportBtn.includes(COPY.ticket.exportReportBtn), `「${COPY.ticket.exportReportBtn}」按钮在`)
+    await js(
+      `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.exportReportBtn)})); if (b) b.click(); return 'ok' })()`
+    )
+    await wait(700)
+    const erModal = await js(
+      `(() => { const m = document.querySelector('.mask .modal'); if (!m) return null; const inputs = [...m.querySelectorAll('input')]; return { title: ((m.querySelector('h3')||{}).innerText||'').trim(), hasLink: inputs.some(i => i.type === 'text'), dateCount: inputs.filter(i => i.type === 'date').length, runBtn: [...m.querySelectorAll('.btn')].some(b => b.innerText.includes(${JSON.stringify(COPY.ticket.exportReportRun)})) } })()`
+    )
+    ok(!!erModal && erModal.title.includes(COPY.ticket.exportReportTitle), `「${COPY.ticket.exportReportTitle}」弹窗在`)
+    ok(!!erModal && erModal.hasLink && erModal.dateCount === 2, '弹窗含报表链接输入框 + 起止日期两个日期框')
+    ok(!!erModal && erModal.runBtn, `「${COPY.ticket.exportReportRun}」按钮在`)
+    await shot('shot-b19-1-export-modal.png')
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+
     // (3) 默认「我的」：8 张（= 派给我的全部：含我的历史单/待确认/撞号/多人协作 —— 列表可见性口径，磁盘上只长该建任务的那些），驳回的压暗
     ok((await rowCount()) === 8, `默认「我的」视图 8 张（实际 ${await rowCount()}）`)
     const r1 = await rowByNo('202610010001')
@@ -2477,6 +2496,12 @@ app.whenReady().then(async () => {
       `(() => { const b = [...document.querySelectorAll('.tk-actions .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.openApproval)})); return b ? 'ok' : 'no' })()`
     )
     ok(dOpen === 'ok', `「${COPY.ticket.openApproval}」按钮在（一期不做附件下载，跳审批页看）`)
+    // 第 19 批：详情弹窗「报表统计」区块（印刷金额/绩效金额/备注三个本地输入框）
+    const dMetrics = await js(
+      `(() => { const m = document.querySelector('.mask .modal'); if (!m) return null; const h4 = [...m.querySelectorAll('.tk-detail h4')].map(x => x.innerText.trim()); const inputs = [...m.querySelectorAll('.tk-metric input')]; return { hasSection: h4.includes(${JSON.stringify(plain(COPY.ticket.metricsSection))}), metricCount: inputs.length, numCount: inputs.filter(i => i.type === 'number').length } })()`
+    )
+    ok(!!dMetrics && dMetrics.hasSection, `详情有「${COPY.ticket.metricsSection}」区块`)
+    ok(!!dMetrics && dMetrics.metricCount === 3 && dMetrics.numCount === 2, `报表统计 3 个输入框（2 个金额数字 + 1 个备注，实际 ${dMetrics ? dMetrics.metricCount + '/' + dMetrics.numCount : '—'}）`)
     await shot('shot-b13-4-detail.png')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(600)

@@ -75,6 +75,7 @@ import {
 import {
   allowAssignEnabled,
   applySync,
+  completeTicketTask,
   confirmPendingTickets,
   createTaskForTicketManually,
   detectStructure,
@@ -82,9 +83,12 @@ import {
   evaluateDesignerCol,
   executeAssignDesigners,
   listDesignerCandidates,
+  readTicketMetrics,
   retryPendingDesignerWrites,
   setAllowAssignEnabled,
+  thumbColName,
   unassignedTicketCount,
+  writeTicketMetrics,
   META_KEYS,
   readTicketConfig,
   writeTicketSheets,
@@ -100,6 +104,21 @@ import {
   sendBotTextMessage,
   updateRecords
 } from './ticketsWecom'
+// 第 19 批：导出报表（docs/22）
+import {
+  exportReport,
+  readReportConfig,
+  writeReportConfig,
+  type ExportReportInput,
+  type ReportAdapter
+} from './report'
+import {
+  addReportRecords,
+  addReportSheet,
+  fetchReportTemplateFields,
+  rehostReportThumb,
+  uploadReportImage
+} from './reportWecom'
 // 第 15 批：交付打包（M5，docs/18）
 import { executePackExport, listDeliveryRecords } from './exportPack'
 import type { PackExportInput, PackExportResult } from '../shared/types'
@@ -1077,7 +1096,10 @@ export function registerIpc(): void {
       reviewerNames: (t.reviewer_names as string) ?? null,
       materialCategory: (t.material_category as string) ?? null,
       mine: !!cfg.identity && t.designer_userid === cfg.identity.userid,
-      packSummary
+      packSummary,
+      // 第 19 批：本地扩展字段 + 缩略图 URL
+      metrics: readTicketMetrics(ticketNo),
+      thumbUrl: (t.thumb_url as string) ?? null
     }
   })
 
@@ -1168,6 +1190,98 @@ export function registerIpc(): void {
     initWorkspace(root)
     return unassignedTicketCount()
   })
+
+  // ---------- 第 19 批：导出报表（docs/22） ----------
+
+  /** 本地扩展字段（印刷金额 / 绩效金额 / 备注）读 */
+  ipcMain.handle('ticket:metricsGet', (_e, ticketNo: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return readTicketMetrics(ticketNo)
+  })
+
+  /** 本地扩展字段写（upsert；三值全空删行） */
+  ipcMain.handle(
+    'ticket:metricsSet',
+    (_e, input: { ticketNo: string; printCost: number | null; performanceCost: number | null; remark: string | null }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      writeTicketMetrics(input.ticketNo, {
+        printCost: input.printCost,
+        performanceCost: input.performanceCost,
+        remark: input.remark
+      })
+      return { ok: true }
+    }
+  )
+
+  /**
+   * 任务包「完成任务」：生成缩略图 + 上传 + 写回工单队列「缩略图」列（docs/22 §4）。
+   * 只负责缩略图，不改工单状态（§7 #6）。写回失败返回明确提示，不落 pending（人工可重试）。
+   */
+  ipcMain.handle('ticket:completeByPack', async (_e, packId: number) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const comp = await completeTicketTask(packId, root)
+    if (!comp.ok) return comp
+    const cfg = readTicketConfig()
+    if (!cfg.docid || !comp.recordId || !comp.sheetId || !comp.thumbPath) {
+      return { ok: false, msg: COPY.ticket.completeNoRecord }
+    }
+    const up = await uploadReportImage(cfg.docid, comp.thumbPath)
+    if (!up.ok || !up.data) {
+      return { ok: false, msg: fmt(COPY.ticket.completeUploadFail, { msg: up.error ?? '' }) }
+    }
+    const wr = await updateRecords({
+      docid: cfg.docid,
+      sheet_id: comp.sheetId,
+      records: [
+        { record_id: comp.recordId, values: { [thumbColName()]: [{ title: comp.ticketNo, imageUrl: up.data }] } }
+      ]
+    })
+    if (!wr.ok) {
+      return { ok: false, msg: fmt(COPY.ticket.completeWriteFail, { msg: wr.error ?? '' }) }
+    }
+    // 本地 thumb_url 即时更新（不等下轮同步）
+    getDb().prepare('UPDATE tickets SET thumb_url = ? WHERE ticket_no = ?').run(up.data, comp.ticketNo)
+    return { ok: true, ticketNo: comp.ticketNo }
+  })
+
+  /** 报表配置状态（导出弹窗预填链接 / 模板子表名） */
+  ipcMain.handle('report:status', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return readReportConfig()
+  })
+
+  /** 报表 wecom 适配器（引擎注入实现 —— 真企微不进自动测试） */
+  const reportAdapter: ReportAdapter = {
+    fetchTemplateFields: (docid, sheetTitle) => fetchReportTemplateFields(docid, sheetTitle),
+    addSheet: (docid, sheetTitle, fields) => addReportSheet(docid, sheetTitle, fields),
+    rehostThumb: (sourceUrl, docid) => rehostReportThumb(sourceUrl, docid),
+    addRecords: (docid, sheetTitle, records) => addReportRecords(docid, sheetTitle, records)
+  }
+
+  /** 导出报表：起止日期 → 建子表（复制字段）→ 写记录（含图片列重新上传） */
+  ipcMain.handle(
+    'report:export',
+    async (_e, input: { link: string; start: string; end: string }) => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      const docid = extractDocid(input.link)
+      if (!docid) return { ok: false, kind: 'bad-link' as const, error: '链接里解析不出表格编号' }
+      const cfg = readReportConfig()
+      // 链接变了 → 落库（导出弹窗每次粘贴都带上，这里顺手存）
+      if (docid !== cfg.docid) writeReportConfig(docid, cfg.templateSheet)
+      const expInput: ExportReportInput = {
+        docid,
+        templateSheet: cfg.templateSheet || '报表模板',
+        start: input.start,
+        end: input.end
+      }
+      return exportReport(expInput, reportAdapter)
+    }
+  )
 
   // ---------- 第 15 批：交付打包（M5，docs/18） ----------
   ipcMain.handle('pack:export', async (_e, input: PackExportInput) => {

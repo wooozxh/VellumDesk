@@ -79,6 +79,8 @@ export function PackDetailModal({
   const [verModal, setVerModal] = useState<'create' | 'bind' | null>(null)
   // 第 15 批（M5）：打包交付弹窗
   const [exportOpen, setExportOpen] = useState(false)
+  // 第 19 批（docs/22）：完成任务（生成缩略图写回工单队列）
+  const [completeBusy, setCompleteBusy] = useState(false)
   const verInited = useRef(false)
 
   const load = async (): Promise<void> => {
@@ -273,6 +275,21 @@ export function PackDetailModal({
                   title={COPY.exportPack.btnTip}
                 >
                   <Icon name="archive" size={13} />  {COPY.exportPack.btn}
+                </button>
+                <button
+                  className="btn"
+                  disabled={completeBusy || typeof packId !== 'number'}
+                  title={COPY.ticket.completeBtnTip}
+                  onClick={() => {
+                    if (completeBusy || typeof packId !== 'number') return
+                    setCompleteBusy(true)
+                    void window.api
+                      .ticketCompleteByPack(packId)
+                      .then((r) => toast(r.ok ? COPY.ticket.completeOk : (r.msg ?? COPY.common.failed), r.ok ? 'ok' : 'err'))
+                      .finally(() => setCompleteBusy(false))
+                  }}
+                >
+                  <Icon name="check" size={13} />  {COPY.ticket.completeBtn}
                 </button>
               </div>
 

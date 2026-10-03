@@ -19,6 +19,8 @@
 import { COPY, fmt } from '../shared/copy'
 import { getDb, getMeta, setMeta } from './db'
 import { createPack } from './workspace'
+import { join } from 'path'
+import { ensureAnyThumb } from './thumbs'
 
 // ============================================================ 类型
 
@@ -209,7 +211,9 @@ const COL = {
   project: '业务归属',
   reviewer: '物料审核人',
   matCat: '物料类别',
-  useScene: '物料使用场景'
+  useScene: '物料使用场景',
+  // 第 19 批（docs/22 §4）：工单队列的「缩略图」image 列（设计师完成任务时写回，导出报表复用）
+  thumb: '缩略图'
 } as const
 
 /** 企微智能表格的单元格值 → 纯文本（值是 [{text:…}] 数组；日期可能是毫秒数） */
@@ -246,6 +250,26 @@ export function takeLink(v: unknown): string | null {
       return null
     }
     return takeLink(first)
+  }
+  if (typeof v === 'string') return /^https?:\/\//i.test(v) ? v : null
+  return null
+}
+
+/**
+ * 图片单元格 → 图片 URL（第 19 批 docs/22 §4：工单队列「缩略图」image 列）。
+ * image 列存 CellImageValue 数组 [{id, title, imageUrl}]，取第一个的 imageUrl。
+ * 只收 http/https 的图片资源地址；空数组 / 无图 → null。
+ */
+function takeImageUrl(v: unknown): string | null {
+  if (Array.isArray(v)) {
+    if (v.length === 0) return null
+    const first = v[0]
+    if (first && typeof first === 'object') {
+      const url = (first as Record<string, unknown>).imageUrl
+      if (typeof url === 'string' && /^https?:\/\//i.test(url)) return url
+      return null
+    }
+    return takeImageUrl(first)
   }
   if (typeof v === 'string') return /^https?:\/\//i.test(v) ? v : null
   return null
@@ -344,7 +368,8 @@ function extractRow(rec: TicketRawRecord): {
       designer_name: primary.name,
       project_name: takeText(v[COL.project]),
       reviewer_names: takeUserNames(v[COL.reviewer]),
-      material_category: takeText(v[COL.matCat])
+      material_category: takeText(v[COL.matCat]),
+      thumb_url: takeImageUrl(v[COL.thumb])
     }
   }
 }
@@ -464,14 +489,14 @@ export function applySync(input: ApplySyncInput): SyncResult {
       due_date, submit_time, done_time, remark, source_url, approval_url,
       receiver_name, receiver_phone, deliver_date,
       designer_userid, designer_name, project_name, reviewer_names, material_category,
-      raw_json, first_seen_at, last_sync_at, is_history)
+      thumb_url, raw_json, first_seen_at, last_sync_at, is_history)
     VALUES (@sheet_id, @ticket_type, @ticket_no, @record_id,
       @title, @approval_state, @applicant_userid, @applicant_name, @department,
       @purpose, @size_text, @print_qty, @material_form, @use_scene,
       @due_date, @submit_time, @done_time, @remark, @source_url, @approval_url,
       @receiver_name, @receiver_phone, @deliver_date,
       @designer_userid, @designer_name, @project_name, @reviewer_names, @material_category,
-      @raw_json, @now, @now, 0)
+      @thumb_url, @raw_json, @now, @now, 0)
   `)
   const updTicket = db.prepare(`
     UPDATE tickets SET
@@ -486,7 +511,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
       deliver_date = @deliver_date,
       designer_userid = @designer_userid, designer_name = @designer_name,
       project_name = @project_name, reviewer_names = @reviewer_names,
-      material_category = @material_category, raw_json = @raw_json,
+      material_category = @material_category, thumb_url = @thumb_url,
+      raw_json = @raw_json,
       last_sync_at = @now
     WHERE ticket_no = @ticket_no
   `)
@@ -1065,4 +1091,120 @@ export function evaluateDesignerCol(
     if (!hit || hit.field_type !== 'user') allOk = false
   }
   if (checked > 0) setMeta(META_KEYS.designerOk, allOk ? '1' : '0')
+}
+
+// ============================================================ 本地扩展字段（第 19 批 docs/22 §3）
+
+/** 一张单的本地扩展字段（印刷金额 / 绩效金额 / 备注，只存本地，不进工单队列） */
+export interface TicketMetrics {
+  printCost: number | null
+  performanceCost: number | null
+  remark: string | null
+}
+
+/** 读一张单的本地扩展字段（无记录 → 全 null，不建行） */
+export function readTicketMetrics(ticket_no: string): TicketMetrics {
+  const r = getDb()
+    .prepare('SELECT print_cost, performance_cost, remark FROM ticket_metrics WHERE ticket_no = ?')
+    .get(ticket_no) as { print_cost: number | null; performance_cost: number | null; remark: string | null } | undefined
+  return {
+    printCost: r?.print_cost ?? null,
+    performanceCost: r?.performance_cost ?? null,
+    remark: r?.remark ?? null
+  }
+}
+
+/**
+ * 写一张单的本地扩展字段（upsert）。三值全空时删行（不留空记录，避免导出时无谓 JOIN）。
+ * 金额存 REAL（导出时按货币列写数字）；备注存文本。
+ */
+export function writeTicketMetrics(ticket_no: string, m: TicketMetrics): void {
+  const empty = m.printCost == null && m.performanceCost == null && (m.remark == null || m.remark === '')
+  if (empty) {
+    getDb().prepare('DELETE FROM ticket_metrics WHERE ticket_no = ?').run(ticket_no)
+    return
+  }
+  getDb()
+    .prepare(
+      `INSERT INTO ticket_metrics (ticket_no, print_cost, performance_cost, remark)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(ticket_no) DO UPDATE SET
+         print_cost = excluded.print_cost,
+         performance_cost = excluded.performance_cost,
+         remark = excluded.remark`
+    )
+    .run(ticket_no, m.printCost, m.performanceCost, m.remark)
+}
+
+// ============================================================ 「完成任务」缩略图（第 19 批 docs/22 §4）
+
+/** 工单队列「缩略图」image 列的列名（固定，读写同源） */
+export function thumbColName(): string {
+  return COL.thumb
+}
+
+/** 一张单的「完成任务」结果（引擎只负责找成品图 + 生成缩略图，上传写回由调用方做） */
+export interface CompleteTaskResult {
+  ok: boolean
+  msg?: string
+  ticketNo?: string
+  recordId?: string | null
+  sheetId?: string
+  /** 本地缩略图绝对路径（供 media upload 上传） */
+  thumbPath?: string
+}
+
+/**
+ * 任务包「完成任务」：找该任务包关联的工单 → 最新版本第一张成品素材 → 生成缩略图。
+ * 只负责缩略图生成（不改工单状态，docs/22 §7 #6）。上传写回由 IPC 层调 wecom-cli 完成。
+ */
+export async function completeTicketTask(
+  packId: number,
+  workspaceRoot: string
+): Promise<CompleteTaskResult> {
+  const db = getDb()
+  const t = db
+    .prepare('SELECT ticket_no, record_id, sheet_id FROM tickets WHERE pack_id = ? ORDER BY id LIMIT 1')
+    .get(packId) as { ticket_no: string; record_id: string | null; sheet_id: string } | undefined
+  if (!t) return { ok: false, msg: COPY.ticket.completeNoTicket }
+
+  // 最新版本（当前稿，否则最大 seq）的第一张「成品」素材
+  const ver = db
+    .prepare('SELECT id FROM pack_versions WHERE pack_id = ? ORDER BY is_current DESC, seq DESC LIMIT 1')
+    .get(packId) as { id: number } | undefined
+  let asset = ver
+    ? (db
+        .prepare(
+          `SELECT abs_path, size, ext, modified_at FROM assets
+            WHERE pack_id = ? AND role = '成品' AND version_id = ? ORDER BY id LIMIT 1`
+        )
+        .get(packId, ver.id) as { abs_path: string; size: number; ext: string; modified_at: string } | undefined)
+    : undefined
+  // 该版本没成品 / 老包没分版本 → 退到「包内所有成品素材第一张」
+  if (!asset) {
+    asset = db
+      .prepare(
+        `SELECT abs_path, size, ext, modified_at FROM assets
+          WHERE pack_id = ? AND role = '成品' ORDER BY id LIMIT 1`
+      )
+      .get(packId) as { abs_path: string; size: number; ext: string; modified_at: string } | undefined
+  }
+  if (!asset) return { ok: false, msg: COPY.ticket.completeNoAsset }
+
+  const rel = await ensureAnyThumb(
+    workspaceRoot,
+    asset.abs_path,
+    asset.size,
+    asset.ext,
+    new Date(asset.modified_at).getTime()
+  )
+  if (!rel) return { ok: false, msg: COPY.ticket.completeNoThumb }
+
+  return {
+    ok: true,
+    ticketNo: t.ticket_no,
+    recordId: t.record_id,
+    sheetId: t.sheet_id,
+    thumbPath: join(workspaceRoot, rel)
+  }
 }

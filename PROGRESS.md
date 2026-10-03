@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；`TM` 已含第 13~17 批（最新 `6dba4a1` = 版本 1.4.0）；**当前在 `feature/multi-designer` 分支**（第 18 批多设计师指派，从 `TM` 的 `6dba4a1` 分出）
-- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收 + 出包 1.5.0）**；MVP 整体约 99%
+- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；`TM` 已含第 13~17 批（最新 `6dba4a1` = 版本 1.4.0）；**当前在 `feature/multi-designer` 分支**（第 18 批多设计师指派 + 第 19 批导出报表，从 `TM` 的 `6dba4a1` 分出）
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收 + 出包 1.5.0）**；**第 19 批（导出报表）代码完工、自动验收全过（待真表人工验收 + 出包 1.6.0）**；MVP 整体约 99%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 分支现状（2026-09-30 晚核对）
@@ -17,7 +17,7 @@
 | `main` | `f20fa3d`（标签 `v1.1.0`） | 第 1~10 批全部功能（入库 / 项目管理 / 缩略图 / 标签 / 打包 / 工作区 / 三级结构 / 生命周期 / 丢失标记 / 版本管理 / 类别同源） | **已封存**，不再在此开发；1.1.0 安装包已发给同事，等装机验收 |
 | `feature/incr` | `64ffc9e` | 第 11~12 批增量：**文案字典**（505 条集中管理 + 术语统一「包→任务」+ `tools/copy-sheet` 在线表格控制台）+ **软件改名**「营销中心-素材库」（版本号 1.2.0） | **已提交、已验收通过、未出安装包**（用户取消了那次打包） |
 | **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批：**「工单」模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（方案 `docs/19`） | 第 13~16 批已关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
-| **`feature/multi-designer`**（当前） | 从 `TM` 的 `6dba4a1` 分出（尚未提交） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知精确到新增的人；方案 `docs/20`） | 代码完工、自动验收全过（accept 715 基线 + 新增多设计师断言全绿、tickets/export 场景全绿）；**待真表人工验收 + 出包 1.5.0** |
+| **`feature/multi-designer`**（当前） | 从 `TM` 的 `6dba4a1` 分出 | **第 18 批：多设计师指派**（方案 `docs/20`）+ **第 19 批：导出报表**（本地扩展字段 + 绩效缩略图 + 导出智能表格，方案 `docs/22`） | 第 18 批代码完工（已提交 `7ca65ac`）；**第 19 批代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **746 OK**（+25 新增断言全绿）+ tickets/export 场景全绿；**待真表人工验收 + 出包 1.6.0** |
 
 > - `TM` 从 `feature/incr` 的 `64ffc9e` 分出，带着文案字典与改名 —— 新模块直接在**新界面文案 + 新软件名**上开发。
 > - `TM` 与 `feature/incr` 的**功能代码一致**（都是 `64ffc9e`），只是 `TM` 上另有几次档案提交；之后各走各的。
@@ -770,6 +770,21 @@
 - **场景断言**：`_shotapp/v4/main.cjs` 新增 (11b) 段——无未提交改动不显示提交按钮 / 点 × 移除一人后出现「提交指派」+「有未提交的更改」提示 / 移除后剩 1 个标签（最后一人不可再移除）；**只验形态不点提交**（真企微不进自动测试）。
 - **验收结果**：typecheck 0 错；`npx electron-vite build` 重打渲染层；**tickets 场景全绿**（新增 4 条提交按钮断言全过）+ **export 场景无回归**。accept 不受影响（本轮纯 renderer/copy/场景壳改动，未动主进程引擎）。
 - **改了哪些文件**：`src/renderer/src/components/TicketDetailModal.tsx`、`src/renderer/src/assets/main.css`（`.tk-assign-submit`）、`src/shared/copy.ts`、`_shotapp/v4/main.cjs`、`docs/20`（新增 §7.1 提交按钮 + 对比表/§7 描述更新）
+
+### 2026-10-04（第 26 次会话）—— 审核平台方案存档 + 第 19 批「导出报表」方案 + 施工 + 自动验收全过
+
+- **审核平台（docs/21，仅存档未做）**：用户提「审核平台」需求（设计师提交成品图 → 审核人 AI 审 + 手敲评语 → HTML 报告回传）。讨论结论：AI 审稿发生在审核人本机 WorkBuddy，真正要传的只有图 + HTML 报告；传输路线推荐**企微微盘**（零成本复用现有 wecom-cli，微盘只读实探已通）；已拍板挂版本/一人审/退回出新版/手动 AI 审。**用户说先存、等和同事对完微盘使用规范再定** → 存 `docs/21`，未 commit、未推。
+- **第 19 批「导出报表」需求**：① 工单模块加本地字段（印刷费用/绩效等，按工单填）；② 设计师完成任务时生成缩略图写回工单队列；③ 导出报表选起止日期，把工单字段 + 本地字段 + 缩略图一起导出。**实探结论**：在线表格单元格不能嵌图 → 用户改选**智能表格**（有 image 列）；合计行用户拍板不做；模板 12 字段已建好（编号改文本、交稿日期改「完成时间」、印刷数量改整数、子表名「报表模板」）。方案存 `docs/22`。
+- **施工（docs/22 八步）**：
+  - **迁移 15**：`ticket_metrics` 子表（`ticket_no` 主键 + `print_cost`/`performance_cost`/`remark`，只存本地）+ `tickets.thumb_url` 列（幂等 ALTER）。
+  - **同步引擎**：`COL.thumb`「缩略图」列 + `takeImageUrl`（解析 image 列 `[{imageUrl}]`）+ `extractRow`/`applySync` upsert 加 `thumb_url`；`readTicketMetrics`/`writeTicketMetrics`（upsert，三值全空删行）。
+  - **完成任务**：`completeTicketTask(packId)` 找工单 → 最新版本第一张「成品」素材 → `ensureAnyThumb`（thumbs.ts 新增，图/视频/PSD/PDF 全接）生成缩略图；IPC `ticket:completeByPack` 上传（`media upload` → `images upload`）→ `updateRecords` 写回工单队列「缩略图」image 列 → 本地 thumb_url 即时更新。只负责缩略图，不改工单状态（§7 #6）。
+  - **报表引擎**（新 `report.ts`，纯逻辑不碰网络）：`buildReportRows`（按 done_time 起止筛 + JOIN metrics/designers）；`exportReport`（adapter 注入：`fetchTemplateFields` → `addSheet`（复制 12 字段）→ 逐条 `rehostThumb` + `addRecords`）；值序列化按字段类型（单选 `[{id,text}]` / 成员 `[{userName}]` / 图片 `[{imageUrl}]` / 货币数值 / 日期 `YYYY-MM-DD HH:mm:ss` / 空值跳过）。报表 docid 存 meta `report_docid`。
+  - **报表适配器**（新 `reportWecom.ts`，碰网络）：`fetchReportTemplateFields`/`addReportSheet`/`uploadReportImage`/`rehostReportThumb`/`addReportRecords`；复用 `ticketsWecom.runCliJson`（改为 export）。
+  - **界面**：详情弹窗「报表统计」区块（印刷金额/绩效金额/备注三个输入框，onBlur 随手存）；任务包详情「完成任务」按钮；工单面板「导出报表」按钮 + `ExportReportModal`（起止日期默认当月 + 报表链接预填）。
+- **验收结果**：typecheck 0 错；重打三个 bundle + `npx electron-vite build` 重打渲染层；`NODE_OPTIONS= node out/test/accept.cjs` **746 OK + 1 FAIL**（FAIL 仍是硬编码 `C:\Users\30873\Desktop\访学证.psd` 的环境问题；新增第 36/37 段导出报表断言 **25 项全绿**）；**tickets / export 两个界面场景全绿**（tickets 新增「导出报表」按钮 + 弹窗形态 + 详情「报表统计」区块断言）。
+- **改了哪些文件**：`src/main/db.ts`（迁移 15）、`src/main/tickets.ts`、`src/main/ticketsWecom.ts`（runCliJson export）、`src/main/thumbs.ts`（ensureAnyThumb）、`src/main/report.ts`（新）、`src/main/reportWecom.ts`（新）、`src/main/ipc.ts`、`src/shared/types.ts`、`src/preload/index.ts`、`src/shared/copy.ts`、`src/renderer/src/components/{TicketDetailModal,PackDetailModal,TicketsView,ExportReportModal(新)}.tsx`、`src/renderer/src/assets/main.css`、`accept.ts`、`_shotapp/v4/main.cjs`、`docs/22`
+- **待办（环境受限）**：① 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（累计 8 条新文案待 publish）；② **真表人工验收前，用户在工单队列手动加「缩略图」image 列**（同「设计师」列套路，软件只写值不建列）；③ 出包 **1.6.0**（两步法 + 项目外全新空目录）；④ 真表人工验收：完成任务 → 工单队列「缩略图」列真出图 → 同步后导出 → 「工单报表」新建子表、字段齐全、图正确、本地字段带出、绩效金额列为空待手填。
 
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 

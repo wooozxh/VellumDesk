@@ -31,6 +31,10 @@ export function TicketDetailModal({
   const [assigning, setAssigning] = useState(false)
   /** 第 18 批：指派草稿（点选/移除先攒在这，点「提交」才真正同步出去） */
   const [draft, setDraft] = useState<Array<{ userid: string; name: string }>>([])
+  /** 第 19 批：本地扩展字段（印刷金额 / 绩效金额 / 备注，随手填随手存本地） */
+  const [mPrintCost, setMPrintCost] = useState('')
+  const [mPerfCost, setMPerfCost] = useState('')
+  const [mRemark, setMRemark] = useState('')
 
   useEffect(() => {
     void window.api
@@ -43,6 +47,9 @@ export function TicketDetailModal({
     const r = await window.api.ticketDetail(ticketNo)
     setD(r)
     setDraft(r?.designers ?? [])
+    setMPrintCost(r?.metrics.printCost != null ? String(r.metrics.printCost) : '')
+    setMPerfCost(r?.metrics.performanceCost != null ? String(r.metrics.performanceCost) : '')
+    setMRemark(r?.metrics.remark ?? '')
   }, [ticketNo])
 
   useEffect(() => {
@@ -93,6 +100,17 @@ export function TicketDetailModal({
     const url = assignInfo?.tableUrl ?? ''
     if (!/^https?:\/\//i.test(url)) return
     await window.api.ticketOpenApproval(url)
+  }
+
+  /** 第 19 批：本地扩展字段随手存（离开输入框时写库，不打断填写） */
+  const saveMetrics = async (): Promise<void> => {
+    const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s))
+    await window.api.ticketMetricsSet({
+      ticketNo,
+      printCost: toNum(mPrintCost),
+      performanceCost: toNum(mPerfCost),
+      remark: mRemark.trim() === '' ? null : mRemark
+    })
   }
 
   const row = (label: string, v: string | number | null | undefined): React.JSX.Element | null =>
@@ -292,6 +310,41 @@ export function TicketDetailModal({
                 )}
               </div>
             )}
+
+            {/* 第 19 批（docs/22 §6）：本地扩展字段（印刷金额/绩效金额/备注），随手填随手存本地 */}
+            <h4>{COPY.ticket.metricsSection}</h4>
+            <div className="tk-fields tk-metrics">
+              <label className="tk-metric">
+                <span className="k">{COPY.ticket.metricsPrintCost}</span>
+                <input
+                  type="number"
+                  value={mPrintCost}
+                  placeholder="0"
+                  onChange={(e) => setMPrintCost(e.target.value)}
+                  onBlur={() => void saveMetrics()}
+                />
+              </label>
+              <label className="tk-metric">
+                <span className="k">{COPY.ticket.metricsPerformanceCost}</span>
+                <input
+                  type="number"
+                  value={mPerfCost}
+                  placeholder="0"
+                  onChange={(e) => setMPerfCost(e.target.value)}
+                  onBlur={() => void saveMetrics()}
+                />
+              </label>
+              <label className="tk-metric tk-metric-wide">
+                <span className="k">{COPY.ticket.metricsRemark}</span>
+                <input
+                  type="text"
+                  value={mRemark}
+                  placeholder="报表备注…"
+                  onChange={(e) => setMRemark(e.target.value)}
+                  onBlur={() => void saveMetrics()}
+                />
+              </label>
+            </div>
 
             <div className="tk-actions">
               {/* 第 17 批：逃生口 —— 写回失败/权限不足/CLI 不在时退回手工改表（docs/19 §2） */}
