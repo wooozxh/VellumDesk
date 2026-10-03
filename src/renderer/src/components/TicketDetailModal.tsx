@@ -70,12 +70,12 @@ export function TicketDetailModal({
     }
   }
 
-  /** 第 17 批（docs/19 §4）：选定即存（无确认弹窗，§10 #8）——下拉本身就是明确选择 */
-  const doAssign = async (userid: string, name: string): Promise<void> => {
+  /** 第 18 批（docs/20 §7）：多选指派——全量集合一次提交（勾选即加、点 × 即移除，选定即存） */
+  const doAssign = async (designers: Array<{ userid: string; name: string }>): Promise<void> => {
     if (assigning) return
     setAssigning(true)
     try {
-      const r = await window.api.ticketAssignDesigner({ ticketNo, userid, name })
+      const r = await window.api.ticketAssignDesigner({ ticketNo, designers })
       if (r.msg) onToast?.(r.msg)
       else if (!r.ok) onToast?.(fmt(COPY.ticket.assignFailed, { msg: r.writeError ?? '' }))
       await load()
@@ -147,27 +147,47 @@ export function TicketDetailModal({
                     <span className="tk-warn">{COPY.ticket.assignColBad}</span>
                   ) : (
                     <span className="tk-assign-pick">
+                      {/* 第 18 批（docs/20 §7）：已选设计师以标签显示，可点 × 移除（最后一人不可移除）；
+                          下方下拉是候选池，点选即加（选定即存），已选的人不再出现在候选里 */}
+                      {d.designers.map((ds) => (
+                        <span className="tk-assign-tag" key={ds.userid}>
+                          {ds.name}
+                          {d.designers.length > 1 && (
+                            <button
+                              type="button"
+                              className="tk-assign-x"
+                              disabled={assigning}
+                              title={COPY.ticket.assignNeedOne}
+                              onClick={() =>
+                                void doAssign(d.designers.filter((x) => x.userid !== ds.userid))
+                              }
+                            >
+                              <Icon name="close" size={11} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
                       <select
                         disabled={assigning}
+                        value=""
                         onChange={(e) => {
-                          const c = assignInfo.candidates.find(
-                            (x) => x.userid === e.target.value
-                          )
-                          if (c) void doAssign(c.userid, c.name)
+                          const c = assignInfo.candidates.find((x) => x.userid === e.target.value)
+                          if (c && !d.designers.some((x) => x.userid === c.userid)) {
+                            void doAssign([...d.designers, { userid: c.userid, name: c.name }])
+                          }
                           e.currentTarget.value = ''
                         }}
                       >
-                        {/* 第一项是占位/当前值：选完人它显示新设计师；改派 = 换个人选 */}
                         <option value="">
-                          {assigning
-                            ? COPY.common.saving
-                            : (d.designerName ?? COPY.ticket.assignPlaceholder)}
+                          {assigning ? COPY.common.saving : COPY.ticket.assignPlaceholder}
                         </option>
-                        {assignInfo.candidates.map((c) => (
-                          <option key={c.userid} value={c.userid}>
-                            {c.name}（{fmt(COPY.ticket.assignBusyLabel, { n: c.activeCount })}）
-                          </option>
-                        ))}
+                        {assignInfo.candidates
+                          .filter((c) => !d.designers.some((x) => x.userid === c.userid))
+                          .map((c) => (
+                            <option key={c.userid} value={c.userid}>
+                              {c.name}（{fmt(COPY.ticket.assignBusyLabel, { n: c.activeCount })}）
+                            </option>
+                          ))}
                       </select>
                       {assignInfo.candidates.length === 0 && (
                         <span className="tk-dim">{COPY.ticket.assignEmptyHint}</span>
@@ -183,7 +203,7 @@ export function TicketDetailModal({
               {row('申请人', d.applicantName)}
               {row('申请部门', d.department)}
               {row('业务归属', d.projectName)}
-              {row('设计师', d.designerName)}
+              {row('设计师', d.designers.length ? d.designers.map((x) => x.name).join('、') : null)}
               {row('交稿日期', d.dueDate?.slice(0, 10))}
               {row('提交时间', d.submitTime?.slice(0, 10))}
               {row('完成时间', d.doneTime?.slice(0, 10))}

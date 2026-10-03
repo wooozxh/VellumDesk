@@ -850,6 +850,10 @@ export const COPY = {
     assignEmptyHint: '候选设计师为空：先在表格里填一次设计师，软件会记住',
     /** 候选项的「在办 N 单」标注 */
     assignBusyLabel: '在办 {n} 单',
+    /** 第 18 批：列表行「主设计师 + 等 N 人」 */
+    assignMore: '等 {n} 人',
+    /** 第 18 批：至少保留一位设计师（API 无法清空成员列，docs/20 §2.1） */
+    assignNeedOne: '至少保留一位设计师（如需清空，请到表格里手动清除）',
     /** 已指派 + 通知送达 */
     assignOkNotified: '已指派给 {name}，已发送通知',
     /** 已指派 + 通知发不出去 */

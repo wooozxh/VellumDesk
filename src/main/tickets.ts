@@ -278,6 +278,21 @@ function takeUserNames(v: unknown): string | null {
   return names.length ? names.join('、') : null
 }
 
+/** 多人员单元格 → {userid, name}[]（第 18 批 docs/20 §5：设计师列全量；过滤掉无 userid 的元素） */
+function takeUsers(v: unknown): Array<{ userid: string; name: string | null }> {
+  if (!Array.isArray(v)) return []
+  const out: Array<{ userid: string; name: string | null }> = []
+  for (const item of v) {
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>
+      const userid = typeof o.userId === 'string' ? o.userId : null
+      if (!userid) continue
+      out.push({ userid, name: typeof o.userName === 'string' ? o.userName : null })
+    }
+  }
+  return out
+}
+
 /** 日期单元格 → ISO 串（企微给毫秒数或文本，都接） */
 function takeDate(v: unknown): string | null {
   if (typeof v === 'number' && Number.isFinite(v)) {
@@ -290,17 +305,21 @@ function takeDate(v: unknown): string | null {
 /** 一条原始记录 → tickets 行的业务字段（raw_json 整包另存，后补映射不用重拉） */
 function extractRow(rec: TicketRawRecord): {
   ticket_no: string
+  /** 第 18 批（docs/20 §5）：设计师列全量（多选成员列）；单值列降级为 designers[0] 冗余 */
+  designers: Array<{ userid: string; name: string | null }>
   fields: Record<string, string | number | null>
 } {
   const v = rec.values ?? {}
   // 设计师列名走 meta 配置（读写同源，docs/19 §8）——每次调用读一次 meta，
   // 同步一轮几百条的量级下开销可忽略（better-sqlite3 简单查询 ~10 万次/秒）
-  const designer = takeUser(v[designerColName()])
+  const designers = takeUsers(v[designerColName()])
+  const primary = designers[0] ?? { userid: null, name: null }
   const applicant = takeUser(v[COL.applicant])
   const qtyText = takeText(v[COL.qty])
   const qty = qtyText ? parseInt(qtyText.replace(/[^\d]/g, ''), 10) : null
   return {
     ticket_no: takeText(v[COL.no]) ?? '',
+    designers,
     fields: {
       title: takeText(v[COL.title]),
       approval_state: takeText(v[COL.state]),
@@ -321,13 +340,43 @@ function extractRow(rec: TicketRawRecord): {
       receiver_name: takeText(v[COL.recvName]),
       receiver_phone: takeText(v[COL.recvPhone]),
       deliver_date: takeDate(v[COL.deliver]),
-      designer_userid: designer.userid,
-      designer_name: designer.name,
+      designer_userid: primary.userid,
+      designer_name: primary.name,
       project_name: takeText(v[COL.project]),
       reviewer_names: takeUserNames(v[COL.reviewer]),
       material_category: takeText(v[COL.matCat])
     }
   }
+}
+
+// ============================================================ 设计师子表读写（第 18 批 docs/20 §4）
+
+/** 读一张单的完整设计师集合（按 seq 排序；含 notified 通知标记） */
+function designersOf(ticket_no: string): Array<{ userid: string; name: string | null; notified: number }> {
+  return getDb()
+    .prepare('SELECT userid, name, notified FROM ticket_designers WHERE ticket_no = ? ORDER BY seq')
+    .all(ticket_no) as Array<{ userid: string; name: string | null; notified: number }>
+}
+
+/**
+ * 整表替换一张单的设计师集合（先删后插，同一事务）。
+ * 保留「同名 userid 的 notified 状态」——同步重建子表时，已通知过的人不丢通知标记，
+ * 新进来的人 notified=0（等通知）。单值列 designer_userid/name 由调用方回写为 designers[0]。
+ */
+function replaceTicketDesigners(
+  ticket_no: string,
+  list: Array<{ userid: string; name: string | null }>
+): void {
+  const db = getDb()
+  const oldNotified = new Map(designersOf(ticket_no).map((d) => [d.userid, d.notified]))
+  const del = db.prepare('DELETE FROM ticket_designers WHERE ticket_no = ?')
+  const ins = db.prepare(
+    'INSERT INTO ticket_designers (ticket_no, userid, name, seq, notified) VALUES (?, ?, ?, ?, ?)'
+  )
+  db.transaction(() => {
+    del.run(ticket_no)
+    list.forEach((d, i) => ins.run(ticket_no, d.userid, d.name, i, oldNotified.get(d.userid) ?? 0))
+  })()
 }
 
 // ============================================================ 同步主流程（docs/15 §4.2）
@@ -371,6 +420,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
     record_id: string
     sheet_id: string
     ticket_type: TicketType
+    /** 第 18 批：设计师列全量（多值） */
+    designers: Array<{ userid: string; name: string | null }>
     fields: Record<string, string | number | null>
     raw: string
   }
@@ -378,7 +429,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
   const emptyNoIds: string[] = []
   for (const p of input.payloads) {
     for (const rec of p.records) {
-      const { ticket_no, fields } = extractRow(rec)
+      const { ticket_no, fields, designers } = extractRow(rec)
       if (!ticket_no) {
         emptyNoIds.push(rec.record_id)
         continue
@@ -388,6 +439,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
         record_id: rec.record_id,
         sheet_id: p.sheet_id,
         ticket_type: p.type,
+        designers,
         fields,
         raw: JSON.stringify(rec.values ?? {})
       })
@@ -463,16 +515,21 @@ export function applySync(input: ApplySyncInput): SyncResult {
     seenNos.add(row.ticket_no)
     const existing = selByNo.get(row.ticket_no) as Record<string, unknown> | undefined
     if (existing) {
-      // 第 17 批（docs/19 §5 冲突三态）：本机有待写回（上次写回失败的积压）时，
-      // 设计师字段**不采纳表值**（本地守住，写出去再交权）——本轮同步后会自动补写
+      // 第 17 批（docs/19 §5 冲突三态，第 18 批扩展为「集合」）：本机有待写回（上次写回失败
+      // 的积压）时，设计师集合**不采纳表值**（本地守住子表，写出去再交权）——本轮同步后自动补写
       if (existing.designer_write_pending === 1) {
-        bind.designer_userid = (existing.designer_userid as string | null) ?? null
-        bind.designer_name = (existing.designer_name as string | null) ?? null
+        const kept = designersOf(row.ticket_no)
+        bind.designer_userid = kept[0]?.userid ?? null
+        bind.designer_name = kept[0]?.name ?? null
+      } else {
+        // 采纳表值：整表替换子表（冗余列已由 row.fields 带出 = 集合第一个）
+        replaceTicketDesigners(row.ticket_no, row.designers)
       }
       updTicket.run(bind)
       res.updated++
     } else {
       insTicket.run(bind)
+      replaceTicketDesigners(row.ticket_no, row.designers)
       res.inserted++
       insertedNos.add(row.ticket_no)
     }
@@ -500,32 +557,33 @@ export function applySync(input: ApplySyncInput): SyncResult {
 
   for (const row of flat) {
     const t = selByNo.get(row.ticket_no) as
-      | (Pick<
-          TicketRowLite,
-          | 'pack_id' | 'is_history' | 'need_confirm' | 'designer_userid' | 'approval_state'
-          | 'reassigned_to' | 'designer_name'
-        > & { ticket_no: string })
+      | (Pick<TicketRowLite, 'pack_id' | 'is_history' | 'need_confirm' | 'approval_state' | 'reassigned_to'> & {
+          ticket_no: string
+        })
       | undefined
     if (!t) continue
 
-    // 已建任务的单：改派检测（设计师变成别人 → 不删任务，只标记）
+    // 已建任务的单：改派检测（本机被移出设计师集合 → 不删任务，只标记）
     if (t.pack_id !== null) {
-      if (t.designer_userid && t.designer_userid !== input.identity.userid) {
-        if (t.reassigned_to !== t.designer_name) {
-          setReassigned.run(t.designer_name, row.ticket_no)
+      const designers = designersOf(row.ticket_no)
+      const mine = designers.some((d) => d.userid === input.identity.userid)
+      const primaryName = designers[0]?.name ?? null
+      if (!mine && primaryName) {
+        if (t.reassigned_to !== primaryName) {
+          setReassigned.run(primaryName, row.ticket_no)
           res.reassigned++
         }
       } else if (t.reassigned_to !== null) {
-        // 设计师又改回本机 → 清掉改派标记（任务本来就是这台机器的）
+        // 本机仍在集合（或集合已空、无新负责人）→ 清掉改派标记（任务本来就是这台机器的）
         clearReassigned.run(row.ticket_no)
       }
       continue
     }
 
-    // 没建任务的单：先过门槛
+    // 没建任务的单：先过门槛（§2.2② 建任务条件链改「本机 ∈ 设计师集合」）
     if (t.is_history) continue
     if (t.need_confirm) continue
-    if (!t.designer_userid || t.designer_userid !== input.identity.userid) continue
+    if (!designersOf(row.ticket_no).some((d) => d.userid === input.identity.userid)) continue
     if (!t.approval_state || !TASK_STATES.includes(t.approval_state)) continue
 
     // 子表重建 → 本轮新单降级为「待确认」，不自动建任务（§2.2 ④）
@@ -563,8 +621,14 @@ export function applySync(input: ApplySyncInput): SyncResult {
         typeof row.fields.material_category === 'string' && row.fields.material_category !== ''
           ? row.fields.material_category
           : ''
+      // 第 18 批（docs/20 §6 路 A）：多设计师（≥2 人）时任务名 = 物料名称-本机姓名；
+      // 单设计师时 = 物料名称（向后兼容，不悄悄改既有命名）
+      const designers = designersOf(row.ticket_no)
+      const baseName = (row.fields.title as string) ?? row.ticket_no
+      const packName =
+        designers.length >= 2 ? `${baseName}-${input.identity.name || input.identity.userid}` : baseName
       const pack = createPack({
-        name: (row.fields.title as string) ?? row.ticket_no,
+        name: packName,
         projectId,
         category,
         workspaceRoot: input.workspaceRoot
@@ -646,10 +710,9 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
 } {
   const db = getDb()
   const pendings = db
-    .prepare('SELECT ticket_no, designer_userid, approval_state, project_name, title, material_category FROM tickets WHERE need_confirm = 1')
+    .prepare('SELECT ticket_no, approval_state, project_name, title, material_category FROM tickets WHERE need_confirm = 1')
     .all() as Array<{
     ticket_no: string
-    designer_userid: string | null
     approval_state: string | null
     project_name: string | null
     title: string | null
@@ -664,7 +727,8 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
   for (const t of pendings) {
     clearPending.run(t.ticket_no)
     confirmed++
-    if (!t.designer_userid || t.designer_userid !== identity.userid) continue
+    const designers = designersOf(t.ticket_no)
+    if (!designers.some((d) => d.userid === identity.userid)) continue
     if (!t.approval_state || !TASK_STATES.includes(t.approval_state)) continue
     if (!t.project_name) {
       warnings.push(fmt(COPY.ticket.warnProjectMismatch, { no: t.ticket_no, project: '(空)' }))
@@ -677,9 +741,12 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
       warnings.push(fmt(COPY.ticket.warnProjectMismatch, { no: t.ticket_no, project: t.project_name }))
       continue
     }
+    const isMulti = designers.length >= 2
+    const baseName = t.title ?? t.ticket_no
+    const packName = isMulti ? `${baseName}-${identity.name || identity.userid}` : baseName
     try {
       const pack = createPack({
-        name: t.title ?? t.ticket_no,
+        name: packName,
         projectId: proj.id,
         category: t.material_category ?? '',
         workspaceRoot
@@ -745,18 +812,19 @@ export interface DesignerCandidate {
  */
 export function listDesignerCandidates(): DesignerCandidate[] {
   const db = getDb()
+  // 第 18 批（docs/20 §5.5）：候选池改读子表（设计师的全量、可索引来源）
   const all = db
     .prepare(
-      `SELECT designer_userid AS userid, designer_name AS name FROM tickets
-       WHERE designer_userid IS NOT NULL GROUP BY designer_userid`
+      `SELECT td.userid AS userid, MAX(td.name) AS name FROM ticket_designers td
+       GROUP BY td.userid`
     )
     .all() as Array<{ userid: string; name: string | null }>
   const active = db
     .prepare(
-      `SELECT designer_userid AS userid, COUNT(*) AS c FROM tickets
-       WHERE designer_userid IS NOT NULL AND is_history = 0 AND row_gone = 0
-         AND approval_state IN ('审批中', '已通过')
-       GROUP BY designer_userid`
+      `SELECT td.userid AS userid, COUNT(DISTINCT td.ticket_no) AS c FROM ticket_designers td
+       JOIN tickets t ON t.ticket_no = td.ticket_no
+       WHERE t.is_history = 0 AND t.row_gone = 0 AND t.approval_state IN ('审批中', '已通过')
+       GROUP BY td.userid`
     )
     .all() as Array<{ userid: string; c: number }>
   const activeMap = new Map(active.map((a) => [a.userid, a.c]))
@@ -787,8 +855,8 @@ export interface AssignResult {
  * ipc.ts 传真适配器（wecom-cli），自动测试传 mock —— 真企微不进自动测试。
  */
 export interface DesignerWriteAdapter {
-  /** 把设计师写回企微表的指定 record（列名由实现方按 meta 配置取） */
-  updateDesigner(record_id: string, sheet_id: string, designer_userid: string): Promise<{ ok: boolean; error?: string }>
+  /** 把设计师集合写回企微表的指定 record（列名由实现方按 meta 配置取；多值 = userids 数组） */
+  updateDesigners(record_id: string, sheet_id: string, userids: string[]): Promise<{ ok: boolean; error?: string }>
   /** 给设计师发企微机器人消息（markdown 文本） */
   notify(designer_userid: string, content: string): Promise<{ ok: boolean; error?: string }>
 }
@@ -820,13 +888,13 @@ function getAssignableRow(ticket_no: string): AssignableRow | undefined {
 }
 
 /**
- * 指派设计师（§4 流向）：本地即时生效 → 标 pending → 异步写回 → 失败保 pending。
+ * 多设计师指派（第 18 批 docs/20 §5.7）：一次把集合全量写成 list（整表替换）。
+ * 流向：本地即时生效 → 标 pending → 异步写回 → 失败保 pending → 通知本次新增的设计师。
  * 「本机开关」门槛由调用方（IPC）把关，引擎只管单子本身的状态门槛。
  */
-export async function executeAssignDesigner(
+export async function executeAssignDesigners(
   ticket_no: string,
-  userid: string,
-  name: string,
+  list: Array<{ userid: string; name: string }>,
   adapter: DesignerWriteAdapter,
   assignedBy?: string | null
 ): Promise<AssignResult> {
@@ -837,15 +905,20 @@ export async function executeAssignDesigner(
   if (t.row_gone) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignRowGoneHint }
   if (t.is_history) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignHistoryHint }
   if (!designerColUsable()) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignColBad }
+  // 空集合写不出去（API 无法清空成员列，docs/20 §2.1）——「移除到最后一人」在 UI 层就挡掉了
+  if (list.length === 0) return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignEmptyHint }
 
-  // ① 本地即时生效（不等写回，界面即时反馈）+ 标 pending + 留痕 + 通知状态清零
+  // ① 本地即时生效（不等写回）：整表替换子表（保留已通知者标记）+ 回写冗余列 + 标 pending + 留痕
   const now = new Date().toISOString()
-  db.prepare(
-    `UPDATE tickets SET designer_userid = ?, designer_name = ?, designer_write_pending = 1,
-       assigned_by = ?, assigned_at = ?, notify_state = NULL WHERE ticket_no = ?`
-  ).run(userid, name, assignedBy ?? null, now, ticket_no)
+  db.transaction(() => {
+    replaceTicketDesigners(ticket_no, list)
+    db.prepare(
+      `UPDATE tickets SET designer_userid = ?, designer_name = ?, designer_write_pending = 1,
+         assigned_by = ?, assigned_at = ? WHERE ticket_no = ?`
+    ).run(list[0]?.userid ?? null, list[0]?.name ?? null, assignedBy ?? null, now, ticket_no)
+  })()
 
-  // ② 异步写回（一次只写这一张单）
+  // ② 异步写回（多值数组，一次只写这一张单）
   const wr = await writeBackOne(adapter, ticket_no)
   if (!wr.ok) {
     return {
@@ -853,28 +926,36 @@ export async function executeAssignDesigner(
       writeOk: false,
       writeError: wr.error,
       notifyState: null,
-      designerName: name,
-      msg: fmt(COPY.ticket.assignOkWriteFailed, { name, msg: wr.error ?? '' })
+      designerName: joinNames(list),
+      msg: fmt(COPY.ticket.assignOkWriteFailed, { name: joinNames(list), msg: wr.error ?? '' })
     }
   }
 
-  // ③ 写回成功 → 通知设计师（失败不阻断指派，§6）
-  const notifyState = await notifyDesignerOne(adapter, ticket_no)
+  // ③ 写回成功 → 通知本次新增的设计师（notified=0 的），逐个发，失败不阻断（§6）
+  const notify = await notifyPendingDesigners(adapter, ticket_no)
+  const notifyState: 'sent' | 'failed' | null =
+    notify.failed > 0 ? 'failed' : notify.sent > 0 ? 'sent' : null
   return {
     ok: true,
     writeOk: true,
     notifyState,
-    designerName: name,
+    designerName: joinNames(list),
     msg:
       notifyState === 'sent'
-        ? fmt(COPY.ticket.assignOkNotified, { name })
+        ? fmt(COPY.ticket.assignOkNotified, { name: joinNames(notify.names) })
         : notifyState === 'failed'
-          ? fmt(COPY.ticket.assignOkNotifyFailed, { name })
+          ? fmt(COPY.ticket.assignOkNotifyFailed, { name: joinNames(notify.names) })
           : undefined
   }
 }
 
-/** 一张单写回企微表；成功清 pending，失败保 pending（返回失败原因） */
+/** 姓名/ID 列表 → 顿号串（toast 文案用） */
+function joinNames(list: Array<{ name: string | null }> | string[]): string {
+  const arr = list.map((x) => (typeof x === 'string' ? x : (x.name ?? ''))).filter(Boolean)
+  return arr.join('、')
+}
+
+/** 一张单写回企微表（多值数组）；成功清 pending，失败保 pending（返回失败原因） */
 async function writeBackOne(
   adapter: DesignerWriteAdapter,
   ticket_no: string
@@ -883,38 +964,54 @@ async function writeBackOne(
   if (!t || !t.record_id || !t.sheet_id) {
     return { ok: false, error: COPY.ticket.assignNoRecordId }
   }
-  // record_id / sheet_id 变了（重拉表）→ 从库里取最新值再写
-  const row = getDb()
-    .prepare('SELECT designer_userid FROM tickets WHERE ticket_no = ?')
-    .get(ticket_no) as { designer_userid: string | null } | undefined
-  if (!row?.designer_userid) return { ok: false, error: COPY.ticket.assignNoRecordId }
-  const wr = await adapter.updateDesigner(t.record_id, t.sheet_id, row.designer_userid)
+  // record_id / sheet_id 变了（重拉表）→ 从库里取最新值（子表集合）再写
+  const userids = designersOf(ticket_no).map((d) => d.userid)
+  if (!userids.length) return { ok: false, error: COPY.ticket.assignNoRecordId }
+  const wr = await adapter.updateDesigners(t.record_id, t.sheet_id, userids)
   if (!wr.ok) return { ok: false, error: wr.error }
   getDb().prepare('UPDATE tickets SET designer_write_pending = 0 WHERE ticket_no = ?').run(ticket_no)
   return { ok: true }
 }
 
-/** 给被指派的设计师发通知（notify_state 防重复推送）；返回最终状态 */
-async function notifyDesignerOne(
+/**
+ * 给一张单里「还没通知过」的设计师逐个发通知（notified=0 的，防重精确到人）。
+ * 失败不阻断，返回发送结果汇总。
+ */
+async function notifyPendingDesigners(
   adapter: DesignerWriteAdapter,
   ticket_no: string
-): Promise<'sent' | 'failed' | null> {
+): Promise<{ sent: number; failed: number; names: string[] }> {
   const t = getAssignableRow(ticket_no)
-  if (!t) return null
-  if (t.notify_state === 'sent') return 'sent' // 已送达过，不重复推送
-  const row = getDb()
-    .prepare('SELECT designer_userid FROM tickets WHERE ticket_no = ?')
-    .get(ticket_no) as { designer_userid: string | null } | undefined
-  if (!row?.designer_userid) return null
+  if (!t) return { sent: 0, failed: 0, names: [] }
   const content = fmt(COPY.ticket.notifyTemplate, {
     title: t.title ?? t.ticket_no,
     project: t.project_name ?? '—',
     due: t.due_date ? t.due_date.slice(0, 10) : COPY.ticket.notifyDueEmpty
   })
-  const nr = await adapter.notify(row.designer_userid, content)
-  const state = nr.ok ? 'sent' : 'failed'
-  getDb().prepare('UPDATE tickets SET notify_state = ? WHERE ticket_no = ?').run(state, ticket_no)
-  return state
+  const pending = getDb()
+    .prepare('SELECT userid, name FROM ticket_designers WHERE ticket_no = ? AND notified = 0 ORDER BY seq')
+    .all(ticket_no) as Array<{ userid: string; name: string | null }>
+  let sent = 0
+  let failed = 0
+  const names: string[] = []
+  for (const d of pending) {
+    const nr = await adapter.notify(d.userid, content)
+    if (nr.ok) {
+      getDb()
+        .prepare('UPDATE ticket_designers SET notified = 1 WHERE ticket_no = ? AND userid = ?')
+        .run(ticket_no, d.userid)
+      sent++
+      names.push(d.name ?? d.userid)
+    } else {
+      failed++
+    }
+  }
+  // 汇总状态仍写回 tickets.notify_state（兼容第 17 批的口径 / 界面提示）
+  const state = failed > 0 ? 'failed' : sent > 0 ? 'sent' : null
+  if (state) {
+    getDb().prepare('UPDATE tickets SET notify_state = ? WHERE ticket_no = ?').run(state, ticket_no)
+  }
+  return { sent, failed, names }
 }
 
 /** 同步后的写回补写（§2.2 管路：pending 的单每次同步自动重试，不做指数退避） */
@@ -933,8 +1030,8 @@ export async function retryPendingDesignerWrites(
     const wr = await writeBackOne(adapter, p.ticket_no)
     if (wr.ok) {
       succeeded++
-      // 补写成功也要补通知（notify_state 还是 null 的情况，比如上次指派时通知还没发就崩了）
-      await notifyDesignerOne(adapter, p.ticket_no)
+      // 补写成功也要补通知（notified=0 的设计师，比如上次指派时通知还没发就崩了）
+      await notifyPendingDesigners(adapter, p.ticket_no)
     } else {
       errors.push(fmt(COPY.ticket.assignWriteRetryItem, { no: p.ticket_no, msg: wr.error ?? '' }))
     }

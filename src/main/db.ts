@@ -578,6 +578,36 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     d.exec('ALTER TABLE tickets ADD COLUMN notify_state TEXT')
   }
 
+  // ---- 迁移 14：多设计师子表（第 18 批 docs/20 §4）----
+  // 一张单的多位设计师，ticket_no 是逻辑键（对齐 tickets.UNIQUE(ticket_no)），
+  // 外键 ON DELETE CASCADE（tickets 行删了子表跟着走）。seq 0 = 主设计师。
+  // 老单值数据（designer_userid 非空）搬进子表 seq=0；单值列保留、降级为「主设计师冗余」
+  // （= 集合第一个，引擎每次写子表后同一事务回写，不漂移）。
+  // 幂等：CREATE TABLE IF NOT EXISTS + INSERT ... NOT EXISTS，重复启动不重搬。
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS ticket_designers (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_no TEXT NOT NULL,
+      userid    TEXT NOT NULL,
+      name      TEXT,
+      seq       INTEGER NOT NULL DEFAULT 0,
+      notified  INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(ticket_no) REFERENCES tickets(ticket_no) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_td_ticket ON ticket_designers(ticket_no);
+    CREATE INDEX IF NOT EXISTS idx_td_userid ON ticket_designers(userid);
+  `)
+  d.exec(`
+    INSERT INTO ticket_designers (ticket_no, userid, name, seq)
+    SELECT t.ticket_no, t.designer_userid, t.designer_name, 0
+      FROM tickets t
+     WHERE t.designer_userid IS NOT NULL
+       AND NOT EXISTS (
+             SELECT 1 FROM ticket_designers td
+              WHERE td.ticket_no = t.ticket_no AND td.userid = t.designer_userid
+           )
+  `)
+
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。
   // 仍是「空库才落」—— 已有库（含用户本机）不动，不会重复灌、也不覆盖用户改过的颜色。

@@ -405,6 +405,8 @@ export interface TicketListItem {
   title: string | null
   approvalState: string | null
   designerName: string | null
+  /** 第 18 批：全量设计师（多设计师；空数组 = 未指派；含 userid 供多选 UI 勾选/移除） */
+  designers: Array<{ userid: string; name: string }>
   applicantName: string | null
   projectName: string | null
   dueDate: string | null
@@ -741,7 +743,7 @@ export interface Api {
   /** 详情弹窗指派区原料：开关 / 列可用性 / 候选池 / 表格链接 */
   ticketAssignInfo: () => Promise<TicketAssignInfo>
   /** 指派设计师（本地即时生效 → 标 pending → 异步写回 → 通知） */
-  ticketAssignDesigner: (input: { ticketNo: string; userid: string; name: string }) => Promise<TicketAssignResult>
+  ticketAssignDesigner: (input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) => Promise<TicketAssignResult>
   /** 工单设置：允许在本机指派设计师 开关 */
   ticketSetAllowAssign: (v: boolean) => Promise<{ ok: boolean; allow: boolean }>
   /** 未指派存量数（顶栏徽标） */

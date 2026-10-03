@@ -128,7 +128,7 @@ const api = {
 
   // 第 17 批：设计师指派（docs/19）
   ticketAssignInfo: () => ipcRenderer.invoke('ticket:assignInfo'),
-  ticketAssignDesigner: (input: { ticketNo: string; userid: string; name: string }) =>
+  ticketAssignDesigner: (input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) =>
     ipcRenderer.invoke('ticket:assignDesigner', input),
   ticketSetAllowAssign: (v: boolean) => ipcRenderer.invoke('ticket:setAllowAssign', v),
   ticketUnassignedCount: () => ipcRenderer.invoke('ticket:unassignedCount'),

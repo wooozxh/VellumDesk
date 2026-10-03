@@ -563,18 +563,32 @@ app.whenReady().then(async () => {
         due_date, submit_time, material_category, print_qty, is_history, need_confirm,
         dup_warn, dup_json, raw_json, first_seen_at, last_sync_at, pack_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', '{}', ?, ?, ?)`)
-    const T = (no, o) =>
+    // 第 18 批（docs/20 §4）：设计师进子表 ticket_designers（多选成员列落库结构）
+    const addDesigner = d.prepare(
+      'INSERT INTO ticket_designers (ticket_no, userid, name, seq) VALUES (?, ?, ?, ?)'
+    )
+    const T = (no, o) => {
+      // 第 18 批：统一走 designers 数组（缺省 = 老单值字段兜底）；单值列 designer_userid/name = designers[0] 冗余
+      const designers =
+        o.designers ?? [
+          {
+            userid: o.designer === undefined ? 'uME' : o.designer,
+            name: o.designerName === undefined ? '测试设计师' : o.designerName
+          }
+        ]
+      const primary = designers[0] ?? { userid: null, name: null }
       addTicket.run(
         'tlT1', 'print', no, 'rec_' + no,
         o.title ?? '物料-' + no, o.state ?? '审批中',
         '申请人甲', '营销中心',
-        o.designer === undefined ? 'uME' : o.designer,
-        o.designerName === undefined ? '测试设计师' : o.designerName,
+        primary.userid, primary.name,
         o.project ?? '海南升学集训营',
         o.due ?? '2026-10-05', now, o.cat ?? '海报', o.qty ?? 100,
         o.history ? 1 : 0, o.pending ? 1 : 0, o.dup ? 1 : 0,
         now, now, o.packId ?? null
       )
+      designers.forEach((dd, i) => dd && dd.userid && addDesigner.run(no, dd.userid, dd.name, i))
+    }
     T('202610010001', { title: '海南招生海报-工单A', state: '审批中', packId }) // 我的，已建任务
     T('202610010002', { title: '招生折页-B款', state: '已通过' })                  // 我的，活已干完
     T('202610010003', { title: '易拉宝-校区门口', state: '已驳回' })               // 我的，驳回 → 压暗
@@ -586,15 +600,24 @@ app.whenReady().then(async () => {
     T('202610010006', { title: '旧单-开学季', history: true })                      // 历史单
     T('202610010007', { title: '新单-待确认', pending: true })                      // 子表重建后的新单
     T('202610010008', { title: '撞号单', dup: true })                               // 编号重复
+    // 第 18 批（docs/20）：多人协作单 —— 两名设计师，测「等 N 人」+ 多选标签
+    T('202610010010', {
+      title: '大屏主视觉-多人协作', state: '审批中',
+      designers: [
+        { userid: 'uME', name: '测试设计师' },
+        { userid: 'uOTHER', name: '别的同事' }
+      ]
+    })
     // 一张电子类型的（第二子表）
     addTicket.run(
       'tlT2', 'digital', '202610010009', 'rec_202610010009', '短视频封面-秋季', '审批中',
       '申请人乙', '营销中心', 'uME', '测试设计师', '海南升学集训营',
       '2026-10-06', now, null, null, 0, 0, 0, now, now, null
     )
+    addDesigner.run('202610010009', 'uME', '测试设计师', 0)
     d.close()
     wsm.scanAll(ws) // 登记 T001 任务里的文件，详情卡有文件数
-    say('seeded tickets        : 9（我的3 / 别人1 / 未指派1 / 历史1 / 待确认1 / 撞号1 / 电子1）')
+    say('seeded tickets        : 10（我的3 / 别人1 / 未指派1 / 历史1 / 待确认1 / 撞号1 / 电子1 / 多人1）')
   }
 
   if (SCEN === 'export') {
@@ -2395,8 +2418,8 @@ app.whenReady().then(async () => {
     )
     ok(syncBtn.includes(COPY.ticket.syncBtn), `「${COPY.ticket.syncBtn}」按钮在`)
 
-    // (3) 默认「我的」：7 张（= 派给我的全部：含我的历史单/待确认/撞号 —— 列表可见性口径，磁盘上只长该建任务的那些），驳回的压暗
-    ok((await rowCount()) === 7, `默认「我的」视图 7 张（实际 ${await rowCount()}）`)
+    // (3) 默认「我的」：8 张（= 派给我的全部：含我的历史单/待确认/撞号/多人协作 —— 列表可见性口径，磁盘上只长该建任务的那些），驳回的压暗
+    ok((await rowCount()) === 8, `默认「我的」视图 8 张（实际 ${await rowCount()}）`)
     const r1 = await rowByNo('202610010001')
     ok(!!r1 && r1.type === COPY.ticket.typePrint, '印刷类型徽标正确')
     ok(!!r1 && r1.state === '审批中', '审批中是活跃状态（正常亮显，徽标蓝色）')
@@ -2408,15 +2431,21 @@ app.whenReady().then(async () => {
     ok(!!r3 && r3.dim === true, '已驳回的单整行压暗（用户拍板：审批中才建任务，驳回保留展示）')
     await shot('shot-b13-1-mine.png')
 
-    // (4) 全部：9 张；类型徽标印刷/电子都在；未指派 / 历史 / 待确认各归各位
+    // (4) 全部：10 张；类型徽标印刷/电子都在；未指派 / 历史 / 待确认各归各位
     await clickChip(COPY.ticket.filterAll)
-    ok((await rowCount()) === 9, `「全部」视图 9 张（实际 ${await rowCount()}）`)
+    ok((await rowCount()) === 10, `「全部」视图 10 张（实际 ${await rowCount()}）`)
     const r9 = await rowByNo('202610010009')
     ok(!!r9 && r9.type === COPY.ticket.typeDigital, `电子类型徽标正确（${r9 ? r9.type : '—'}）`)
     const r5 = await rowByNo('202610010005')
     ok(!!r5 && r5.designer === COPY.ticket.filterUnassigned, '设计师空着的单标「未指派」')
     const r6 = await rowByNo('202610010006')
     ok(!!r6 && r6.task.includes(COPY.ticket.noTaskHistory.split('（')[0].slice(0, 2)), `历史单的任务列写明原因（${r6 ? r6.task : '—'}）`)
+    // 第 18 批（docs/20 §7）：多人协作单列表行「主设计师 + 等 1 人」
+    const r10 = await rowByNo('202610010010')
+    ok(
+      !!r10 && r10.designer.includes(COPY.ticket.assignMore.replace('{n}', '1')),
+      `多人协作单列表行标「等 1 人」（${r10 ? r10.designer : '—'}）`
+    )
     await shot('shot-b13-2-all.png')
 
     // (5) 待确认：1 张 + 「确认这批新单」批量按钮
@@ -2521,6 +2550,32 @@ app.whenReady().then(async () => {
     )
     ok(openTableBtn === 'ok', `「${COPY.ticket.openTable}」逃生口在（写回失败时退回手工改表）`)
     await shot('shot-b17-2-assign.png')
+    await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+
+    // (11) 第 18 批（docs/20 §7）：多人协作单详情 —— 设计师字段全量姓名 + 两个已选标签 + 各自带移除按钮
+    await clickChip(COPY.ticket.filterAll)
+    await js(
+      `(() => { const r = [...document.querySelectorAll('.tk-list .tk-row')].find(x => x.innerText.includes('202610010010')); if (r) r.click(); return r ? 'ok' : 'no-row' })()`
+    )
+    await wait(900)
+    const multiTags = await js(
+      `[...document.querySelectorAll('.tk-assign-tag')].map(x => x.innerText.trim())`
+    )
+    ok(
+      Array.isArray(multiTags) && multiTags.length === 2,
+      `多人协作单详情 2 个已选设计师标签（${Array.isArray(multiTags) ? multiTags.join(' / ') : '—'}）`
+    )
+    const multiX = await js(`document.querySelectorAll('.tk-assign-x').length`)
+    ok(multiX === 2, `两名设计师各带移除按钮 ×（实际 ${multiX}）`)
+    const multiField = await js(
+      `(() => { const f = [...document.querySelectorAll('.tk-field')].find(x => (x.querySelector('.k')||{}).innerText === '设计师'); return f ? (f.querySelector('.v')||{}).innerText || '' : '' })()`
+    )
+    ok(
+      multiField.includes('测试设计师') && multiField.includes('别的同事'),
+      `设计师字段显示全量姓名（${multiField}）`
+    )
+    await shot('shot-b18-1-multi.png')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)
   } else if (SCEN === 'export') {

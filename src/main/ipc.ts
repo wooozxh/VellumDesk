@@ -80,7 +80,7 @@ import {
   detectStructure,
   designerColName,
   evaluateDesignerCol,
-  executeAssignDesigner,
+  executeAssignDesigners,
   listDesignerCandidates,
   retryPendingDesignerWrites,
   setAllowAssignEnabled,
@@ -937,7 +937,8 @@ export function registerIpc(): void {
       let where = '1=1'
       const args: unknown[] = []
       if (view === 'mine' && mineUserid) {
-        where = 't.designer_userid = ?'
+        // 第 18 批：我的 = 本机身份 ∈ 设计师集合（子表），不再是单值列精确匹配
+        where = 'EXISTS (SELECT 1 FROM ticket_designers td WHERE td.ticket_no = t.ticket_no AND td.userid = ?)'
         args.push(mineUserid)
       } else if (view === 'mine') {
         return []
@@ -965,6 +966,23 @@ export function registerIpc(): void {
            ORDER BY t.submit_time DESC, t.id DESC`
         )
         .all(...args) as Array<Record<string, unknown>>
+      // 第 18 批：批量取每张单的全量设计师（子表），列表行「主设计师 + 等 N 人」+ 多选 UI 用
+      const designerMap = new Map<string, Array<{ userid: string; name: string }>>()
+      const ticketNos = rows.map((r) => r.ticket_no as string)
+      if (ticketNos.length) {
+        const ph = ticketNos.map(() => '?').join(',')
+        const ds = db
+          .prepare(
+            `SELECT ticket_no, userid, name FROM ticket_designers WHERE ticket_no IN (${ph}) ORDER BY ticket_no, seq`
+          )
+          .all(...ticketNos) as Array<{ ticket_no: string; userid: string; name: string | null }>
+        for (const d of ds) {
+          if (!d.userid) continue
+          const arr = designerMap.get(d.ticket_no) ?? []
+          arr.push({ userid: d.userid, name: d.name ?? '' })
+          designerMap.set(d.ticket_no, arr)
+        }
+      }
       return rows.map((r) => ({
         id: r.id as number,
         ticketNo: r.ticket_no as string,
@@ -972,6 +990,7 @@ export function registerIpc(): void {
         title: (r.title as string) ?? null,
         approvalState: (r.approval_state as string) ?? null,
         designerName: (r.designer_name as string) ?? null,
+        designers: designerMap.get(r.ticket_no as string) ?? [],
         applicantName: (r.applicant_name as string) ?? null,
         projectName: (r.project_name as string) ?? null,
         dueDate: (r.due_date as string) ?? null,
@@ -996,6 +1015,14 @@ export function registerIpc(): void {
       .prepare('SELECT * FROM tickets WHERE ticket_no = ?')
       .get(ticketNo) as Record<string, unknown> | undefined
     if (!t) return null
+    // 第 18 批：全量设计师（子表，按 seq 排序，含 userid 供多选 UI）
+    const designers = (
+      db
+        .prepare('SELECT userid, name FROM ticket_designers WHERE ticket_no = ? ORDER BY seq')
+        .all(ticketNo) as Array<{ userid: string; name: string | null }>
+    )
+      .filter((d) => !!d.userid)
+      .map((d) => ({ userid: d.userid, name: d.name ?? '' }))
     const cfg = readTicketConfig()
     let packSummary: { fileCount: number; lastUpdate: string | null } | null = null
     let packName: string | null = null
@@ -1021,6 +1048,7 @@ export function registerIpc(): void {
       title: (t.title as string) ?? null,
       approvalState: (t.approval_state as string) ?? null,
       designerName: (t.designer_name as string) ?? null,
+      designers,
       projectName: (t.project_name as string) ?? null,
       dueDate: (t.due_date as string) ?? null,
       submitTime: (t.submit_time as string) ?? null,
@@ -1084,7 +1112,7 @@ export function registerIpc(): void {
    * 检查 helper_msg（写不进去时 errcode 也是 0）—— 这两道判定都在 ticketsWecom.updateRecords 里。
    */
   const wecomDesignerAdapter: DesignerWriteAdapter = {
-    updateDesigner: async (record_id, sheet_id, designer_userid) => {
+    updateDesigners: async (record_id, sheet_id, userids) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       const cfg = readTicketConfig()
@@ -1093,7 +1121,7 @@ export function registerIpc(): void {
         docid: cfg.docid,
         sheet_id,
         records: [
-          { record_id, values: { [designerColName()]: [{ userId: designer_userid }] } }
+          { record_id, values: { [designerColName()]: userids.map((userId) => ({ userId })) } }
         ]
       })
       return r.ok ? { ok: true } : { ok: false, error: r.error }
@@ -1117,7 +1145,7 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('ticket:assignDesigner', async (_e, input: { ticketNo: string; userid: string; name: string }) => {
+  ipcMain.handle('ticket:assignDesigner', async (_e, input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     // 「本机开关」门槛（docs/19 §10 #3 用户拍板：开关即门槛，不做身份校验）
@@ -1125,7 +1153,7 @@ export function registerIpc(): void {
       return { ok: false, writeOk: false, notifyState: null, msg: COPY.ticket.assignNotAllowed }
     }
     const cfg = readTicketConfig()
-    return executeAssignDesigner(input.ticketNo, input.userid, input.name, wecomDesignerAdapter, cfg.identity?.userid ?? null)
+    return executeAssignDesigners(input.ticketNo, input.designers, wecomDesignerAdapter, cfg.identity?.userid ?? null)
   })
 
   ipcMain.handle('ticket:setAllowAssign', (_e, v: boolean) => {

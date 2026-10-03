@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；**当前在 `TM` 分支**（2026-09-30 晚开）
-- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；MVP 整体约 99%
+- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；`TM` 已含第 13~17 批（最新 `6dba4a1` = 版本 1.4.0）；**当前在 `feature/multi-designer` 分支**（第 18 批多设计师指派，从 `TM` 的 `6dba4a1` 分出）
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收 + 出包 1.5.0）**；MVP 整体约 99%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 分支现状（2026-09-30 晚核对）
@@ -16,7 +16,8 @@
 |---|---|---|---|
 | `main` | `f20fa3d`（标签 `v1.1.0`） | 第 1~10 批全部功能（入库 / 项目管理 / 缩略图 / 标签 / 打包 / 工作区 / 三级结构 / 生命周期 / 丢失标记 / 版本管理 / 类别同源） | **已封存**，不再在此开发；1.1.0 安装包已发给同事，等装机验收 |
 | `feature/incr` | `64ffc9e` | 第 11~12 批增量：**文案字典**（505 条集中管理 + 术语统一「包→任务」+ `tools/copy-sheet` 在线表格控制台）+ **软件改名**「营销中心-素材库」（版本号 1.2.0） | **已提交、已验收通过、未出安装包**（用户取消了那次打包） |
-| **`TM`**（当前） | 从 `64ffc9e` 分出（功能代码与 `feature/incr` 一致，之后只加了本分支的档案提交） | 第 13 批：**「工单」模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（未指派提示 + 软件内指派写回企微表 + 机器人通知，方案 `docs/19`） | 第 13~16 批已关单（2026-10-01）；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过**（671 → 715，+44）+ **11 个界面场景全绿**（tickets 场景扩指派断言）；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收**（指派 → 表格那格真变 + 通知送达） |
+| **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批：**「工单」模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（方案 `docs/19`） | 第 13~16 批已关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
+| **`feature/multi-designer`**（当前） | 从 `TM` 的 `6dba4a1` 分出（尚未提交） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知精确到新增的人；方案 `docs/20`） | 代码完工、自动验收全过（accept 715 基线 + 新增多设计师断言全绿、tickets/export 场景全绿）；**待真表人工验收 + 出包 1.5.0** |
 
 > - `TM` 从 `feature/incr` 的 `64ffc9e` 分出，带着文案字典与改名 —— 新模块直接在**新界面文案 + 新软件名**上开发。
 > - `TM` 与 `feature/incr` 的**功能代码一致**（都是 `64ffc9e`），只是 `TM` 上另有几次档案提交；之后各走各的。
@@ -741,6 +742,25 @@
 - **遇到的问题（全部已修）**：① typecheck 报 bind 对象动态赋值不在推断类型上 → 改 `Record<string, unknown>`；② accept 首跑指派全被 row_gone 拦截（测试每轮没带全量活记录，一期删行判定误伤）→ 引入 `live` Map + `syncAll()` 全量助手；③ 列可用性测试把 designerOk 留 '0' 连累后续段 → 段末复位；④ tickets 场景 26 项假失败（徽标让工单 tab 文字变「工单1」，场景壳 clickByText 全等匹配点不进去）→ 第 (1) 步改前缀匹配
 - **验收结果**：typecheck 0 错；重打三个 bundle；`NODE_OPTIONS= node out/test/accept.cjs` **715 项全过（671 → 715，+44 只增不减）**；**11 个界面场景全绿**（banner/version/wslist/threelevel/lifecycle/tagcount/missing/versions/category/tickets/export）
 - **下一步**：档案回写 + `publish.cjs` 刷在线文案表 + 出包 **1.4.0**（两步法 + 项目外全新空目录）+ bare-start 验证 → **用户人工验收**：① 真表指派 → 表格设计师那格真的变了 + 设计师收到通知（或降级提示）；② 同事在表格手改设计师 → 软件同步后跟着变；③ 写回时断网 → 恢复后同步自动补写；④ 指派给自己 → 下轮同步任务自动建出；⑤ 装机冒烟
+
+---
+
+### 2026-10-04（第 24 次会话）—— 第 18 批「多设计师指派」：方案出稿 + 施工 + 自动验收全过
+
+- **做了什么**：
+  - 用户点名：**部分大型工作单人难完成，需要多人协作** → 指派下拉改多选，被指派设计师各自建任务包、任务名后缀可区别（由指派端编辑作为设计师端命名后缀）；新分支 `feature/multi-designer`
+  - **真表实探钉死**（证据 `_junk/`，不入库）：「设计师」成员列在企微表里 `is_multiple: true` 已是多选，无需改表结构；多值写回 `[{userId:a},{userId:b}]` 实测成功读回两人；**边界：成员列无法 API 清空**（传 `[]`/`null` 被服务端"人员字段全部被剔除、已跳过更新"）
+  - 用户在 `docs/20` §10 拍板**按默认**：① 后缀=设计师姓名（路 A）；② 子表 `ticket_designers`（迁移 14）；③ 原生勾选下拉；④ 只通知本次新增的设计师；⑤ 版本 1.5.0
+  - **施工**：迁移 14（建 `ticket_designers` 子表 + 索引 + 老单值数据幂等迁入）→ 引擎（`takeUsers` 多值解析 / `designersOf` / `replaceTicketDesigners` 先删后插保 notified / 建任务链改「本机 ∈ 集合」/ 任务名多设计师带后缀 / 改派检测按集合 / `listDesignerCandidates` 读子表 / `executeAssignDesigner` → `executeAssignDesigners` 空集合拒绝 / `notifyDesignerOne` → `notifyPendingDesigners` 只通知 notified=0 / `writeBackOne` 取全量 userids）→ 4 处 IPC（`updateDesigners` 写回 userids 数组、`ticket:assignDesigner` 入参 designers 数组、`ticket:list`/`ticket:detail` 批量取子表）→ 界面（指派区已选标签 + 点 × 移除（最后一人不可移除）、下拉=候选池点选即加；列表行「主设计师 + 等 N 人」）
+- **改了哪些文件**：`src/main/db.ts`、`src/main/tickets.ts`、`src/main/ipc.ts`、`src/preload/index.ts`、`src/renderer/src/components/TicketDetailModal.tsx`、`TicketsView.tsx`、`src/renderer/src/assets/main.css`、`src/shared/copy.ts`、`src/shared/types.ts`、`accept.ts`、`_shotapp/v4/main.cjs`、`docs/20`（§2.1 实探结论 + §15 执行记录）
+- **遇到的问题（全部已修/已判定）**：
+  - ① `SqliteError: no such column: notified` → 迁移 14 建表漏了 `notified` 列，`designersOf`/`replaceTicketDesigners` 已引用 → 补列后重打 accept 全绿
+  - ② tickets 界面场景种子只写单值 `designer_userid/name` 没落子表 → 新数据模型「我的」筛选用 `EXISTS(ticket_designers)` 会得 0 张、候选池空 → 场景壳种子补 `addDesigner` 子表插入 + 新增一张双设计师单（`202610010010`），「我的 8 / 全部 10」计数断言同步更新
+  - ③ 「等 N 人」误传总人数 `designers.length` → 改为 `designers.length - 1`（除主设计师外的额外人数）
+  - ④ `publish.cjs` 刷在线文案表**跑不了**：`tools/copy-sheet/push.cjs` 硬编码 `mcporter` CLI 在 `C:/Users/30873/...`（原机器），本机用户是 17736、无 mcporter。判定为环境问题（与 accept.ts 硬编码 PSD 同性质），`assignMore`/`assignNeedOne` 两条**新增**文案已正确入 `copy.ts` 并接线（`audit-unused.cjs` 确认无新增未引用），表格同步待回到有 mcporter 的机器再 `publish`
+  - ⑤ accept 有 1 项历史失败「真实 PSD 样本已复制进测试包」——`accept.ts` 硬编码 `C:\Users\30873\Desktop\访学证.psd`，本机无此文件，属第 2 批环境问题与本批无关，不修
+- **验收结果**：typecheck 0 错；重打三个 bundle + `npx electron-vite build` 重打渲染层；`NODE_OPTIONS= node out/test/accept.cjs` **721 OK + 1 FAIL**（FAIL 即上面⑤环境问题；新增第 34/35 段多设计师断言 27 项全绿）；**tickets / export 两个界面场景全绿**（tickets 新增多人协作单「等 1 人」徽标 + 详情双标签 + 移除按钮 ×2 + 设计师字段全量姓名断言）
+- **下一步**：① git 提交 `feature/multi-designer`；② 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（两条新文案）；③ 出包 **1.5.0**（两步法 + 项目外全新空目录）；④ **用户真表人工验收**：多选两人 → 两人各自长出任务包（后缀各自姓名）+ 新增的人收到通知；移除一人 → 表格成员列真变；同事表格手改多选 → 同步跟随
 
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 

@@ -292,7 +292,14 @@ export function TicketsView({
                 {t.projectName ?? '—'}
               </span>
               <span className="c-designer">
-                {t.designerName ?? (
+                {t.designerName ? (
+                  <>
+                    {t.designerName}
+                    {t.designers.length > 1 && (
+                      <span className="tk-dim">{fmt(COPY.ticket.assignMore, { n: t.designers.length - 1 })}</span>
+                    )}
+                  </>
+                ) : (
                   <span className="tk-warn">{COPY.ticket.filterUnassigned}</span>
                 )}
               </span>

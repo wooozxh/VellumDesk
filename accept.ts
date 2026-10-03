@@ -94,7 +94,7 @@ import {
   designerColName,
   designerColUsable,
   evaluateDesignerCol,
-  executeAssignDesigner,
+  executeAssignDesigners,
   listDesignerCandidates,
   retryPendingDesignerWrites,
   setAllowAssignEnabled,
@@ -3878,12 +3878,12 @@ async function main(): Promise<void> {
     /** mock 适配器：写回成败可编程，通知内容留底 */
     let writeShouldOk = true
     let notifyShouldOk = true
-    const writtenRows: Array<{ record_id: string; sheet_id: string; userid: string }> = []
+    const writtenRows: Array<{ record_id: string; sheet_id: string; userids: string[] }> = []
     const notified: Array<{ userid: string; content: string }> = []
     const mockAdapter: DesignerWriteAdapter = {
-      updateDesigner: async (record_id, sheet_id, designer_userid) => {
+      updateDesigners: async (record_id, sheet_id, userids) => {
         if (!writeShouldOk) return { ok: false, error: 'MOCK_WRITE_FAIL' }
-        writtenRows.push({ record_id, sheet_id, userid: designer_userid })
+        writtenRows.push({ record_id, sheet_id, userids })
         return { ok: true }
       },
       notify: async (userid, content) => {
@@ -3960,7 +3960,7 @@ async function main(): Promise<void> {
     // ---- (3) 指派本地即时生效 + pending + 留痕 + 通知 ----
     writeShouldOk = true
     notifyShouldOk = true
-    const ar1 = await executeAssignDesigner('B1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const ar1 = await executeAssignDesigners('B1', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     const tB1 = bTicket('B1')
     ok(ar1.ok && tB1.designer_userid === 'uOLD' && tB1.designer_name === '老设计师', '指派本地即时生效（不等写回）')
     ok(tB1.designer_write_pending === 0, '写回成功 → pending 已清')
@@ -3970,14 +3970,14 @@ async function main(): Promise<void> {
       notified[0]?.userid === 'uOLD' && notified[0]?.content.includes('物料-B1') && notified[0]?.content.includes('工单测试项目'),
       `通知内容走模板（标题+项目）：${notified[0]?.content ?? '—'}`
     )
-    ok(writtenRows[0]?.record_id === 'rec_B1' && writtenRows[0]?.userid === 'uOLD', '写回拿到了 record_id + userid')
+    ok(writtenRows[0]?.record_id === 'rec_B1' && writtenRows[0]?.userids?.[0] === 'uOLD', '写回拿到了 record_id + userid')
     // 通知防重复：再补写一次（pending 已清不会触发）→ notified 不涨
     await retryPendingDesignerWrites(mockAdapter)
     ok(notified.length === 1, 'notify_state=sent 防重复推送（补写不再通知）')
 
     // ---- (4) 写回失败：保 pending + 同步不被表值覆盖 + 下次同步自动补写 ----
     writeShouldOk = false
-    const ar2 = await executeAssignDesigner('B2', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const ar2 = await executeAssignDesigners('B2', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     ok(ar2.ok && ar2.writeOk === false, '写回失败不回滚指派（本地已生效）')
     ok(bTicket('B2').designer_write_pending === 1, '写回失败 → pending 保住（数据不丢）')
     // 同步时表里设计师是别人（uME）≠ 本地 pending 值（uOLD）→ 本地守住不被覆盖（冲突三态之二）
@@ -4005,14 +4005,14 @@ async function main(): Promise<void> {
     )
 
     // ---- (6) 指派给本机身份 → 下轮同步自动建任务（复用一期条件链，零分支） ----
-    const ar3b = await executeAssignDesigner('B1', 'uME', '本机测试员', mockAdapter, 'uME')
+    const ar3b = await executeAssignDesigners('B1', [{ userid: 'uME', name: '本机测试员' }], mockAdapter, 'uME')
     ok(ar3b.ok && bTicket('B1').designer_userid === 'uME', '把 B1 改派给本机身份（改派走同一管路）')
     put('B1', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
     const sB1 = syncAll()
     ok(sB1.tasksCreated === 1 && bTicket('B1').pack_id !== null, '指派给本机身份 → 下轮同步自动建出任务（条件链零改动）')
     // 指派给他人 → 不建任务
     writeShouldOk = true
-    await executeAssignDesigner('B2', 'uOLD', '老设计师', mockAdapter, 'uME')
+    await executeAssignDesigners('B2', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     put('B2', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
     syncAll()
     ok(bTicket('B2').pack_id === null, '指派给别人 → 本机不建任务（他的机器同步到自会建）')
@@ -4021,26 +4021,26 @@ async function main(): Promise<void> {
     put('C1', { 设计师: [] })
     syncAll()
     getDb().prepare('UPDATE tickets SET need_confirm = 1 WHERE ticket_no = ?').run('C1')
-    const arC1 = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const arC1 = await executeAssignDesigners('C1', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     ok(!arC1.ok && arC1.msg === '待确认单放行后才能指派', '待确认单不能指派（record_id 可能未放行）')
     getDb().prepare('UPDATE tickets SET need_confirm = 0, row_gone = 1 WHERE ticket_no = ?').run('C1')
-    const arC1b = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const arC1b = await executeAssignDesigners('C1', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     ok(!arC1b.ok && arC1b.msg === '该单已不在表中，无法指派', '已删行（row_gone）不能指派（record_id 已失效，写也白写）')
-    const arA3 = await executeAssignDesigner('A3', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const arA3 = await executeAssignDesigners('A3', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     ok(!arA3.ok && arA3.msg === '历史单请在表格中指派', '历史单不能指派（§10 #7 默认拍板）')
 
     // ---- (8) 通知失败不阻断指派 ----
     notifyShouldOk = false
     writeShouldOk = true
     getDb().prepare('UPDATE tickets SET row_gone = 0 WHERE ticket_no = ?').run('C1')
-    const arC2 = await executeAssignDesigner('C1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    const arC2 = await executeAssignDesigners('C1', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     ok(arC2.ok && arC2.writeOk === true && arC2.notifyState === 'failed', '通知发不出去：指派与写回照常完成（不阻断）')
     ok(bTicket('C1').notify_state === 'failed', '通知失败留痕 notify_state=failed')
 
     // ---- (9) 设计师列可用性：列缺失 → 指派拒绝（降级不崩） ----
     setMeta(META_KEYS.designerOk, '0')
     ok(designerColUsable() === false, '同步检测到列缺失 → designerColUsable=false')
-    const arC3 = await executeAssignDesigner('B2', 'uME', '本机测试员', mockAdapter, 'uME')
+    const arC3 = await executeAssignDesigners('B2', [{ userid: 'uME', name: '本机测试员' }], mockAdapter, 'uME')
     ok(!arC3.ok, '列不可用时指派被拒（入口置灰的后端兜底）')
     setMeta(META_KEYS.designerOk, '1')
     // evaluateDesignerCol：按 sheets list 的 fields 判定
@@ -4076,10 +4076,202 @@ async function main(): Promise<void> {
 
     // ---- (11) 写回补写失败也要有错误清单 ----
     writeShouldOk = false
-    await executeAssignDesigner('D1', 'uOLD', '老设计师', mockAdapter, 'uME')
+    await executeAssignDesigners('D1', [{ userid: 'uOLD', name: '老设计师' }], mockAdapter, 'uME')
     const retryFail = await retryPendingDesignerWrites(mockAdapter)
     ok(retryFail.retried === 1 && retryFail.failed === 1 && retryFail.errors.length === 1, '补写失败返回错误清单（界面拼警告）')
     ok(bTicket('D1').designer_write_pending === 1, '补写失败 → pending 继续（下次同步再试）')
+
+    closeDb()
+    hardRm(bRoot)
+  }
+
+  // ============ 第 18 批 T-03：迁移 14（多设计师子表 ticket_designers） ============
+  log('\n[34] 第 18 批：迁移 14 —— ticket_designers 子表（建表 + 索引 + 老单值迁移 + 幂等）')
+  {
+    const aRoot = join('D:\\_accept_ws', `wstest18a_${RUN_ID}`)
+    const aWs = join(aRoot, 'ws')
+    hardRm(aRoot)
+    mkdirSync(aWs, { recursive: true })
+    closeDb()
+    openDb(aWs)
+    initWorkspace(aWs)
+
+    const tdCols = getDb().prepare('PRAGMA table_info(ticket_designers)').all() as Array<{ name: string }>
+    for (const c of ['ticket_no', 'userid', 'name', 'seq', 'notified']) {
+      ok(tdCols.some((x) => x.name === c), `ticket_designers 有 ${c} 列（迁移 14 建表）`)
+    }
+
+    // 造一条老单值数据 → 重新 openDb 触发迁移 14 的「搬老数据」
+    getDb()
+      .prepare(
+        `INSERT INTO tickets (sheet_id, ticket_type, ticket_no, designer_userid, designer_name)
+         VALUES ('s', 'print', 'OLD1', 'uOLD', '老设计师')`
+      )
+      .run()
+    closeDb()
+    openDb(aWs)
+    const migrated = getDb()
+      .prepare('SELECT userid, name, seq FROM ticket_designers WHERE ticket_no = ? ORDER BY seq')
+      .all('OLD1') as Array<{ userid: string; name: string | null; seq: number }>
+    ok(
+      migrated.length === 1 && migrated[0].userid === 'uOLD' && migrated[0].name === '老设计师' && migrated[0].seq === 0,
+      '老单值数据迁移进子表（seq=0，单值列原样保留）'
+    )
+    // 幂等：再开一次不重搬
+    closeDb()
+    openDb(aWs)
+    const cnt = getDb().prepare('SELECT COUNT(*) AS c FROM ticket_designers WHERE ticket_no = ?').get('OLD1') as { c: number }
+    ok(cnt.c === 1, '迁移 14 幂等（重复启动不重搬）')
+
+    closeDb()
+    hardRm(aRoot)
+  }
+
+  // ============ 第 18 批 T-04：多设计师引擎（docs/20 §5，写回适配器全喂 mock） ============
+  log('\n[35] 第 18 批：多设计师（读多值 / 落子表 / 建任务 ∈集合 / 后缀 / 改派 / 通知新增 / 未指派口径）')
+  {
+    const bRoot = join('D:\\_accept_ws', `wstest18b_${RUN_ID}`)
+    const bWs = join(bRoot, 'ws')
+    hardRm(bRoot)
+    mkdirSync(bWs, { recursive: true })
+    closeDb()
+    openDb(bWs)
+    initWorkspace(bWs)
+
+    let writeShouldOk = true
+    let notifyShouldOk = true
+    const writtenRows: Array<{ record_id: string; sheet_id: string; userids: string[] }> = []
+    const notified: Array<{ userid: string; content: string }> = []
+    const mockAdapter: DesignerWriteAdapter = {
+      updateDesigners: async (record_id, sheet_id, userids) => {
+        if (!writeShouldOk) return { ok: false, error: 'MOCK_WRITE_FAIL' }
+        writtenRows.push({ record_id, sheet_id, userids })
+        return { ok: true }
+      },
+      notify: async (userid, content) => {
+        if (!notifyShouldOk) return { ok: false, error: 'MOCK_NOTIFY_FAIL' }
+        notified.push({ userid, content })
+        return { ok: true }
+      }
+    }
+
+    const bRec = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        业务归属: [{ text: '工单测试项目' }],
+        ...over
+      }
+    })
+    const bPayload = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheetP',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const bIdentity = { userid: 'uME', name: '本机测试员' }
+    const bTicket = (no: string): Record<string, unknown> =>
+      getDb().prepare('SELECT * FROM tickets WHERE ticket_no = ?').get(no) as Record<string, unknown>
+    const bDesigners = (no: string): Array<{ userid: string; name: string | null; seq: number; notified: number }> =>
+      getDb()
+        .prepare('SELECT userid, name, seq, notified FROM ticket_designers WHERE ticket_no = ? ORDER BY seq')
+        .all(no) as Array<{ userid: string; name: string | null; seq: number; notified: number }>
+
+    const live = new Map<string, TicketRawRecord>()
+    const put = (no: string, over: Record<string, unknown> = {}): void => {
+      live.set(no, bRec(no, over))
+    }
+    const syncAll = (structureChanged = false) =>
+      applySync({
+        payloads: [bPayload([...live.values()])],
+        structureChanged,
+        identity: bIdentity,
+        workspaceRoot: bWs
+      })
+
+    createProject({ name: '工单测试项目', workspaceRoot: bWs })
+    put('A1', { 设计师: [{ userId: 'uOLD', userName: '老设计师' }] })
+    put('A2')
+    syncAll() // 首次快照：A1/A2 历史
+
+    // ---- (1) 读多值 + 落子表 ----
+    put('M1', { 设计师: [{ userId: 'uA', userName: '甲' }, { userId: 'uB', userName: '乙' }] })
+    put('M2', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    put('M3', { 设计师: [] })
+    syncAll()
+    const dM1 = bDesigners('M1')
+    ok(dM1.length === 2 && dM1[0].userid === 'uA' && dM1[1].userid === 'uB', '多值设计师落子表（2 行，seq 0/1）')
+    ok(bTicket('M1').designer_userid === 'uA' && bTicket('M1').designer_name === '甲', '冗余列 = 集合第一个（主设计师）')
+    ok(bTicket('M3').designer_userid === null, '未指派（空数组）→ 冗余列 null（全空才算）')
+
+    // ---- (2) 建任务链「本机 ∈ 集合」+ 任务名后缀 ----
+    put('M4', { 设计师: [{ userId: 'uME', userName: '本机测试员' }, { userId: 'uC', userName: '丙' }] })
+    const s4 = syncAll()
+    ok(s4.tasksCreated === 1 && bTicket('M4').pack_id !== null, '本机 ∈ 设计师集合 → 建任务')
+    const pack4 = getDb().prepare('SELECT name FROM packs WHERE id = ?').get(bTicket('M4').pack_id as number) as
+      | { name: string }
+      | undefined
+    ok(pack4?.name === '物料-M4-本机测试员', `多设计师（≥2）任务名带本机姓名后缀（${pack4?.name ?? '—'}）`)
+    put('M5', { 设计师: [{ userId: 'uA', userName: '甲' }, { userId: 'uB', userName: '乙' }] })
+    syncAll()
+    ok(bTicket('M5').pack_id === null, '本机 ∉ 集合 → 不建任务（别的设计师机器自会建）')
+
+    // ---- (3) 候选池子表去重 + 在办计数 ----
+    const cands = listDesignerCandidates()
+    ok(cands.some((c) => c.userid === 'uA' && c.name === '甲'), '候选池改读子表去重')
+    ok(cands.some((c) => c.userid === 'uB'), '多设计师每个都进候选池')
+
+    // ---- (4) 多值指派本地即时 + 写回多值数组 + 通知逐个 ----
+    writeShouldOk = true
+    notifyShouldOk = true
+    const ar = await executeAssignDesigners(
+      'M2',
+      [{ userid: 'uA', name: '甲' }, { userid: 'uB', name: '乙' }],
+      mockAdapter,
+      'uME'
+    )
+    ok(ar.ok && bTicket('M2').designer_userid === 'uA', '多值指派本地即时生效（主设计师 = 第一个）')
+    ok(bDesigners('M2').length === 2, '子表整表替换成 2 行')
+    const lastW = writtenRows[writtenRows.length - 1]
+    ok(lastW?.userids.length === 2 && lastW.userids[0] === 'uA' && lastW.userids[1] === 'uB', '写回多值数组 [{uA,uB}]')
+    ok(notified.length === 2, '通知逐个新增设计师（2 人都通知）')
+
+    // ---- (5) 改派加人 → 只通知新增的（notified 精确到人） ----
+    const notifiedBefore = notified.length
+    await executeAssignDesigners(
+      'M2',
+      [{ userid: 'uA', name: '甲' }, { userid: 'uB', name: '乙' }, { userid: 'uC', name: '丙' }],
+      mockAdapter,
+      'uME'
+    )
+    ok(notified.length === notifiedBefore + 1, '改派加人 → 只通知新增的丙（甲/乙已 notified 不重发）')
+
+    // ---- (6) 改派检测：本机被移出集合 → 标 reassigned、任务不删；回到集合 → 清标记 ----
+    put('M4', { 设计师: [{ userId: 'uC', userName: '丙' }] })
+    syncAll()
+    ok(bTicket('M4').reassigned_to === '丙', '本机被移出集合 → 标已改派给集合第一人')
+    ok(bTicket('M4').pack_id !== null, '改派不删任务（文件保留）')
+    put('M4', { 设计师: [{ userId: 'uME', userName: '本机测试员' }] })
+    syncAll()
+    ok(bTicket('M4').reassigned_to === null, '本机回到集合 → 清改派标记')
+
+    // ---- (7) 写回失败保 pending + 下次补写 ----
+    writeShouldOk = false
+    await executeAssignDesigners('M5', [{ userid: 'uA', name: '甲' }], mockAdapter, 'uME')
+    ok(bTicket('M5').designer_write_pending === 1, '多值写回失败 → 保 pending')
+    writeShouldOk = true
+    const r = await retryPendingDesignerWrites(mockAdapter)
+    ok(r.succeeded === 1 && bTicket('M5').designer_write_pending === 0, '补写成功清 pending')
+
+    // ---- (8) 未指派口径：全空才算（空数组 → null） ----
+    const cnt = unassignedTicketCount()
+    ok(cnt >= 1, `未指派口径 = 冗余列 null（全空才算，M3 算，实际 ${cnt}）`)
+
+    // ---- (9) 空集合指派被拒（API 无法清空成员列，docs/20 §2.1） ----
+    const arEmpty = await executeAssignDesigners('M2', [], mockAdapter, 'uME')
+    ok(!arEmpty.ok, '空集合指派被拒（成员列无法 API 清空，UI 层挡住最后一人）')
 
     closeDb()
     hardRm(bRoot)

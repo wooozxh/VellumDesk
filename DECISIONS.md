@@ -628,3 +628,18 @@
 - **原因**：真表实测（证据 `_junk/wecom_probe2/`，不入库）——CLI 的 schema 声明 `values` 为 `Record<string, string>`，按 JSON 字符串传被服务端拒收「值类型与列类型不符」；且写失败时 errcode 照样返回 0，只看 errcode 会把失败当成功、pending 永远清不掉
 - **已知边界**：空数组 `[]` 清不掉人员列（API 拒绝）→ 改派永远是写新值覆盖，本方案只指派不清空，无影响
 - **放弃**：JSON 字符串形式；只看 errcode 判成败；webhook 写回路线（docs/16 §2.4 已拍板不做，CLI 直连已验证可用）
+
+## 2026-10-04　多设计师指派：成员列多选已就绪，子表落库 + 后缀=姓名（用户拍板「按默认」）
+
+- **决定**：① 任务名后缀 = 设计师姓名（路 A，指派端不用再编辑、设计师端自动带名）；② 设计师全量落**子表 `ticket_designers`**（`tickets` 单值列 `designer_userid/name` 降级为「主设计师冗余」= 集合第一人）；③ 界面用**原生勾选下拉**（已选显示为标签 + 点 × 移除，最后一人不可移除，候选池点选即加）；④ 通知**只发给本次新增的设计师**（`ticket_designers.notified` 标记）；⑤ 版本 **1.5.0**
+- **原因**：大型工作单人难完成、需多人协作；用户对方案默认值「按默认」全盘接受。子表方案可查/可索引/无并发冲突，且「未指派」口径 `designer_userid IS NULL` 零改动
+- **真表实探结论（证据 `_junk/`，不入库）**：设计师列 `is_multiple: true` 已是多选成员列，无需改表结构；多值写回 `[{userId:a},{userId:b}]` 实测成功；**成员列无法 API 清空**（`[]`/`null` 都被服务端跳过更新）→ UI 层挡掉「移除最后一人」
+- **落库细节**：迁移 14 建 `ticket_designers`（`ticket_no` 外键 `ON DELETE CASCADE` + `seq` + `notified`）；老单值数据幂等迁入（`INSERT ... WHERE NOT EXISTS`）；`replaceTicketDesigners` 先删后插、按 userid 保留 notified 状态
+- **建任务条件链**：由「设计师 = 本机身份」改为「本机身份 ∈ 设计师集合」；多设计师（≥2 人）时任务名 = `物料名称-本机姓名`，单设计师时任务名不变（向后兼容，不重命名旧任务）
+- **放弃**：单值列继续硬扛（无法表达多人）；清空成员列（API 不支持）；通知全量重发（会骚扰已通知的人）
+
+## 2026-10-04　多设计师指派：候选池改读子表 + 真企微不进自动测试
+
+- **决定**：① 候选池 `listDesignerCandidates` 改从 `ticket_designers` 子表聚合（`GROUP BY userid` + `COUNT(DISTINCT ticket_no)` 算在办数）；② 写回适配器 `DesignerWriteAdapter.updateDesigner` → `updateDesigners(record_id, sheet_id, userids[])`，同步核心仍不碰网络（ipc 传真适配器 / accept 传 mock）
+- **原因**：设计师的全量、可索引来源是子表；「真企微不进自动测试」是既有铁律延续，多值写回链路全部由 accept 的 mock 适配器断言盖住，界面场景只验形态不真选人
+- **已知边界**：成员列清不掉（见上条）；写回失败保 `designer_write_pending`，下次同步自动补写
