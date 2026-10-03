@@ -762,6 +762,15 @@
 - **验收结果**：typecheck 0 错；重打三个 bundle + `npx electron-vite build` 重打渲染层；`NODE_OPTIONS= node out/test/accept.cjs` **721 OK + 1 FAIL**（FAIL 即上面⑤环境问题；新增第 34/35 段多设计师断言 27 项全绿）；**tickets / export 两个界面场景全绿**（tickets 新增多人协作单「等 1 人」徽标 + 详情双标签 + 移除按钮 ×2 + 设计师字段全量姓名断言）
 - **下一步**：① git 提交 `feature/multi-designer`；② 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（两条新文案）；③ 出包 **1.5.0**（两步法 + 项目外全新空目录）；④ **用户真表人工验收**：多选两人 → 两人各自长出任务包（后缀各自姓名）+ 新增的人收到通知；移除一人 → 表格成员列真变；同事表格手改多选 → 同步跟随
 
+### 2026-10-04（第 25 次会话）—— 第 18 批续：指派加「提交按钮」（用户验收后补的需求）
+
+- **用户实测反馈**：「选一个就发出去了」有歧义——希望点选/移除先攒着，点「提交」才真正同步出去（写回企微表 + 通知新增设计师）。
+- **改动**：`TicketDetailModal.tsx` 加 `draft` 草稿态（初始=已保存集合，`load` 里一并 `setDraft`）；点选候选 / 点 × 移除只 `setDraft`，**不触发任何写回**；草稿与已保存集合按 userid 集合比较（忽略顺序）不一致时，指派区右侧浮现 **「提交指派」** 按钮 + **「有未提交的更改」** 提示，无改动不显示；点「提交」才 `doAssign(draft)`（即原全量集合提交），成功后重拉详情、草稿复位；关闭弹窗即丢弃未提交草稿（不提示，保持「UI 别啰嗦」）。顺带把「最后一人不可移除」从读 `d.designers` 改为读 `draft`。
+- **文案**：`copy.ts` 新增 `assignSubmit`「提交指派」/ `assignDirty`「有未提交的更改」（与上轮 `assignMore`/`assignNeedOne` 一样，待回有 mcporter 的机器 publish）。
+- **场景断言**：`_shotapp/v4/main.cjs` 新增 (11b) 段——无未提交改动不显示提交按钮 / 点 × 移除一人后出现「提交指派」+「有未提交的更改」提示 / 移除后剩 1 个标签（最后一人不可再移除）；**只验形态不点提交**（真企微不进自动测试）。
+- **验收结果**：typecheck 0 错；`npx electron-vite build` 重打渲染层；**tickets 场景全绿**（新增 4 条提交按钮断言全过）+ **export 场景无回归**。accept 不受影响（本轮纯 renderer/copy/场景壳改动，未动主进程引擎）。
+- **改了哪些文件**：`src/renderer/src/components/TicketDetailModal.tsx`、`src/renderer/src/assets/main.css`（`.tk-assign-submit`）、`src/shared/copy.ts`、`_shotapp/v4/main.cjs`、`docs/20`（新增 §7.1 提交按钮 + 对比表/§7 描述更新）
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

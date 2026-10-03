@@ -29,6 +29,8 @@ export function TicketDetailModal({
   /** 第 17 批：指派区原料（开关 / 列可用性 / 候选池 / 表格链接） */
   const [assignInfo, setAssignInfo] = useState<TicketAssignInfo | null>(null)
   const [assigning, setAssigning] = useState(false)
+  /** 第 18 批：指派草稿（点选/移除先攒在这，点「提交」才真正同步出去） */
+  const [draft, setDraft] = useState<Array<{ userid: string; name: string }>>([])
 
   useEffect(() => {
     void window.api
@@ -40,6 +42,7 @@ export function TicketDetailModal({
   const load = useCallback(async (): Promise<void> => {
     const r = await window.api.ticketDetail(ticketNo)
     setD(r)
+    setDraft(r?.designers ?? [])
   }, [ticketNo])
 
   useEffect(() => {
@@ -70,7 +73,7 @@ export function TicketDetailModal({
     }
   }
 
-  /** 第 18 批（docs/20 §7）：多选指派——全量集合一次提交（勾选即加、点 × 即移除，选定即存） */
+  /** 第 18 批（docs/20 §7）：多选指派——点「提交」才把整套设计师集合同步出去（写回企微表 + 通知新增人） */
   const doAssign = async (designers: Array<{ userid: string; name: string }>): Promise<void> => {
     if (assigning) return
     setAssigning(true)
@@ -101,6 +104,11 @@ export function TicketDetailModal({
     )
 
   const urlOk = /^https?:\/\//i.test(d?.approvalUrl ?? d?.sourceUrl ?? '')
+
+  // 草稿与已保存集合是否一致（按 userid 集合比较，忽略顺序）
+  const draftKey = draft.map((x) => x.userid).sort().join('\u0000')
+  const savedKey = (d?.designers ?? []).map((x) => x.userid).sort().join('\u0000')
+  const dirty = draftKey !== savedKey
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -146,21 +154,20 @@ export function TicketDetailModal({
                   ) : !assignInfo.designerColOk ? (
                     <span className="tk-warn">{COPY.ticket.assignColBad}</span>
                   ) : (
+                    <>
                     <span className="tk-assign-pick">
                       {/* 第 18 批（docs/20 §7）：已选设计师以标签显示，可点 × 移除（最后一人不可移除）；
-                          下方下拉是候选池，点选即加（选定即存），已选的人不再出现在候选里 */}
-                      {d.designers.map((ds) => (
+                          点选/移除只改本地草稿，点右侧「提交指派」才真正同步出去 */}
+                      {draft.map((ds) => (
                         <span className="tk-assign-tag" key={ds.userid}>
                           {ds.name}
-                          {d.designers.length > 1 && (
+                          {draft.length > 1 && (
                             <button
                               type="button"
                               className="tk-assign-x"
                               disabled={assigning}
                               title={COPY.ticket.assignNeedOne}
-                              onClick={() =>
-                                void doAssign(d.designers.filter((x) => x.userid !== ds.userid))
-                              }
+                              onClick={() => setDraft(draft.filter((x) => x.userid !== ds.userid))}
                             >
                               <Icon name="close" size={11} />
                             </button>
@@ -172,8 +179,8 @@ export function TicketDetailModal({
                         value=""
                         onChange={(e) => {
                           const c = assignInfo.candidates.find((x) => x.userid === e.target.value)
-                          if (c && !d.designers.some((x) => x.userid === c.userid)) {
-                            void doAssign([...d.designers, { userid: c.userid, name: c.name }])
+                          if (c && !draft.some((x) => x.userid === c.userid)) {
+                            setDraft([...draft, { userid: c.userid, name: c.name }])
                           }
                           e.currentTarget.value = ''
                         }}
@@ -182,17 +189,26 @@ export function TicketDetailModal({
                           {assigning ? COPY.common.saving : COPY.ticket.assignPlaceholder}
                         </option>
                         {assignInfo.candidates
-                          .filter((c) => !d.designers.some((x) => x.userid === c.userid))
+                          .filter((c) => !draft.some((x) => x.userid === c.userid))
                           .map((c) => (
                             <option key={c.userid} value={c.userid}>
                               {c.name}（{fmt(COPY.ticket.assignBusyLabel, { n: c.activeCount })}）
                             </option>
                           ))}
                       </select>
-                      {assignInfo.candidates.length === 0 && (
-                        <span className="tk-dim">{COPY.ticket.assignEmptyHint}</span>
-                      )}
+                      {dirty && <span className="tk-dim">{COPY.ticket.assignDirty}</span>}
                     </span>
+                    {dirty && (
+                      <button
+                        type="button"
+                        className="btn primary tk-assign-submit"
+                        disabled={assigning}
+                        onClick={() => void doAssign(draft)}
+                      >
+                        {COPY.ticket.assignSubmit}
+                      </button>
+                    )}
+                    </>
                   )}
                 </div>
               )}

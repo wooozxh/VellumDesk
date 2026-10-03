@@ -2602,6 +2602,10 @@ svg {
   background: var(--accent-soft);
   color: var(--text);
 }
+/* 第 18 批：提交指派按钮（有未提交更改时才出现，挤在指派区右侧） */
+.tk-assign-submit {
+  flex-shrink: 0;
+}
 
 /* 第 17 批（§10 #3）：工单设置里的「允许在本机指派设计师」开关 */
 .tk-allowassign {

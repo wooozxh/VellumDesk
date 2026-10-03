@@ -2576,6 +2576,27 @@ app.whenReady().then(async () => {
       `设计师字段显示全量姓名（${multiField}）`
     )
     await shot('shot-b18-1-multi.png')
+
+    // (11b) 第 18 批：提交按钮形态 —— 无未提交改动不出现，点 × 改草稿后才出现（只验形态，不点提交以免真写回企微）
+    const submitBefore = await js(`!!document.querySelector('.tk-assign-submit')`)
+    ok(submitBefore === false, '无未提交改动时不显示「提交指派」按钮')
+    await js(`(() => { const x = document.querySelector('.tk-assign-x'); if (x) x.click(); return 'ok' })()`)
+    await wait(400)
+    const submitAfter = await js(
+      `(() => { const b = document.querySelector('.tk-assign-submit'); return b ? b.innerText.trim() : null })()`
+    )
+    ok(
+      submitAfter === plain(COPY.ticket.assignSubmit),
+      `点 × 移除一人后出现「${plain(COPY.ticket.assignSubmit)}」按钮（${submitAfter}）`
+    )
+    const dirtyHint = await js(
+      `(() => { const a = document.querySelector('.tk-assign'); return a ? a.innerText.includes(${JSON.stringify(plain(COPY.ticket.assignDirty))}) : false })()`
+    )
+    ok(dirtyHint === true, `草稿有改动时显示「${plain(COPY.ticket.assignDirty)}」提示`)
+    const tagAfterX = await js(`document.querySelectorAll('.tk-assign-tag').length`)
+    ok(tagAfterX === 1, `移除后剩 1 个标签、最后一人不可再移除（实际 ${tagAfterX} 个）`)
+    await shot('shot-b18-2-submit.png')
+
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)
   } else if (SCEN === 'export') {
