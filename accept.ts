@@ -1513,10 +1513,11 @@ async function main(): Promise<void> {
     `应用显示名三处一致：${dispNames[0]}`
   )
   ok(
-    typeof b.nsis?.artifactName === 'string' && b.nsis.artifactName.startsWith(b.productName),
-    `安装包文件名带产品名：${b.nsis?.artifactName}`
+    typeof b.nsis?.artifactName === 'string' &&
+      b.nsis.artifactName.startsWith(b.win?.executableName ?? ''),
+    `安装包文件名用英文标识：${b.nsis?.artifactName}`
   )
-  ok(b.appId === 'com.mediabutler', 'appId 与 setAppUserModelId 一致（com.mediabutler）')
+  ok(b.appId === 'com.vellumdesk', 'appId 与 setAppUserModelId 一致（com.vellumdesk）')
   ok(
     b.npmRebuild === false,
     '【核心】npmRebuild=false —— 原生模块是 N-API 预编译，本机无 VS 工具链'
@@ -1531,7 +1532,7 @@ async function main(): Promise<void> {
       b.extraResources.some((x: { from?: string }) => x.from === 'resources/ffmpeg'),
     'FFmpeg 走 extraResources 单独一份'
   )
-  ok(b.win?.executableName === 'MediaButler', '主程序 exe 用 ASCII 名（中文名留给快捷方式）')
+  ok(b.win?.executableName === 'VellumDesk', '主程序 exe 用 ASCII 名（中文名留给快捷方式）')
   ok(b.nsis?.perMachine === false, '免管理员权限安装（perMachine=false）')
   ok(b.directories?.output === 'release', '出包产物落在 release/，与 out/ 编译产物分开')
 

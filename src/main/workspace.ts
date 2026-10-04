@@ -79,13 +79,13 @@ const RESERVED_FOLDER_NAMES = new Set([
 // ---------------------------------------------------------------- 工作区路径
 
 /**
- * 工作区根目录首选 D:\素材工作区（方案 6.0）。
+ * 工作区根目录首选 D:\vellum_workspace（2026-10-05 全站改名，docs/28）。
  * 路径记在配置文件里而不是数据库里 —— 数据库本身就在工作区内。
  */
-export const DEFAULT_WORKSPACE = 'D:\\素材工作区'
+export const DEFAULT_WORKSPACE = 'D:\\vellum_workspace'
 
-/** 首次启动时首选位置不可用，就落到系统「文档」下的同名文件夹（方案 06 第 6 节） */
-export const FALLBACK_FOLDER_NAME = '素材工作区'
+/** 首次启动时首选位置不可用，就落到系统「文档」下的同名文件夹 */
+export const FALLBACK_FOLDER_NAME = 'vellum_workspace'
 
 export interface WorkspaceState {
   /** 本次使用的工作区根目录 */

@@ -100,11 +100,10 @@ process.on('uncaughtException', (err) => {
   app.exit(1)
 })
 
-// 用户数据目录锁定（B-11）：安装包的显示名会随版本调整（当前「营销中心-素材库」），
-// 而工作区配置就放在 userData/workspace.json 里。目录名一旦跟着产品名变，
-// 老用户打开软件就会看到「工作区没了」——数据其实还在旧目录，只是找不到。
-// 历史上该目录一直是 proj_media，这里显式钉死，不再依赖 Electron 按应用名的推导。
-const userDataDir = join(app.getPath('appData'), 'proj_media')
+// 用户数据目录锁定：2026-10-05 全站改名（docs/28）把产品名改为「Vellum工作台」，
+// 同时用户数据目录从 proj_media 改为 vellumdesk_project。目录名不跟随产品名推导，
+// 显式钉死；老用户（旧版 proj_media）升级后需在首次打开时重选一次工作区位置，数据本身不丢。
+const userDataDir = join(app.getPath('appData'), 'vellumdesk_project')
 try {
   mkdirSync(userDataDir, { recursive: true })
 } catch {
@@ -113,7 +112,7 @@ try {
 app.setPath('userData', userDataDir)
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.mediabutler')
+  electronApp.setAppUserModelId('com.vellumdesk')
 
   // 启动即初始化工作区（A-02）：建目录 + 建库，避免界面首次查询时表还不存在
   try {

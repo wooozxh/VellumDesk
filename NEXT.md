@@ -10,20 +10,14 @@
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| `main` | `f20fa3d`（标签 `v1.1.0`） | 第 1~10 批全部功能（入库 / 缩略图 / 标签 / 打包 / 工作区 / 三级结构 / 生命周期 / 丢失标记 / 版本管理 / 类别同源） | **已封存，不许动**；1.1.0 安装包已发同事，等装机验收 |
-| `feature/incr` | `64ffc9e` | 第 11~12 批增量：**文案字典** + 术语统一「包→任务」+ `tools/copy-sheet` 在线表格控制台 + **软件改名**「营销中心-素材库」（version 1.2.0） | 已提交、已验收（accept 620 项全过 / 9 场景 0 FAIL）、**未出安装包**（已被 TM 的第 14 批 1.3.0 包取代） |
-| **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批工单模块 + 第 14 批上线前优化 + 第 15 批热修 + 第 16 批 M5 交付打包 + 第 17 批设计师指派 | ✅ 第 13~16 批关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
-| **`feature/multi-designer`** | 从 `TM` 的 `6dba4a1` 分出（已提交 `96d7dc3`、`7ca65ac`） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知只发新增的人；**点选/移除攒草稿、点「提交指派」才同步**；方案 `docs/20`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept 721 OK（新增多设计师断言全绿）+ tickets/export 场景全绿（含提交按钮断言）；**待真表人工验收 + 出包 1.5.0**（第 19 批已从此分出新分支 `feature/export-report`） |
-| **`feature/export-report`** | 从 `feature/multi-designer` 的 `7ca65ac` 分出（已提交 `9eb1564`、`1bd1f2b`、`51158f2`、`4026a32`、`9c34377`） | **第 19 批：导出报表**（工单本地扩展字段印刷/绩效/备注 + 「完成任务」生成缩略图写回工单队列 + 按完成时间起止导出智能表格报表带图；方案 `docs/22`）+ UI 打磨 + wecom-cli 白名单热修 + 交付打包热修 + docs/23 存档 | 代码完工、自动验收全过；**待 mcporter 机器 publish 文案（8 条）+ 出包 1.6.0 + 真表人工验收**（第 20 批已从此分出新分支 `feature/purge-disabled-sheet`） |
-| **`feature/purge-disabled-sheet`** | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（迁移 16 `tickets.sheet_title` + `purgeDisabledSheetTickets` 引擎 + 设置弹窗「危险操作」区；方案 `docs/24`） | 已交出（第 21 批在同一线上继续）；自动验收全过（accept 772 OK + tickets 场景全绿） |
-| **`feature/wecom-bundle`**（当前） | 从 `feature/purge-disabled-sheet` 分出 | **第 21~22 批：企微连接（wecom-cli 内置 + 扫码授权引导）+ 界面微调 + 默认视图改「工单队列」**（顶栏改序改名「工单队列」/ 下拉深色 / `WecomAuthModal` 授权引导；方案 `docs/26`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **800 OK** + 11 个界面场景全绿；**已出包 1.8.1**（`D:\_accept_ws\rel_out\v1.8.1`，包内含 `resources/wecom-cli/wecom-cli.exe`）；**待装机验收** |
+| `main` | 第 1~22 批全部 + 全站改名（docs/28） | 2026-10-05 起为**唯一分支**：`feature/wecom-bundle`（第 21~22 批 = 1.8.1）已 ff 合并进来；`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` 均合并后删除 | 最新包 **`VellumDesk-1.8.1-Setup.exe`**（`D:\_accept_ws\rel_out\v1.8.1-vellum`，新名新图标）；**待装机验收** |
 
 要点：
 
-- **`TM` 是从 `feature/incr` 分出来的**（`64ffc9e`），带着文案字典与改名 —— 新模块直接在**新文案 + 新软件名**上开发；**`feature/multi-designer` 从 `TM` 的 `6dba4a1` 分出**（第 18 批多设计师指派）；**`feature/export-report` 从 `feature/multi-designer` 的 `7ca65ac` 分出**（第 19 批导出报表）；**`feature/purge-disabled-sheet` 从 `feature/export-report` 分出**（第 20 批清理已禁用子表工单）；**`feature/wecom-bundle` 从 `feature/purge-disabled-sheet` 分出**（第 21 批企微连接与界面微调）。
-- **谁也不许 merge 回 `main`**：用户说过增量功能"不一定用得上"，采纳与否等拍板。
-- 切分支：`git switch main` / `git switch feature/incr` / `git switch TM` / `git switch feature/multi-designer` / `git switch feature/export-report` / `git switch feature/purge-disabled-sheet` / `git switch feature/wecom-bundle`（**当前在 `feature/wecom-bundle`**）。
-- **GitHub 远程（2026-10-04 第 21 批补推）**：`origin` 上已有 `main` / `feature/incr` / `TM`，本批把 `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle` 一并推上去（此前只在本机）。
+- **2026-10-05 全站改名 + 分支整理（docs/28）**：软件名 **Vellum工作台**（界面）/ **VellumDesk**（exe、安装包 `VellumDesk-<版本>-Setup.exe`、仓库）；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。GitHub 仓库由 `media-lib_zxh` 改名 **`VellumDesk`**（旧链接自动重定向）。历史功能分支全部合入 `main` 后删除，此后新分支按 `feature/小写短横线` 命名、合入即删。
+- **新功能先出方案再动代码**（方案文档 `docs/NN`）。
+- 历史分支脉络（第 11~22 批谁从谁分出）见 git log 与 `PROGRESS.md`；`TM` 从 `feature/incr` 分出（`64ffc9e`，带文案字典与当时那次改名）。
+- **GitHub 远程**：`origin` = `https://github.com/wooozxh/VellumDesk.git`，只有 `main` 一个分支。
 - **稳定点备份（项目外，2026-09-30 已做）**：
   - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
   - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
@@ -33,14 +27,14 @@
   **1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里，从未出包**（第 18 / 19 / 20 批）——
   **1.8.0 = 第 18~21 批的全部功能（一次性打出来）**；
   **1.8.1 = 1.8.0 + 第 22 批（默认视图改「工单队列」+ 工单加载容错）**，`package.json` 已改成 1.8.1，
-  最新包 `D:\_accept_ws\rel_out\v1.8.1\营销中心-素材库-1.8.1-安装包.exe`（包内含 wecom-cli）。
+  最新包 `D:\_accept_ws\rel_out\v1.8.1-vellum\VellumDesk-1.8.1-Setup.exe`（**新名新图标**，包内含 wecom-cli；改名前的中文旧包仍在 `rel_out\v1.8.1`）。
 
 ---
 
 ## 一、标准启动词 —— 新一批开发（TM 分支，直接复制下面整段）
 
 ```
-开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「营销中心-素材库」；
+开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 请在 TM 分支上开工（先 git branch -vv 确认当前在 TM，不是 main）。
 
@@ -184,7 +178,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - **工单二期余项**：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**；方案 `docs/16` 存档，**写回管路 + 通知链路已在第 17 批落地、CLI 内置已在第 21 批落地**，二期只剩「状态写回 + 定时同步」两件事）
 - ~~**默认视图要不要改成「工单队列」**~~ —— **第 22 批已完成**（用户拍板；顺带修掉默认视图带来的「工作区不可用时启动抛未捕获异常」回归）
 - **M6-06 版本对比**（图片并排 + 视频双窗同步播放，纯前端）；**M8-02 重复文件检测**（与 M6-08 合并立项）；**报表导出**（工单/任务/物料维度导 Excel）
-- **图标替换**：软件 / 安装包 / 任务栏图标（`build/icon.ico` 疑似脚手架默认图标，待核实）—— 用户点名 UI 时只提了 5 条，这条没进去
+- ~~**图标替换**：软件 / 安装包 / 任务栏图标~~ —— **2026-10-05 已完成**（用户提供 Vellum Desk 图标：`build/icon.ico` 多尺寸 + `resources/icon.png` / `build/icon.png` 同步更新，四角黑底转圆角透明；随 1.8.1-vellum 包发出）
 - **审核平台**（大模块，方案 `docs/21-审核平台方案.md` 已存档、**暂缓施工**）：设计师「提交审核」→ 审核人看缩略图 → WorkBuddy 手动 AI 审稿出 HTML 报告 + 手敲评语 → 意见回传。文件传输倾向**企微微盘 + 企微表**（零成本复用 wecom-cli），**卡点 = 公司微盘使用规范待用户和同事对齐**；对齐后先做微盘闭环实测（上传/下载/体积上限/共享文件夹权限）再出施工方案。推 GitHub 等用户说确定再推。**另有演化方向**（`docs/23-连接WorkBuddy审稿方案.md`，2026-10-04 已存档、待细化）：不集中到用户手动审，改做「软件 ↔ WorkBuddy 连接器」自动送物料进 WorkBuddy 用 Skill 审稿；三个分叉待定——传输通道（本地目录 / 企微微盘 / 云服务）、触发方式（全自动 automation / 半自动）、连接器形态（自研 Skill+automation 倾向 / MCP server / 纯文件约定），倾向先走「本地目录 + 自研审稿 Skill + automation」最轻闭环验证
 
 **已押后（想做再捡起，方案已存档）**：见上。
@@ -194,7 +188,7 @@ M6 还剩的其他小项：
 
 其他候选：M8-04 一键备份完整版；M5 素材交付打包。
 
-**状态（2026-10-04 第 22 批收尾）**：最新安装包 = **1.8.1** → `D:\_accept_ws\rel_out\v1.8.1\营销中心-素材库-1.8.1-安装包.exe`（1.8.1 = 1.8.0 + 第 22 批「默认视图改工单队列 + 工单加载容错」；包内 ffmpeg + wecom-cli 已逐个校验）。上一个包 **1.8.0** 在 `rel_out\v1.8.0`；再上一个是 **1.4.0**，在本机桌面 `C:\Users\17736\Desktop`。**代码状态**：当前在 `feature/wecom-bundle`（第 21~22 批）；四个功能分支（`feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）**已全部推到 GitHub**。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**；镜像只需设第二个（见下「环境坑速查」）。
+**状态（2026-10-05 全站改名批）**：最新安装包 = **`VellumDesk-1.8.1-Setup.exe`** → `D:\_accept_ws\rel_out\v1.8.1-vellum\`（= 1.8.1 功能 + 全站改名 Vellum工作台/VellumDesk + 新图标 + appId `com.vellumdesk` + userData `vellumdesk_project` + 工作区默认 `D:\vellum_workspace`；改名前的中文旧包 1.8.1 仍在 `rel_out\v1.8.1`）。**代码状态**：分支只剩 **`main`**（第 1~22 批 + 改名，`feature/wecom-bundle` 已 ff 合并、其余功能分支已删）；仓库 **`wooozxh/VellumDesk`**。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**；镜像只需设第二个（见下「环境坑速查」）。**老用户升级注意**：userData 目录改名后首次打开需重选一次工作区位置。
 
 ---
 

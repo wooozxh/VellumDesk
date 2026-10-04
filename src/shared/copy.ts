@@ -29,7 +29,7 @@ export const COPY = {
   // ==================== 应用级 ====================
   app: {
     /** 窗口标题 / 顶栏 logo */
-    name: '营销中心-素材库',
+    name: 'Vellum工作台',
     /** 顶栏版本号旁的悬停说明 */
     versionTip: '软件版本号（出处：package.json 的 version）'
   },

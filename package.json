@@ -52,8 +52,8 @@
     "vite": "^7.2.6"
   },
   "build": {
-    "appId": "com.mediabutler",
-    "productName": "营销中心-素材库",
+    "appId": "com.vellumdesk",
+    "productName": "Vellum工作台",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -119,7 +119,7 @@
           ]
         }
       ],
-      "executableName": "MediaButler"
+      "executableName": "VellumDesk"
     },
     "nsis": {
       "oneClick": false,
@@ -127,10 +127,10 @@
       "allowElevation": true,
       "perMachine": false,
       "createDesktopShortcut": "always",
-      "shortcutName": "营销中心-素材库",
-      "uninstallDisplayName": "营销中心-素材库",
+      "shortcutName": "Vellum工作台",
+      "uninstallDisplayName": "Vellum工作台",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "营销中心-素材库-${version}-安装包.${ext}",
+      "artifactName": "VellumDesk-${version}-Setup.${ext}",
       "differentialPackage": false
     }
   }

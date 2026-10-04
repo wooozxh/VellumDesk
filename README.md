@@ -1,29 +1,27 @@
-# 营销中心-素材库
+# Vellum工作台
 
 本地素材管理桌面软件。统一管理公司的设计物料、图片、视频素材，**所有素材存在本地**，不上云。
 
-> 1.2.0 起，软件显示名（窗口标题 / 顶栏 logo / 开始菜单 / 卸载列表 / 安装包文件名）统一为
-> **「营销中心-素材库」**。早批次的方案文档里还叫「素材管家」，那是当时的名字，不必回改。
-> **`package.json` 的 `name`（`proj_media`）和用户数据目录名一直没动**，见「素材工作区」一节。
+> 2026-10-05 全站改名（docs/28）：软件显示名（窗口标题 / 顶栏 logo / 快捷方式 / 卸载列表 /
+> 安装目录）统一为 **「Vellum工作台」**；exe 文件名、安装包文件名、GitHub 仓库名用英文标识
+> **VellumDesk**（安装包 = `VellumDesk-<版本>-Setup.exe`）。更早的批次里还叫「素材管家」
+> 「营销中心-素材库」，那是当时的名字，历史文档不必回改。`package.json` 的 `name`
+> （`proj_media`）保持不动；用户数据目录已从 `proj_media` 改为 `vellumdesk_project`
+> （老用户升级后首次打开重选一次工作区位置即可，数据不丢）。
 
 - 项目档案：`PROJECT.md`（定位与协作铁律）/ `PROGRESS.md`（进度台账，开头有「分支现状」）/ `DECISIONS.md`（历史决策）/ `NEXT.md`（换会话用的启动提示词）
 - 方案文档：`docs/01` ~ `docs/26`（每批功能的定稿方案，改需求先改文档）；`docs/25` 是**面向使用者**的《软件操作手册》
 - 需求文档：`docs/素材管家-需求文档.docx`（唯一权威）
 
-## 分支（2026-10-04 起）
+## 分支（2026-10-05 整理后）
 
 | 分支 | 是什么 | 状态 |
 |---|---|---|
-| `main` | 第 1~10 批（= 标签 `v1.1.0` = `f20fa3d`） | **已封存，不许动**；1.1.0 安装包已发同事 |
-| `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被后续包取代） |
-| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（方案 `docs/19`） | 1.4.0 包已发同事；accept 715 项 + 11 场景全绿 |
-| `feature/multi-designer` | 第 18 批：**多设计师指派**（方案 `docs/20`） | 已交出（第 19 批在同一线上继续） |
-| `feature/export-report` | 第 19 批：**导出报表**（方案 `docs/22`） | 已交出 |
-| `feature/purge-disabled-sheet` | 第 20 批：**清理已禁用子表工单**（方案 `docs/24`） | 已交出 |
-| **`feature/wecom-bundle`**（当前） | 第 21~22 批：**企微连接**（wecom-cli 内置 + 扫码授权引导，方案 `docs/26`）+ 界面微调（顶栏改序改名、下拉深色、**启动默认落工单队列**） | **已出包 1.8.1**（`D:\_accept_ws\rel_out\v1.8.1`，包内含 `resources/wecom-cli/`）；accept **800 项** + 11 个界面场景全绿 |
+| `main` | 第 1~22 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.8.1-Setup.exe` 待装机验收 |
 
-- **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
-- 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
+- 2026-10-05 起**只保留 `main`**：历史功能分支（`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）全部合并进 `main` 后删除（`feature/wecom-bundle` 为 ff 合并，无信息丢失）。
+- 仓库：`https://github.com/wooozxh/VellumDesk`（2026-10-05 由 `media-lib_zxh` 重命名，旧链接自动重定向）。
+- 新功能**先出方案再动代码**（方案文档 `docs/NN`）；开发分支按 `feature/小写短横线` 命名，合入 `main` 后即删。
 
 ## 技术栈
 
@@ -50,7 +48,7 @@ npm run build      # 类型检查 + 编译三端产物到 out/
 NODE_OPTIONS= npm run build:win
 ```
 
-产物：`release/营销中心-素材库-<版本>-安装包.exe`
+产物：`release/VellumDesk-<版本>-Setup.exe`
 
 > 在 AI 会话里出包时输出目录要改成项目外的全新空目录（见下），成品形如
 > `D:\_accept_ws\rel_out\v1.3.0\营销中心-素材库-1.3.0-安装包.exe`（约 180 MB）。
@@ -156,9 +154,11 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 
 ## 素材工作区
 
-默认 `D:\素材工作区`（与代码目录分开，整个文件夹拷走即带走全部素材）。
-首次启动若该位置不可用（没 D 盘 / 无写权限），自动落到「文档\素材工作区」；
+默认 `D:\vellum_workspace`（2026-10-05 改名，原 `D:\素材工作区`；与代码目录分开，整个文件夹拷走即带走全部素材）。
+首次启动若该位置不可用（没 D 盘 / 无写权限），自动落到「文档\vellum_workspace」；
 已配置的位置连不上时，**软件绝不偷偷换位置**，只在界面顶部提示并给出「重试 / 更改位置」。
+> 老用户升级提示：工作区位置存在配置文件里，改名后**老位置照常可用**；只有 userData 目录
+> 从 `proj_media` 变为 `vellumdesk_project`，升级后首次打开需重选一次工作区位置（数据不丢）。
 
 **多工作区（第 5 批）**：左栏可添加多个工作区并随时切换，解决"盘满了换盘新开一个库"。
 - 换盘搬家：同一个盘内用「搬移位置」瞬间完成；跨盘请用资源管理器复制整个文件夹后「＋ 添加工作区」指过去，软件会自动改写库里的路径（改前自动备份到 `_system/backup/`）
@@ -228,7 +228,7 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 | `out/test/*.cjs` 是 esbuild 产物 | 改 `src/main` 后必须重打；用运行时特征串验证新旧（注意 esbuild 默认把中文转义成 `\uXXXX`，grep 中文会假阴性） |
 | AI 沙箱批量删除护栏拦 `npm run build`（按会话轮次累计） | 拆开跑：`npm run build` 成功后单独 `npx electron-builder --win` |
 | `node_modules` 里出现 `.DELETE.` 后缀文件 | npm 延迟删除残留，恢复文件名即可，不必重装依赖 |
-| 沙箱跑 Electron 会被拦（`ELECTRON_RUN_AS_NODE` + 无 GPU） | 用 `_shotapp/` 验证壳；截图壳工作区绝不与 `D:\素材工作区` 共用 |
+| 沙箱跑 Electron 会被拦（`ELECTRON_RUN_AS_NODE` + 无 GPU） | 用 `_shotapp/` 验证壳；截图壳工作区绝不与 `D:\vellum_workspace` 共用 |
 | 批量删除护栏让测试**大面积假失败**（工作区被判"连不上"→左栏空→断言连锁报红，像代码回归） | 跑 accept / 场景前 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`；护栏按轮次累计，一轮跑完 accept+10 场景必超 |
 | `core.autocrlf=true`：`git checkout` 落盘 CRLF、编辑工具落盘 LF | 构建产物 CSS 不做空白压缩，**CRLF 版比 LF 版大 2.5KB**，会被误读成"样式被改"。判断"样式有没有变"要去掉 `\r` 再比字节；换行符不是「用户看到的字」 |
 | `bin/mcporter` 是 sh 包装（内部用 `dirname`/`sed`/`uname`） | Windows 下 Node `spawn` 它必失败（EBUSY/非可执行）。起 `node <...>/node_modules/mcporter/dist/cli.js`，且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 在沙箱里一律 EBUSY；argv 数组可避开 shell 引号转义与 32KB 命令行上限） |
