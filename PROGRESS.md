@@ -898,3 +898,4 @@
   存活 6 秒无崩溃；包内 `wecom-cli.exe --version` = `wecom-cli 1.3.4 (wecom 2026-09-23T11:47:44Z f9b2815)`；
   `ffmpeg.exe -version` 正常（N-126782-gdc52424419-20260923）。冒烟脚本已**参数化**
   （`python D:\_accept_ws\rel_out\bare_start_smoke.py 1.8.1`），下次出包直接复用。
+- **提交**：`b273d34`（10 文件，+145/−37），已推 `feature/wecom-bundle`。
