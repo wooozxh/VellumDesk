@@ -846,6 +846,19 @@ app.whenReady().then(async () => {
   say('scenario              : ' + SCEN)
   say('configured workspace  : ' + s.workspaceRoot)
 
+  // 第 22 批：默认视图改为「工单队列」（顶栏第一格）。除 tickets 场景外，其余场景都围绕
+  // 左栏 / 包视图做断言 —— 启动后统一切回「任务视图」，否则左栏（.side）整个不渲染，
+  // 后面成片读 .side 的断言会连锁报红（看着像代码回归，其实只是默认视图换了）。
+  // 启动瞬间的高亮另存快照，供 lifecycle / tickets 两个场景钉住「默认落在哪一格」。
+  // 注意：这串文本可能带「未指派 N」角标（如「工单队列1」），所以断言一律用 startsWith 前缀匹配。
+  const tabOnLoad = await js(
+    `(() => { const el = document.querySelector('.tabs button.on'); return el ? el.innerText.trim() : '' })()`
+  )
+  if (SCEN !== 'tickets') {
+    await clickByText('.tabs button', COPY.top.viewPacks)
+    await wait(900)
+  }
+
   const bannerText = await js(
     `(() => { const el = document.querySelector('.wsbanner:not(.info)'); return el ? el.innerText : '' })()`
   )
@@ -1072,12 +1085,10 @@ app.whenReady().then(async () => {
     // 解绑用的是 window.confirm —— 真窗口里会弹出阻塞式对话框，验证壳里直接放行
     await js(`window.confirm = () => true; 'patched'`)
 
-    // 启动就该落在包视图（主视图）。以前第 4 批把 wsLive 塞进了标签筛选 effect 的依赖数组，
-    // 工作区一连上就被顺带切到文件视图 —— 第 7 批界面验证时抓出来已修，这里顺手当回归钉子。
-    const activeTab0 = await js(
-      `(() => { const el = document.querySelector('.tabs button.on'); return el ? el.innerText.trim() : '' })()`
-    )
-    ok(activeTab0 === COPY.top.viewPacks, `启动默认落在${COPY.top.viewPacks}（当前高亮：${activeTab0}）`)
+    // 启动默认视图 = 工单队列（第 22 批按用户要求定；此前是任务视图）。用启动瞬间的快照断言 ——
+    // 场景壳在分发前已切回任务视图（其余断言要左栏），顺带守住第 7 批那个老坑：
+    // 曾把 wsLive 塞进标签筛选 effect 的依赖数组，工作区一连上就被顺带切到文件视图。
+    ok(String(tabOnLoad).startsWith(COPY.ticket.viewTab), `启动默认落在${COPY.ticket.viewTab}（启动时高亮：${tabOnLoad}）`)
 
     // ---- (1) 初始状态：有「待归类」，没有「已解绑」 ----
     const entryBefore = await js(
@@ -2419,6 +2430,8 @@ app.whenReady().then(async () => {
       !!tabBar && tabBar.order[1] && tabBar.order[1].startsWith(plain(COPY.top.viewPacks)),
       `第二格是${plain(COPY.top.viewPacks)}（顺序按使用逻辑而非功能新旧）`
     )
+    // 第 22 批：工单队列升为启动默认视图（此前默认落在任务视图）—— 用启动快照钉住
+    ok(String(tabOnLoad).startsWith(COPY.ticket.viewTab), `启动默认落在${plain(COPY.ticket.viewTab)}（启动时高亮：${tabOnLoad}）`)
 
     // (2) 筛选标签齐全 + 同步按钮在
     const chips = await js(`[...document.querySelectorAll('.tk-toolbar .chip')].map(b => b.innerText.trim())`)

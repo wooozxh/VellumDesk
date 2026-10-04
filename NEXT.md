@@ -6,7 +6,7 @@
 
 ---
 
-## ⚠️ 先看：现在有六个分支（2026-10-04 核对，第 21 批出包后）
+## ⚠️ 先看：现在有六个分支（2026-10-04 核对，第 22 批出包后）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
@@ -16,7 +16,7 @@
 | **`feature/multi-designer`** | 从 `TM` 的 `6dba4a1` 分出（已提交 `96d7dc3`、`7ca65ac`） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知只发新增的人；**点选/移除攒草稿、点「提交指派」才同步**；方案 `docs/20`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept 721 OK（新增多设计师断言全绿）+ tickets/export 场景全绿（含提交按钮断言）；**待真表人工验收 + 出包 1.5.0**（第 19 批已从此分出新分支 `feature/export-report`） |
 | **`feature/export-report`** | 从 `feature/multi-designer` 的 `7ca65ac` 分出（已提交 `9eb1564`、`1bd1f2b`、`51158f2`、`4026a32`、`9c34377`） | **第 19 批：导出报表**（工单本地扩展字段印刷/绩效/备注 + 「完成任务」生成缩略图写回工单队列 + 按完成时间起止导出智能表格报表带图；方案 `docs/22`）+ UI 打磨 + wecom-cli 白名单热修 + 交付打包热修 + docs/23 存档 | 代码完工、自动验收全过；**待 mcporter 机器 publish 文案（8 条）+ 出包 1.6.0 + 真表人工验收**（第 20 批已从此分出新分支 `feature/purge-disabled-sheet`） |
 | **`feature/purge-disabled-sheet`** | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（迁移 16 `tickets.sheet_title` + `purgeDisabledSheetTickets` 引擎 + 设置弹窗「危险操作」区；方案 `docs/24`） | 已交出（第 21 批在同一线上继续）；自动验收全过（accept 772 OK + tickets 场景全绿） |
-| **`feature/wecom-bundle`**（当前） | 从 `feature/purge-disabled-sheet` 分出 | **第 21 批：企微连接（wecom-cli 内置 + 扫码授权引导）+ 界面微调**（顶栏改序改名「工单队列」/ 下拉深色 / `WecomAuthModal` 授权引导；方案 `docs/26`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **791 OK**（+19 新增断言全绿）+ tickets/version 场景全绿；**已出包 1.8.0**（`D:\_accept_ws\rel_out\v1.8.0`，包内含 `resources/wecom-cli/wecom-cli.exe`）；**待装机验收** |
+| **`feature/wecom-bundle`**（当前） | 从 `feature/purge-disabled-sheet` 分出 | **第 21~22 批：企微连接（wecom-cli 内置 + 扫码授权引导）+ 界面微调 + 默认视图改「工单队列」**（顶栏改序改名「工单队列」/ 下拉深色 / `WecomAuthModal` 授权引导；方案 `docs/26`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **800 OK** + 11 个界面场景全绿；**已出包 1.8.1**（`D:\_accept_ws\rel_out\v1.8.1`，包内含 `resources/wecom-cli/wecom-cli.exe`）；**待装机验收** |
 
 要点：
 
@@ -31,8 +31,9 @@
 - **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 是热修包；1.3.2 = 第 13~16 批；
   **1.4.0 = 第 17 批设计师指派**（`D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`，已发同事）；
   **1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里，从未出包**（第 18 / 19 / 20 批）——
-  **1.8.0 = 第 18~21 批的全部功能（一次性打出来）**，`package.json` 已改成 1.8.0，
-  最新包 `D:\_accept_ws\rel_out\v1.8.0\营销中心-素材库-1.8.0-安装包.exe`（包内含 wecom-cli）。
+  **1.8.0 = 第 18~21 批的全部功能（一次性打出来）**；
+  **1.8.1 = 1.8.0 + 第 22 批（默认视图改「工单队列」+ 工单加载容错）**，`package.json` 已改成 1.8.1，
+  最新包 `D:\_accept_ws\rel_out\v1.8.1\营销中心-素材库-1.8.1-安装包.exe`（包内含 wecom-cli）。
 
 ---
 
@@ -68,7 +69,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 791 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node out/test/accept.cjs（当前 800 项，只许增不许减）；界面改动再跑
   NODE_OPTIONS= node _shotapp/run-verify4.cjs banner|version|wslist|threelevel|lifecycle|missing|tagcount|category|versions|tickets|export
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
 - **跑测试/场景前必须清空 `NODE_OPTIONS=`**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，导致第 4/5 批假失败）；
@@ -181,7 +182,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
 - **1.3.0 / 1.4.0 装机反馈收尾**：同事装完报的问题（无签名会撞 SmartScreen 蓝条 → 「更多信息 → 仍要运行」；本轮拍板**不做代码签名**，证书路线存 `docs/17` §B）
 - **工单二期余项**：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**；方案 `docs/16` 存档，**写回管路 + 通知链路已在第 17 批落地、CLI 内置已在第 21 批落地**，二期只剩「状态写回 + 定时同步」两件事）
-- **默认视图要不要改成「工单队列」**（第 21 批只改了排序，没改默认打开哪一格 —— 用户没说，改了会牵动全部界面场景断言）
+- ~~**默认视图要不要改成「工单队列」**~~ —— **第 22 批已完成**（用户拍板；顺带修掉默认视图带来的「工作区不可用时启动抛未捕获异常」回归）
 - **M6-06 版本对比**（图片并排 + 视频双窗同步播放，纯前端）；**M8-02 重复文件检测**（与 M6-08 合并立项）；**报表导出**（工单/任务/物料维度导 Excel）
 - **图标替换**：软件 / 安装包 / 任务栏图标（`build/icon.ico` 疑似脚手架默认图标，待核实）—— 用户点名 UI 时只提了 5 条，这条没进去
 - **审核平台**（大模块，方案 `docs/21-审核平台方案.md` 已存档、**暂缓施工**）：设计师「提交审核」→ 审核人看缩略图 → WorkBuddy 手动 AI 审稿出 HTML 报告 + 手敲评语 → 意见回传。文件传输倾向**企微微盘 + 企微表**（零成本复用 wecom-cli），**卡点 = 公司微盘使用规范待用户和同事对齐**；对齐后先做微盘闭环实测（上传/下载/体积上限/共享文件夹权限）再出施工方案。推 GitHub 等用户说确定再推。**另有演化方向**（`docs/23-连接WorkBuddy审稿方案.md`，2026-10-04 已存档、待细化）：不集中到用户手动审，改做「软件 ↔ WorkBuddy 连接器」自动送物料进 WorkBuddy 用 Skill 审稿；三个分叉待定——传输通道（本地目录 / 企微微盘 / 云服务）、触发方式（全自动 automation / 半自动）、连接器形态（自研 Skill+automation 倾向 / MCP server / 纯文件约定），倾向先走「本地目录 + 自研审稿 Skill + automation」最轻闭环验证
@@ -193,7 +194,7 @@ M6 还剩的其他小项：
 
 其他候选：M8-04 一键备份完整版；M5 素材交付打包。
 
-**状态（2026-10-04 第 21 批收尾）**：最新安装包 = **1.8.0** → `D:\_accept_ws\rel_out\v1.8.0\营销中心-素材库-1.8.0-安装包.exe`（191,559,344 字节；包内 ffmpeg + wecom-cli 已逐个校验，bare-start 冒烟通过）。上一个包 **1.4.0** 在本机桌面：`C:\Users\17736\Desktop\营销中心-素材库-1.4.0-安装包.exe`（⚠️ 勘误：本表旧文写的「1.1.0 / 1.3.2 / 1.0.0 都在 `rel_out\v*\` 下」在本机**已不存在** —— `D:\_accept_ws\rel_out` 直到第 21 批才建，现在里面只有 v1.8.0）。**代码状态**：`feature/wecom-bundle`（第 21 批，`5883190`）为当前分支；第 18~21 批四个分支（`feature/multi-designer` `7ca65ac` / `feature/export-report` `9c34377` / `feature/purge-disabled-sheet` `664043c` / `feature/wecom-bundle` `5883190`）**已全部推到 GitHub**。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**；镜像只需设第二个（见下「环境坑速查」）。
+**状态（2026-10-04 第 22 批收尾）**：最新安装包 = **1.8.1** → `D:\_accept_ws\rel_out\v1.8.1\营销中心-素材库-1.8.1-安装包.exe`（1.8.1 = 1.8.0 + 第 22 批「默认视图改工单队列 + 工单加载容错」；包内 ffmpeg + wecom-cli 已逐个校验）。上一个包 **1.8.0** 在 `rel_out\v1.8.0`；再上一个是 **1.4.0**，在本机桌面 `C:\Users\17736\Desktop`。**代码状态**：当前在 `feature/wecom-bundle`（第 21~22 批）；四个功能分支（`feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）**已全部推到 GitHub**。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**；镜像只需设第二个（见下「环境坑速查」）。
 
 ---
 
@@ -232,7 +233,7 @@ M6 还剩的其他小项：
 | ⛔ **换源码树只许 `copytree`，不许 `move`** | 第 12 批真实事故：`rmtree(src)` + `move(tmp→src)` 次序失误，把**未提交的改造后 `src` 整份吃掉**，恢复花 40 分钟。动 `src` 前先落受保护快照到项目外 |
 | **构建产物 CSS 的换行符会变尺寸** | `core.autocrlf=true` → `git checkout` 落 CRLF、编辑工具落 LF；CSS 产物不压空白，CRLF 版比 LF 版大 2.5KB，会被误读成"样式被改"。判断样式有没有变：去掉 `\r` 再比字节 |
 | **`bin/mcporter` 是 sh 包装，Node 里 spawn 不了** | 起 `node <...>/node_modules/mcporter/dist/cli.js`；且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 沙箱里全 EBUSY）。`--args '<json>'` 走命令行有 ~32KB 上限，大文本要分块（本次 484 行分 12 次） |
-| **改文案后的连锁影响** | accept 与场景里有一批断言**直接检查某句话出现过**。改文案会让它们集体报红 —— 这不是改坏了，是断言没跟上。处理：逐条更新断言字面值（**保持断言强度，绝不改成"永远通过"**）+ 输出变更清单给用户过目；断言**数量只增不减**（当前 791） |
+| **改文案后的连锁影响** | accept 与场景里有一批断言**直接检查某句话出现过**。改文案会让它们集体报红 —— 这不是改坏了，是断言没跟上。处理：逐条更新断言字面值（**保持断言强度，绝不改成"永远通过"**）+ 输出变更清单给用户过目；断言**数量只增不减**（当前 800） |
 | ⛔ **`github.com:443` 会被间歇拦截（2026-10-04 第 21 批实测）** | `git push` 连报 `Failed to connect to github.com:443`，但同一时刻 `api.github.com` / `codeload.github.com` / `ssh.github.com:443` **全通**（典型 SNI 拦截）；`curl --resolve github.com:443:<任一已知 IP>` 也全部 200。**别据此判定"推不上去"** —— 换时间窗口重试即成（本批第 5 次重试一次性推上 4 个分支）。SSH 通道 22/443 始终通，但本机没有 SSH 密钥（`~/.ssh` 不存在），走不了 SSH 兜底 |
 | **本机 electron-builder 二进制要现下，但只需设一个镜像** | `%LOCALAPPDATA%\electron-builder` 目录不存在（NSIS / winCodeSign 从没缓存过），而 `%LOCALAPPDATA%\electron\Cache` 里**已有** `electron-v39.8.10-win32-x64.zip`。2026-10-04 实测：**只设** `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/` 就能出包成功（4 分 34 秒，自动下 nsis-3.0.4.1 / 7zip / nsis-resources） |
 | ⛔ **`resources/ffmpeg` 的两个 exe 会丢（gitignore 不入库），出包前必查** | 2026-10-04 实测：目录里只剩 README，而**包内必须有** `ffmpeg.exe` + `ffprobe.exe`，否则视频缩略图/信息全部降级（`locateFfmpegDir` 返回空 → 只打 warning，不报错，极易漏掉）。最稳的恢复方式＝**从历史安装包原地取回**（字节级一致、许可不变）：① 用 Bandizip 控制台（`/d/software/Bandizip/bz.exe`）从旧安装包取出内层 payload：`bz.exe x -y -o:<项目目录> <旧安装包> $PLUGINSDIR\app-64.7z`；② 再对取出的 `app-64.7z` **给完整相对路径**解出三个文件：`bz.exe x -y -o:<项目目录> app-64.7z "resources\ffmpeg\ffmpeg.exe" "resources\ffmpeg\ffprobe.exe" "resources\ffmpeg\LICENSE.txt"`（过滤参数只给目录名会**静默不出东西**）。本次第一版包就漏了 ffmpeg，重出一版才补上 |

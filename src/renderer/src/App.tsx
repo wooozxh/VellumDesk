@@ -63,7 +63,9 @@ export default function App(): React.JSX.Element {
   const [wsReady, setWsReady] = useState(false)
   /** 第 6 批：刚升级过目录结构时的提示（看过即清） */
   const [layoutNotice, setLayoutNotice] = useState<{ at: string; packs: number } | null>(null)
-  const [view, setView] = useState<ViewMode>('packs')
+  // 第 22 批：默认视图改为「工单队列」（原来落在任务视图）。工单视图只读本地库、
+  // 不自动连企微同步（要手动点同步），所以开机不会被网络拖慢；连不上只给空态 + 顶部横幅。
+  const [view, setView] = useState<ViewMode>('tickets')
   const [keyword, setKeyword] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
   const [sideWidth, setSideWidth] = useState<number>(() => {

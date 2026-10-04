@@ -20,7 +20,7 @@
 | `feature/multi-designer` | 第 18 批：**多设计师指派**（方案 `docs/20`） | 已交出（第 19 批在同一线上继续） |
 | `feature/export-report` | 第 19 批：**导出报表**（方案 `docs/22`） | 已交出 |
 | `feature/purge-disabled-sheet` | 第 20 批：**清理已禁用子表工单**（方案 `docs/24`） | 已交出 |
-| **`feature/wecom-bundle`**（当前） | 第 21 批：**企微连接**（wecom-cli 内置 + 扫码授权引导，方案 `docs/26`）+ 界面微调（顶栏改序改名、下拉深色） | **已出包 1.8.0**（`D:\_accept_ws\rel_out\v1.8.0`，包内含 `resources/wecom-cli/`）；accept **791 项** + tickets/version 场景全绿 |
+| **`feature/wecom-bundle`**（当前） | 第 21~22 批：**企微连接**（wecom-cli 内置 + 扫码授权引导，方案 `docs/26`）+ 界面微调（顶栏改序改名、下拉深色、**启动默认落工单队列**） | **已出包 1.8.1**（`D:\_accept_ws\rel_out\v1.8.1`，包内含 `resources/wecom-cli/`）；accept **800 项** + 11 个界面场景全绿 |
 
 - **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
 - 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
@@ -85,7 +85,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 791 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 800 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -96,7 +96,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs tagcount          # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
-NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（顶栏第三格 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（**顶栏第一格 + 启动默认**，第 22 批起 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5 交付打包（包详情 → 打包交付 → 生成 zip，第 16 批）
 ```
 

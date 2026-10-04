@@ -70,11 +70,21 @@ export function TicketsView({
   )
 
   const loadStatus = useCallback(async (): Promise<TicketStatus | null> => {
-    const st = await window.api.ticketStatus()
-    setStatus(st)
-    // 第 17 批：徽标跟着 status 一起刷新（口径 = 未指派筛选，主进程算）
-    if (st && onUnassignedCount) onUnassignedCount(st.unassignedCount)
-    return st
+    try {
+      const st = await window.api.ticketStatus()
+      setStatus(st)
+      // 第 17 批：徽标跟着 status 一起刷新（口径 = 未指派筛选，主进程算）
+      if (st && onUnassignedCount) onUnassignedCount(st.unassignedCount)
+      return st
+    } catch {
+      // 第 22 批：工单队列成了**启动默认视图** —— 工作区不可用（如移动硬盘没插）时，
+      // 主进程在 ticket:status 里 mkdir 会失败并 reject。这里必须吞掉：否则每次开机都会
+      // 在控制台留一条未捕获异常（banner 场景的「控制台零报错」正是盯这个）。
+      // 状态置空 → 界面走空态；顶部红色横幅已经说明了原因，不重复打扰。
+      setStatus(null)
+      if (onUnassignedCount) onUnassignedCount(0)
+      return null
+    }
   }, [onUnassignedCount])
 
   const loadList = useCallback(async (view: TkFilter): Promise<void> => {
@@ -89,8 +99,12 @@ export function TicketsView({
 
   useEffect(() => {
     void (async () => {
-      const st = await loadStatus()
-      if (st?.configured) await loadList('mine')
+      try {
+        const st = await loadStatus()
+        if (st?.configured) await loadList('mine')
+      } catch {
+        // 第 22 批：列表读取同理（工作区不可用时静默，横幅已在顶部说明）
+      }
     })()
   }, [loadStatus, loadList])
 

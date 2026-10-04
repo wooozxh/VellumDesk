@@ -844,7 +844,7 @@
 - **行尾坑**：项目源码/文档是 CRLF，用编辑工具或 heredoc 落的 LF 会让后续旧串匹配失败（第 21 批连踩两次）；且经工具层传 `\` 会被折成 `\`，Python 里写 Windows 路径务必用 `chr(92)` 拼（已因此吃掉过 ``/``/``）。
 - **文档**：《软件操作手册》`docs/25` 随改（顶栏改名改序、新增 3.7⓪「连接企业微信」整节 + 新截图 `images/15-wecom-connect.png`、4.3 前置条件与三类失败、FAQ Q5/Q5b、速查表加一行）；工单相关 4 张截图用新场景重跑产物刷新；新写 `docs/26-企微连接与界面微调方案.md`。
 - **改了哪些文件**：`src/main/wecomCli.ts`（新）、`src/main/ticketsWecom.ts`、`src/main/index.ts`、`src/main/ipc.ts`、`src/shared/types.ts`、`src/shared/copy.ts`、`src/preload/index.ts`、`src/renderer/src/types.ts`、`src/renderer/src/App.tsx`、`src/renderer/src/assets/main.css`、`src/renderer/src/components/WecomAuthModal.tsx`（新）、`TicketSettingsModal.tsx`、`TicketsView.tsx`、`accept.ts`、`_shotapp/v4/main.cjs`、`package.json`（version + extraResources + files）、`.gitignore`、`resources/wecom-cli/`（新）、`docs/25`、`docs/26`（新）、`docs/images/`
-- **待办**：① **装机验收**（同事机器：装完只差扫码 → 首次启动弹引导 → 扫码 → 工单同步可用）；② 文案 publish（累计约 60 条）；③ 真机点一次「清理这些工单」（第 20 批遗留）；④ 默认视图要不要改成「工单队列」（本批只改排序，未改默认，待拍板）。
+- **待办**：① **装机验收**（同事机器：装完只差扫码 → 首次启动弹引导 → 扫码 → 工单同步可用）；② 文案 publish（累计约 60 条）；③ 真机点一次「清理这些工单」（第 20 批遗留）；④ ~~默认视图要不要改成「工单队列」~~ —— **第 22 批已完成**（用户拍板，见文末第 31 次会话记录）。
 
 
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
@@ -857,3 +857,44 @@
 - **下一步**：
 
 ================================================================= -->
+
+### 2026-10-04（第 31 次会话）—— 第 22 批：默认视图改「工单队列」+ 两处启动回归修复 + 出包 1.8.1
+
+- **用户三件事**：① 清理验收工作区垃圾；② 默认视图改成「工单队列」；③ 问 mcporter 能不能在本机装了推文案。
+- **默认视图**：`App.tsx` 初始 view `'packs'` → `'tickets'`。工单是日常第一件事（先看单、再回任务、最后查文件）；
+  第 21 批只改排序时特意留了这一手（用户当时没说默认打开哪一格），本批用户拍板补上。
+- **⚠️ 抓到两个真实回归（都已修）**：
+  1. **工作区不可用时启动抛未捕获异常** —— 默认视图一改，`TicketsView` 每次开机都会调 `ticket:status`；
+     工作区不可用（移动硬盘没插）时主进程 mkdir 失败 → reject → 渲染层 unhandled（`banner` 场景的
+     「控制台零报错」当场抓到 2 条）。修：`loadStatus` 与初始化 effect 各加 try/catch，失败置 `status = null` 走空态。
+  2. **默认视图断言被徽标污染** —— 有未指派单时顶栏按钮的 `innerText` 是「工单队列1」（角标数字粘在后面），
+     严格相等挂掉（`tickets` 场景抓到）。修：改 `startsWith` 前缀匹配（与第 21 批既有写法一致）。
+  - **教训**：把某个视图设成默认 = 把它的启动路径变成主路径 —— 以前「用户不点就不会跑」的代码，
+    从此每次开机都跑；健壮性标准要按主路径要求。
+- **场景壳适配**：改默认视图会牵动**所有**界面场景（它们的断言都建立在「启动在左栏 / 包视图」之上）。
+  处置：分发前记下启动瞬间的高亮快照 `tabOnLoad`，除 `tickets` 场景外统一切回任务视图；
+  `lifecycle` 与 `tickets` 两个场景用快照钉住「默认落在哪一格」，断言强度不降。
+- **清理**：`D:\_accept_ws` 下 **843.8 MB** 测试临时产物（`_obsolete` 751 MB + 12 个 `legacy_*` + `run_*` +
+  `wstest*` + `shot4_*` / `shot_ws*` 截图目录），只留 `rel_out` 成品与两个启动词 md；已实测场景壳会自建所需工作区，删后不影响跑场景。
+- **mcporter 咨询 —— 结论：不用装**：mcporter 是开源的 MCP 客户端 CLI（把任意 MCP server 的工具带到命令行 / 脚本）；
+  项目 `tools/copy-sheet/*.cjs` 用它调腾讯文档表格服务（server 名 `sheet-mcp`，就是 `docs.qq.com/api/v6/sheet/mcp`）。
+  **本机无需装**：WorkBuddy 已内置腾讯文档官方插件，走同一 endpoint、同一批工具，且免配置。
+  **真正的卡点是鉴权** —— 本机「腾讯文档」连接器处于**禁用**状态（`tencentdocs.py tdoc_init` →
+  `provider personal=connector_disabled enterprise=connector_disabled`），装 mcporter 也绕不过同一套票据；
+  且 mcporter 要求 Node 24+（本机 22.22.2）。→ **在 WorkBuddy 里连上「腾讯文档」后即可推**。
+- **文档**：docs/25 手册（app_version → 1.8.1 / 3.2 顶栏表 / 1.3 加「第一次打开看到的是工单队列」提示 /
+  2.5 典型一天 ① 改写 / 3.1 主界面图注 / 3.7 正文）；docs/26（§1 默认视图段 / §6 验收行 / §8 刻意不做）；
+  DECISIONS 新增第 22 批一条；NEXT（分支表 / 版本号段 / 状态段 / 候选划掉 / 断言数）；README（分支表 / 场景说明 / 断言数）。
+- **验收**：typecheck 0 错；重打三个 `out/test` bundle + `electron-vite build`；accept **800 OK + 1 FAIL**
+  （FAIL 仍是硬编码 `C:\Users\30873\Desktop\访学证.psd` 的环境问题）；
+  **11 个界面场景全绿**（`banner` 与 `tickets` 都在修复后单独复跑验证过：113 OK + 0 FAIL）。- **出包 1.8.1（实测）**：`package.json` 1.8.0 → **1.8.1**；`npm run build`（typecheck 0 错）→
+  `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ npx --no-install electron-builder --win
+  --config.directories.output=D:/_accept_ws/rel_out/v1.8.1`（**6 分 12 秒**；镜像只需设这一个）。
+  产物 `D:\_accept_ws\rel_out\v1.8.1\营销中心-素材库-1.8.1-安装包.exe` = **191,570,206 字节（182.7 MB）**，
+  SHA-256 `14595bcdecc01c14c5d9f398767463421573f743bbd981811794977c7a2a91a1`；包内逐个对过字节数：
+  `resources/ffmpeg/ffmpeg.exe` 133,708,800 ✓ / `ffprobe.exe` 133,496,832 ✓ / `resources/wecom-cli/wecom-cli.exe` 10,091,560 ✓；
+  包内 app 版本 = `1.8.1`。
+- **bare-start 冒烟通过**（直跑 `win-unpacked\MediaButler.exe`，不带验证壳）：窗口 **0.0s** 出现、标题「营销中心-素材库」、
+  存活 6 秒无崩溃；包内 `wecom-cli.exe --version` = `wecom-cli 1.3.4 (wecom 2026-09-23T11:47:44Z f9b2815)`；
+  `ffmpeg.exe -version` 正常（N-126782-gdc52424419-20260923）。冒烟脚本已**参数化**
+  （`python D:\_accept_ws\rel_out\bare_start_smoke.py 1.8.1`），下次出包直接复用。
