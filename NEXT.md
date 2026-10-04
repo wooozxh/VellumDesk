@@ -6,7 +6,7 @@
 
 ---
 
-## ⚠️ 先看：现在有四个分支（2026-10-04 核对）
+## ⚠️ 先看：现在有六个分支（2026-10-04 核对，第 21 批出包后）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
@@ -15,22 +15,24 @@
 | **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批工单模块 + 第 14 批上线前优化 + 第 15 批热修 + 第 16 批 M5 交付打包 + 第 17 批设计师指派 | ✅ 第 13~16 批关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
 | **`feature/multi-designer`** | 从 `TM` 的 `6dba4a1` 分出（已提交 `96d7dc3`、`7ca65ac`） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知只发新增的人；**点选/移除攒草稿、点「提交指派」才同步**；方案 `docs/20`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept 721 OK（新增多设计师断言全绿）+ tickets/export 场景全绿（含提交按钮断言）；**待真表人工验收 + 出包 1.5.0**（第 19 批已从此分出新分支 `feature/export-report`） |
 | **`feature/export-report`** | 从 `feature/multi-designer` 的 `7ca65ac` 分出（已提交 `9eb1564`、`1bd1f2b`、`51158f2`、`4026a32`、`9c34377`） | **第 19 批：导出报表**（工单本地扩展字段印刷/绩效/备注 + 「完成任务」生成缩略图写回工单队列 + 按完成时间起止导出智能表格报表带图；方案 `docs/22`）+ UI 打磨 + wecom-cli 白名单热修 + 交付打包热修 + docs/23 存档 | 代码完工、自动验收全过；**待 mcporter 机器 publish 文案（8 条）+ 出包 1.6.0 + 真表人工验收**（第 20 批已从此分出新分支 `feature/purge-disabled-sheet`） |
-| **`feature/purge-disabled-sheet`**（当前） | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（迁移 16 `tickets.sheet_title` + `purgeDisabledSheetTickets` 引擎 + 设置弹窗「危险操作」区；方案 `docs/24`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **772 OK**（新增 22 项断言全绿）+ tickets 场景全绿；**待真机点一次清理 + 出包 1.7.0** |
+| **`feature/purge-disabled-sheet`** | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（迁移 16 `tickets.sheet_title` + `purgeDisabledSheetTickets` 引擎 + 设置弹窗「危险操作」区；方案 `docs/24`） | 已交出（第 21 批在同一线上继续）；自动验收全过（accept 772 OK + tickets 场景全绿） |
+| **`feature/wecom-bundle`**（当前） | 从 `feature/purge-disabled-sheet` 分出 | **第 21 批：企微连接（wecom-cli 内置 + 扫码授权引导）+ 界面微调**（顶栏改序改名「工单队列」/ 下拉深色 / `WecomAuthModal` 授权引导；方案 `docs/26`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **791 OK**（+19 新增断言全绿）+ tickets/version 场景全绿；**已出包 1.8.0**（`D:\_accept_ws\rel_out\v1.8.0`，包内含 `resources/wecom-cli/wecom-cli.exe`）；**待装机验收** |
 
 要点：
 
-- **`TM` 是从 `feature/incr` 分出来的**（`64ffc9e`），带着文案字典与改名 —— 新模块直接在**新文案 + 新软件名**上开发；**`feature/multi-designer` 从 `TM` 的 `6dba4a1` 分出**（第 18 批多设计师指派）；**`feature/export-report` 从 `feature/multi-designer` 的 `7ca65ac` 分出**（第 19 批导出报表）；**`feature/purge-disabled-sheet` 从 `feature/export-report` 分出**（第 20 批清理已禁用子表工单）。
+- **`TM` 是从 `feature/incr` 分出来的**（`64ffc9e`），带着文案字典与改名 —— 新模块直接在**新文案 + 新软件名**上开发；**`feature/multi-designer` 从 `TM` 的 `6dba4a1` 分出**（第 18 批多设计师指派）；**`feature/export-report` 从 `feature/multi-designer` 的 `7ca65ac` 分出**（第 19 批导出报表）；**`feature/purge-disabled-sheet` 从 `feature/export-report` 分出**（第 20 批清理已禁用子表工单）；**`feature/wecom-bundle` 从 `feature/purge-disabled-sheet` 分出**（第 21 批企微连接与界面微调）。
 - **谁也不许 merge 回 `main`**：用户说过增量功能"不一定用得上"，采纳与否等拍板。
-- 切分支：`git switch main` / `git switch feature/incr` / `git switch TM` / `git switch feature/multi-designer` / `git switch feature/export-report` / `git switch feature/purge-disabled-sheet`（**当前在 `feature/purge-disabled-sheet`**）。
+- 切分支：`git switch main` / `git switch feature/incr` / `git switch TM` / `git switch feature/multi-designer` / `git switch feature/export-report` / `git switch feature/purge-disabled-sheet` / `git switch feature/wecom-bundle`（**当前在 `feature/wecom-bundle`**）。
+- **GitHub 远程（2026-10-04 第 21 批补推）**：`origin` 上已有 `main` / `feature/incr` / `TM`，本批把 `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle` 一并推上去（此前只在本机）。
 - **稳定点备份（项目外，2026-09-30 已做）**：
   - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
   - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
   - `D:\_accept_ws\backup\素材管家-1.1.0-安装包.exe`（179.5 MB）
 - **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 是热修包；1.3.2 = 第 13~16 批；
-  **1.4.0 = 第 17 批设计师指派**（最新包 `D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`）；
-  **1.5.0 = 第 18 批多设计师指派**（代码已完工待出包）；
-  **1.6.0 = 第 19 批导出报表**（代码已完工待出包）；
-  **1.7.0 = 第 20 批清理已禁用子表工单**（本批，代码已完工待出包）。
+  **1.4.0 = 第 17 批设计师指派**（`D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`，已发同事）；
+  **1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里，从未出包**（第 18 / 19 / 20 批）——
+  **1.8.0 = 第 18~21 批的全部功能（一次性打出来）**，`package.json` 已改成 1.8.0，
+  最新包 `D:\_accept_ws\rel_out\v1.8.0\营销中心-素材库-1.8.0-安装包.exe`（包内含 wecom-cli）。
 
 ---
 
@@ -54,7 +56,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 ② NEXT.md 第四节的候选清单 + 你建议的下一批和理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
-- 工单二期余项：状态写回企微表 / 定时自动同步 / wecom-cli 打进安装包（**写回管路已在第 17 批落地，直接复用**；方案 `docs/16` 存档，捡起即开工）
+- 工单二期余项：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**，方案 `docs/16` §4 + 执行记录 `docs/26`）
 - M6-06 版本对比：图片并排 + 视频双窗同步播放
 - M8-02 重复文件检测：内容指纹找库里重复素材
 - 报表导出：工单/任务/物料维度导 Excel
@@ -66,7 +68,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 715 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node out/test/accept.cjs（当前 791 项，只许增不许减）；界面改动再跑
   NODE_OPTIONS= node _shotapp/run-verify4.cjs banner|version|wslist|threelevel|lifecycle|missing|tagcount|category|versions|tickets|export
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
 - **跑测试/场景前必须清空 `NODE_OPTIONS=`**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，导致第 4/5 批假失败）；
@@ -178,7 +180,8 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 **下一批做什么等用户点名**，候选：
 
 - **1.3.0 / 1.4.0 装机反馈收尾**：同事装完报的问题（无签名会撞 SmartScreen 蓝条 → 「更多信息 → 仍要运行」；本轮拍板**不做代码签名**，证书路线存 `docs/17` §B）
-- **工单二期余项**：状态写回企微表 / 定时自动同步 / wecom-cli 打进安装包（方案 `docs/16` 存档；**写回管路 + 通知链路已在第 17 批落地，直接复用**，二期只剩这三件事）
+- **工单二期余项**：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**；方案 `docs/16` 存档，**写回管路 + 通知链路已在第 17 批落地、CLI 内置已在第 21 批落地**，二期只剩「状态写回 + 定时同步」两件事）
+- **默认视图要不要改成「工单队列」**（第 21 批只改了排序，没改默认打开哪一格 —— 用户没说，改了会牵动全部界面场景断言）
 - **M6-06 版本对比**（图片并排 + 视频双窗同步播放，纯前端）；**M8-02 重复文件检测**（与 M6-08 合并立项）；**报表导出**（工单/任务/物料维度导 Excel）
 - **图标替换**：软件 / 安装包 / 任务栏图标（`build/icon.ico` 疑似脚手架默认图标，待核实）—— 用户点名 UI 时只提了 5 条，这条没进去
 - **审核平台**（大模块，方案 `docs/21-审核平台方案.md` 已存档、**暂缓施工**）：设计师「提交审核」→ 审核人看缩略图 → WorkBuddy 手动 AI 审稿出 HTML 报告 + 手敲评语 → 意见回传。文件传输倾向**企微微盘 + 企微表**（零成本复用 wecom-cli），**卡点 = 公司微盘使用规范待用户和同事对齐**；对齐后先做微盘闭环实测（上传/下载/体积上限/共享文件夹权限）再出施工方案。推 GitHub 等用户说确定再推。**另有演化方向**（`docs/23-连接WorkBuddy审稿方案.md`，2026-10-04 已存档、待细化）：不集中到用户手动审，改做「软件 ↔ WorkBuddy 连接器」自动送物料进 WorkBuddy 用 Skill 审稿；三个分叉待定——传输通道（本地目录 / 企微微盘 / 云服务）、触发方式（全自动 automation / 半自动）、连接器形态（自研 Skill+automation 倾向 / MCP server / 纯文件约定），倾向先走「本地目录 + 自研审稿 Skill + automation」最轻闭环验证

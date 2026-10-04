@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
+import { locateBundledExe, setBundledCliExe } from './wecomCli'
 import {
   enrichAllImageMeta,
   enrichAllVideoMeta,
@@ -120,6 +121,12 @@ app.whenReady().then(() => {
     const ffDir = locateFfmpegDir()
     setFfmpegDir(ffDir)
     if (!ffDir) console.warn('[ffmpeg] 未找到 resources/ffmpeg，视频缩略图与信息功能降级')
+
+    // 第 21 批（docs/16 §4）：wecom-cli 内置路径注入 —— 装完软件即可用工单同步与扫码授权，
+    // 同事机器不必再自己装 CLI。找不到就退回环境变量/老开发机路径（界面显示「企微未连接」）。
+    const cliExe = locateBundledExe(app.getAppPath(), process.resourcesPath, app.isPackaged)
+    setBundledCliExe(cliExe)
+    if (!cliExe) console.warn('[wecom-cli] 未找到内置 resources/wecom-cli/wecom-cli.exe')
 
     const root = getWorkspaceRoot(app.getPath('userData'))
     initWorkspace(root)

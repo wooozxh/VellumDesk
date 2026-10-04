@@ -1,6 +1,6 @@
 {
   "name": "proj_media",
-  "version": "1.4.0",
+  "version": "1.8.0",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -64,6 +64,7 @@
       "!docs/**",
       "!build/**",
       "!resources/ffmpeg/**",
+      "!resources/wecom-cli/**",
       "!_dl/**",
       "!_shotapp/**",
       "!_junk/**",
@@ -92,6 +93,10 @@
       {
         "from": "resources/ffmpeg",
         "to": "ffmpeg"
+      },
+      {
+        "from": "resources/wecom-cli",
+        "to": "wecom-cli"
       }
     ],
     "asarUnpack": [

@@ -5,9 +5,10 @@ import { Icon } from './Icon'
 import { TicketDetailModal } from './TicketDetailModal'
 import { TicketSettingsModal } from './TicketSettingsModal'
 import { ExportReportModal } from './ExportReportModal'
+import { WecomAuthModal } from './WecomAuthModal'
 
 /**
- * 第 13 批：工单视图（docs/15 §6.1）—— 顶栏第三格「工单」。
+ * 第 13 批：工单视图（docs/15 §6.1）—— 顶栏第一格「工单队列」（第 21 批由第三格改序更名）。
  *
  * 自包含：状态自己管、数据自己拉（window.api.ticket*），不依赖 App.tsx 的任何状态
  * （这是工单批次给 App.tsx 减负的第一步 —— 新视图一律这么写，不再往巨型组件里堆）。
@@ -57,6 +58,8 @@ export function TicketsView({
   const [hint, setHint] = useState<string | null>(null)
   /** 第 17 批（docs/19 §3②）：本轮同步新增的未指派数（>0 时显示提示条 + 去指派按钮） */
   const [newUnassigned, setNewUnassigned] = useState(0)
+  /** 第 21 批：同步撞上「组件缺失 / 未授权」→ 直接把连接引导摆出来（那一步就是全部原因） */
+  const [showWecom, setShowWecom] = useState(false)
 
   const toast = useCallback(
     (msg: string) => {
@@ -103,9 +106,14 @@ export function TicketsView({
       const r = await window.api.ticketSync()
       if (!r.ok) {
         // 三类失败各有明确出口（§4.4）：不白屏、不静默
-        if (r.kind === 'cli-missing') toast(COPY.ticket.cliMissing)
-        else if (r.kind === 'auth-expired') toast(COPY.ticket.authExpired)
-        else toast(fmt(COPY.ticket.syncFailed, { msg: r.error ?? '' }))
+        // 第 21 批：前两类（组件缺失 / 未授权）光提示没用，直接把连接引导打开 —— 一次扫码就能修
+        if (r.kind === 'cli-missing') {
+          toast(COPY.ticket.cliMissing)
+          setShowWecom(true)
+        } else if (r.kind === 'auth-expired') {
+          toast(COPY.ticket.authExpired)
+          setShowWecom(true)
+        } else toast(fmt(COPY.ticket.syncFailed, { msg: r.error ?? '' }))
         return
       }
       const head = fmt(COPY.ticket.syncDone, {
@@ -360,6 +368,10 @@ export function TicketsView({
       )}
       {showExport && (
         <ExportReportModal onClose={() => setShowExport(false)} onToast={toast} />
+      )}
+      {/* 第 21 批：同步失败（组件缺失 / 未授权）时自动摆出来的连接引导 */}
+      {showWecom && (
+        <WecomAuthModal onClose={() => setShowWecom(false)} onToast={toast} />
       )}
     </div>
   )

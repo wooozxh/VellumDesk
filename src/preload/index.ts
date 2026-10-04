@@ -150,6 +150,14 @@ const api = {
   ticketPurgePreview: () => ipcRenderer.invoke('ticket:purgePreview'),
   ticketPurgeDisabled: () => ipcRenderer.invoke('ticket:purgeDisabled'),
 
+  // 第 21 批：企微连接（wecom-cli 内置 + 扫码授权引导，docs/16 §4）
+  wecomCliInfo: () => ipcRenderer.invoke('wecom:cliInfo'),
+  wecomAuthStatus: () => ipcRenderer.invoke('wecom:authStatus'),
+  wecomAuthStart: () => ipcRenderer.invoke('wecom:authStart'),
+  wecomAuthCancel: () => ipcRenderer.invoke('wecom:authCancel'),
+  wecomIdentity: () => ipcRenderer.invoke('wecom:identity'),
+  wecomOnboardSeen: () => ipcRenderer.invoke('wecom:onboardSeen'),
+
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),

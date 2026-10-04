@@ -90,9 +90,21 @@ button {
   cursor: pointer;
 }
 
-input {
+input,
+select,
+textarea {
   font-family: inherit;
   font-size: inherit;
+}
+
+/**
+ * 第 21 批（用户实测：指派设计师的下拉是白底，跟深色界面割裂）：
+ * 原生 <select> 展开后的**弹出列表**由系统绘制，改 background 管不到它 ——
+ * 只有 color-scheme 能让 Chromium 把整个控件（含弹出层）按深色主题画。
+ * 只加这一处，闭合态仍各自沿用下方各自的样式。
+ */
+select {
+  color-scheme: dark;
 }
 
 /* ---------------- 应用骨架 ---------------- */
@@ -2568,6 +2580,14 @@ svg {
 }
 .tk-assign-pick select {
   max-width: 240px;
+  /* 第 21 批：原来只限了宽度，背景/文字色全空 → 落到浏览器默认的浅色控件（白底黑字）。
+     与 .claimbar select 对齐，闭合态也用深色面板色。 */
+  padding: 5px 9px;
+  background: var(--bg-mute);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  outline: none;
 }
 .tk-assign-pick .tk-dim {
   font-size: 11.5px;
@@ -2888,6 +2908,16 @@ svg {
   border-radius: 6px;
   background: var(--bg-mute);
 }
+/* 第 21 批：子表类型下拉（印刷/电子）此前完全没样式 —— 与指派下拉同一处白底问题 */
+.tk-sheetrow select {
+  padding: 4px 9px;
+  background: var(--bg-mute);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  outline: none;
+  flex-shrink: 0;
+}
 .tk-check {
   display: flex;
   align-items: center;
@@ -3143,4 +3173,139 @@ svg {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 14px;
+}
+
+/* ================================================================
+   第 21 批：企业微信连接引导（WecomAuthModal）
+   ----------------------------------------------------------------
+   形态：小弹窗（比工单详情窄），一屏装下「状态 + 说明 + 二维码 + 按钮」。
+   二维码是整件事的主角，给它白底圆角（二维码本身必须白底才能扫得动，
+   深色主题下尤其不能让面板色透进去）。
+   ================================================================ */
+.wc-modal {
+  width: 460px;
+}
+.wc-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wc-pill {
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.wc-pill.ok {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.wc-meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.wc-intro {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.75;
+}
+.wc-qr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  background: var(--bg-mute);
+}
+.wc-qr img {
+  width: 148px;
+  height: 148px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-radius: var(--r-sm);
+  padding: 6px;
+}
+.wc-scan .t {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.8;
+}
+.wc-scan .s {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+/* 授权链接兜底（可选中复制 —— 弹窗整体 user-select:none，这里要单独放开） */
+.wc-url {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-3);
+  font-family: Consolas, 'Courier New', monospace;
+  word-break: break-all;
+  user-select: text;
+}
+.wc-ok {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--ok);
+}
+/* CLI 原始输出：只在失败时露出来，等宽字体 + 可滚，别撑破弹窗 */
+.wc-log {
+  margin-top: 10px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  color: var(--text-3);
+  font-size: 11px;
+  font-family: Consolas, 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+/* 工单设置弹窗里的常驻入口（一行：标题 + 状态 + 按钮） */
+.tk-wecom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+}
+.tk-wecom .t {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* 状态徽标不许被挤掉（它是这一行最重要的信息），要挤先挤右边的来源/版本 */
+.tk-wecom .wc-pill {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: 11.5px;
+}
+.tk-wecom .s {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tk-wecom .spacer {
+  flex: 1;
 }

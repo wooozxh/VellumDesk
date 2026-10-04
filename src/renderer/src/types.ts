@@ -38,5 +38,9 @@ export type {
   PackExportResult,
   DeliveryRecord,
   TicketPurgePreview,
-  TicketPurgeResult
+  TicketPurgeResult,
+  WecomCliSource,
+  WecomAuthState,
+  WecomCliInfo,
+  WecomAuthStart
 } from '../../shared/types'

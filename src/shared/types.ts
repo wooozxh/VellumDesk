@@ -599,6 +599,35 @@ export interface TicketPurgeResult extends TicketPurgePreview {
   error?: string
 }
 
+// ---------------- 第 21 批：企微连接（wecom-cli 内置 + 扫码授权，docs/16 §4） ----------------
+
+/** CLI 从哪来（界面「企业微信连接」里显示，排查"为什么用不了"时一眼看出） */
+export type WecomCliSource = 'env-exe' | 'bundled' | 'env-js' | 'dev-js'
+
+/** 授权状态四态：查不到就说查不到（unknown），不猜 */
+export type WecomAuthState = 'authorized' | 'unauthorized' | 'unknown' | 'cli-missing'
+
+/** 一次连接状态快照 */
+export interface WecomCliInfo {
+  /** 内置组件可用（找得到可执行文件） */
+  available: boolean
+  source: WecomCliSource | null
+  /** 组件位置（悬停提示用；不主动展示路径给不关心的用户） */
+  path: string
+  version: string | null
+  auth: WecomAuthState
+}
+
+/** 发起授权的结果：拿到二维码图（data URL）就算成功，扫码是用户的事 */
+export interface WecomAuthStart {
+  ok: boolean
+  /** 二维码 PNG 的 data URL（直接喂 <img src>） */
+  qr?: string
+  /** CLI 原始输出（出错时给用户看，便于自助排查） */
+  log: string
+  error?: string
+}
+
 export interface Api {
   /** refresh=true 时重新探测工作区（用于"插上移动硬盘后重试"） */
   wsInfo: (opts?: { refresh?: boolean }) => Promise<WsInfo>
@@ -838,4 +867,18 @@ export interface Api {
   packDeliveryRecords: (packId: number) => Promise<DeliveryRecord[]>
   /** 弹系统选目录对话框，用于选择打包输出位置 */
   pickOutputDir: (defaultPath?: string) => Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }>
+
+  // ---------------- 第 21 批：企微连接（wecom-cli 内置 + 扫码授权） ----------------
+  /** 连接状态快照（组件在不在 / 从哪来 / 版本 / 授权了没 + 引导是否已弹过） */
+  wecomCliInfo: () => Promise<WecomCliInfo & { onboardSeen: boolean }>
+  /** 只读授权状态（引导页轮询用） */
+  wecomAuthStatus: () => Promise<{ auth: WecomAuthState }>
+  /** 发起扫码授权：返回二维码 data URL */
+  wecomAuthStart: () => Promise<WecomAuthStart>
+  /** 取消授权（关弹窗 / 点取消） */
+  wecomAuthCancel: () => Promise<{ ok: boolean }>
+  /** 读本机企微身份（只回名字，不回 userid） */
+  wecomIdentity: () => Promise<{ ok: boolean; name?: string; error?: string }>
+  /** 标记首次启动引导已看过（只影响自动弹窗） */
+  wecomOnboardSeen: () => Promise<{ ok: boolean }>
 }

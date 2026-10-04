@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；`TM` 已含第 13~17 批（最新 `6dba4a1` = 版本 1.4.0）；`feature/export-report` 已交出（第 19 批导出报表）；**当前在 `feature/purge-disabled-sheet` 分支**（第 20 批清理已禁用子表工单，从 `feature/export-report` 分出）
-- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收 + 出包 1.5.0）**；**第 19 批（导出报表）代码完工、自动验收全过（待真表人工验收 + 出包 1.6.0）**；**第 20 批（清理已禁用子表工单）代码完工、自动验收全过（待真机人工验收）**；MVP 整体约 99%
+- 阶段：**1.1.0 已封存**（`main` = 标签 `v1.1.0` = `f20fa3d`）；增量功能在 `feature/incr`（已提交 `64ffc9e`）；`TM` 已含第 13~17 批（最新 `6dba4a1` = 版本 1.4.0）；`feature/export-report` 已交出（第 19 批导出报表）；`feature/purge-disabled-sheet` 已交出（第 20 批清理已禁用子表工单）；**当前在 `feature/wecom-bundle` 分支**（第 21 批：wecom-cli 内置 + 扫码授权引导 + 顶栏改序改名 + 下拉深色，从 `feature/purge-disabled-sheet` 分出）
+- 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收）**；**第 19 批（导出报表）代码完工、自动验收全过（待真表人工验收）**；**第 20 批（清理已禁用子表工单）代码完工、自动验收全过（待真机人工验收）**；**第 21 批（wecom-cli 内置 + 授权引导 + 界面微调）代码完工、自动验收全过、已出包 1.8.0（待真机装机验收）**；MVP 整体约 99%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 ## 分支现状（2026-09-30 晚核对）
@@ -19,7 +19,8 @@
 | **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批：**「工单」模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（方案 `docs/19`） | 第 13~16 批已关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
 | **`feature/multi-designer`** | 从 `TM` 的 `6dba4a1` 分出 | **第 18 批：多设计师指派**（方案 `docs/20`） | 已交出（第 19 批在同一线上继续） |
 | **`feature/export-report`** | 从 `feature/multi-designer` 的 `7ca65ac` 分出（提交 `9eb1564` / `1bd1f2b` / `51158f2` / `4026a32` / `9c34377`） | **第 19 批：导出报表**（本地扩展字段 + 绩效缩略图 + 导出智能表格带图，方案 `docs/22`）+ UI 打磨 + 白名单热修 + docs/23 存档 + 交付打包热修 | 代码完工、自动验收全过；**待真表人工验收 + 出包 1.6.0** |
-| **`feature/purge-disabled-sheet`**（当前） | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（方案 `docs/24`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **772 OK**（+22 新增断言全绿）+ tickets 场景全绿；**待真机人工验收** |
+| `feature/purge-disabled-sheet` | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（方案 `docs/24`） | 已交出（第 21 批在同一线上继续） |
+| **`feature/wecom-bundle`**（当前） | 从 `feature/purge-disabled-sheet` 分出 | **第 21 批：wecom-cli 内置 + 扫码授权引导 + 界面微调**（方案 `docs/26`） | **代码完工、自动验收全过、已出包 1.8.0（2026-10-04）**：typecheck 0 错 + accept **791 OK**（+19 新增断言全绿）+ tickets/version 场景全绿；**待装机验收** |
 
 > - `TM` 从 `feature/incr` 的 `64ffc9e` 分出，带着文案字典与改名 —— 新模块直接在**新界面文案 + 新软件名**上开发。
 > - `TM` 与 `feature/incr` 的**功能代码一致**（都是 `64ffc9e`），只是 `TM` 上另有几次档案提交；之后各走各的。
@@ -818,7 +819,29 @@
 - **验收结果**：typecheck 0 错；重打三个 bundle + `npx electron-vite build` 重打渲染层；accept **772 OK + 1 FAIL**（FAIL 仍是硬编码 `C:\Users\30873\Desktop\访学证.psd` 的环境问题；新增第 38 段 **22 项断言全绿**：迁移 16 列/回填、sheet_title 写入不串、预览口径、有包跳过、留痕内容、级联清子表、空标题不删、无禁用子表不建备份）；**tickets 界面场景全绿**（新增 3 项「危险操作区 + 清理按钮 + 说明文案」断言）。
 - **顺带发现（未改数据）**：上一批造的 10 条测试单「设计师」列**云端与本地都是空**（造数据时漏了该列，非 API 限制；已用 `recordId + [{userId}]` 在 #1 上验证写入通路正常）→ 这批测试单**一条任务包都不会建**（建包门槛要求「本机 ∈ 设计师集合」）。用户决定**先不补**。
 - **改了哪些文件**：`src/main/db.ts`（迁移 16）、`src/main/tickets.ts`（sheet_title + 清理引擎）、`src/main/ipc.ts`、`src/shared/types.ts`、`src/shared/copy.ts`、`src/preload/index.ts`、`src/renderer/src/types.ts`、`src/renderer/src/components/TicketSettingsModal.tsx`、`src/renderer/src/assets/main.css`、`accept.ts`、`_shotapp/v4/main.cjs`、`docs/24`（新）
-- **待办**：① 真机点一次「清理这些工单」验证（会删掉那两个生产子表的 259 条、备份落 `_system/backup/`）；② 文案 publish（本批新增约 12 条，累计待 publish 约 20 条）；③ 出包 1.7.0。
+- **待办**：① 真机点一次「清理这些工单」验证（会删掉那两个生产子表的 259 条、备份落 `_system/backup/`）；② 文案 publish（本批新增约 12 条）；③ 出包 1.7.0（已并入第 21 批的 1.8.0）。
+
+### 2026-10-04（第 30 次会话）—— 第 21 批「企微连接（wecom-cli 内置 + 扫码授权引导）+ 界面微调」：实探 + 施工 + 自动验收全过 + 出包 1.8.0
+
+- **用户提的三件事**（一次性给全，不再分轮）：① 顶栏「工单」按使用逻辑排最前并更名「工单队列」；② 工单详情的设计师下拉是白底、与深色 UI 割裂；③ **把 wecom-cli 打包进软件 + 给一个授权引导界面**；做完 commit + push GitHub + 出包（包内含 wecom-cli）。
+- **实探结论（全部实测，不猜）**：
+  - `@wecom/cli` 的 `bin/wecom.js` **只是启动器**，真 CLI 是平台可选依赖里的 **`wecom-cli.exe`（原生 Rust 单文件、零依赖、免 Node、9.62 MB、MIT）** → 内置后**直接 spawn exe**，比一期还少一层。
+  - 授权凭据在 `%USERPROFILE%\.config\wecom\credentials.enc`（+`.encryption_key`）——**与 exe 位置无关**：升级/重装软件不用重扫，换电脑/换 Windows 账号才要重扫。
+  - **踩坑**：CLI 有自己的**文件访问白名单**（允许范围 = CLI 进程工作目录 + 系统临时目录），`auth init --output-qrcode <路径>` 写别处直接 `893006 PermissionError: 目标路径超出可访问范围` → 二维码**必须落 `os.tmpdir()`**（第 19 批 `media upload` 撞的是同一条规则）。
+  - `auth init --noninteractive --no-browser --output-qrcode <tmp png>` 实测**真的产出 3.5 KB PNG**（随后杀进程，不扫码、不碰已有凭据）。
+- **施工**：
+  - **新增 `src/main/wecomCli.ts`**：定位（纯逻辑 `resolveCliCommand`，可断言）+ 调用（异步 spawn）拆开。定位顺序 ① `WECOM_CLI_EXE` → ② **内置 exe**（打包 `<安装目录>/resources/wecom-cli/`，dev 是项目 `resources/`）→ ③ `WECOM_CLI_JS`/`WECOM_CLI_NODE`（一期老配法保留）→ ④ 开发机兜底 → 全无 = null。`index.ts` 启动时注入内置路径（与 `setFfmpegDir` 同套路）；`ticketsWecom.ts` 的定位/spawn 下沉到这里、原样转出 `runCliJson` 等（老引用点零改动）。
+  - **打包**：`resources/wecom-cli/`（exe + `LICENSE.txt` + `README.md` 写来源与重建方式；exe 不入 git）+ `extraResources` + `files` 排除（与 asar 去重）。安装包 +9.6 MB。
+  - **授权引导 `WecomAuthModal`**：状态机 = 组件缺失（讲人话，不给假重试）/ 已授权（亮本机身份）/ 未授权（开始扫码 → 每 2 秒轮询 `auth show --status`、最长 3 分钟 → 成功即读身份）。关窗/取消即 `wecom:authCancel` 杀掉等待进程并删临时二维码。二维码旁**额外给出 CLI 打印的授权链接**（可选中复制）兜底；出错才展示 CLI 原始输出。IPC：`wecom:cliInfo` / `authStatus` / `authStart` / `authCancel` / `identity` / `onboardSeen`。
+  - **三个入口**：① **首次启动自动弹一次**（仅「组件在 + 未授权 + 没弹过」，meta `wecom_onboard_seen` 记过就不弹；组件缺失/状态未知**不弹**，免得天天挡路）；② 工单设置弹窗**顶部常驻一行**（状态 + 来源 + 版本 + 「打开连接引导」）；③ 同步撞上 cli-missing / auth-expired 时**自动弹出**引导（只吐 toast 没用）。
+  - **界面微调**：`.tabs` 三格改序（工单队列 / 任务视图 / 文件视图，顺手清掉该区块三处游离空行）；`ticket.viewTab` 改「工单队列」；下拉白底的根因是 `.tk-assign-pick select` 只写了 `max-width`、`.tk-sheetrow select` 完全没样式 + **弹出列表由系统绘制、`background` 管不到** → 统一加 `select { color-scheme: dark }` + 给两个下拉补深色底。
+  - **文案**：`copy.ts` 新增 `wecom` 分组（约 40 条）+ 改写 `ticket.cliMissing`（累计待 publish 约 60 条，仍待有 mcporter 的机器）。
+- **验收**：typecheck 0 错；重打三个 `out/test` bundle + `electron-vite build`；accept **791 OK + 1 FAIL**（FAIL 仍是硬编码 `C:\Users\30873\Desktop\访学证.psd` 的环境问题；新增第 39 段 **19 项断言全绿**：定位顺序 9 项 + 版本解析 3 项 + 授权状态解析 6 项〔含 `unauthorized` 是 `authorized` 超串的顺序陷阱〕）；**tickets 场景全绿**（新增 8 项：顶栏第一格/第二格顺序、企微区块、引导弹窗能开能关、下拉 `rgb(35,35,35)` + `color-scheme: dark`）；**version 场景全绿**（启动默认仍落任务视图 —— 改序没碰默认视图，回归钉住）。
+- **出包 1.8.0**：`package.json` 的 `version` 1.4.0 → **1.8.0**（第 18/19/20 批的 1.5/1.6/1.7 只写在提交信息里、从未出包，本包一次性带上 18~21 批全部功能，避开与既有 1.4.0 包重号）；两步法 + 项目外全新空目录 → `D:\_accept_ws\rel_out\v1.8.0\营销中心-素材库-1.8.0-安装包.exe`（包内 `resources/wecom-cli/wecom-cli.exe` 已校验 + bare-start 冒烟）。
+- **文档**：《软件操作手册》`docs/25` 随改（顶栏改名改序、新增 3.7⓪「连接企业微信」整节 + 新截图 `images/15-wecom-connect.png`、4.3 前置条件与三类失败、FAQ Q5/Q5b、速查表加一行）；工单相关 4 张截图用新场景重跑产物刷新；新写 `docs/26-企微连接与界面微调方案.md`。
+- **改了哪些文件**：`src/main/wecomCli.ts`（新）、`src/main/ticketsWecom.ts`、`src/main/index.ts`、`src/main/ipc.ts`、`src/shared/types.ts`、`src/shared/copy.ts`、`src/preload/index.ts`、`src/renderer/src/types.ts`、`src/renderer/src/App.tsx`、`src/renderer/src/assets/main.css`、`src/renderer/src/components/WecomAuthModal.tsx`（新）、`TicketSettingsModal.tsx`、`TicketsView.tsx`、`accept.ts`、`_shotapp/v4/main.cjs`、`package.json`（version + extraResources + files）、`.gitignore`、`resources/wecom-cli/`（新）、`docs/25`、`docs/26`（新）、`docs/images/`
+- **待办**：① **装机验收**（同事机器：装完只差扫码 → 首次启动弹引导 → 扫码 → 工单同步可用）；② 文案 publish（累计约 60 条）；③ 真机点一次「清理这些工单」（第 20 批遗留）；④ 默认视图要不要改成「工单队列」（本批只改排序，未改默认，待拍板）。
+
 
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 

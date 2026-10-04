@@ -7,23 +7,27 @@
 > **`package.json` 的 `name`（`proj_media`）和用户数据目录名一直没动**，见「素材工作区」一节。
 
 - 项目档案：`PROJECT.md`（定位与协作铁律）/ `PROGRESS.md`（进度台账，开头有「分支现状」）/ `DECISIONS.md`（历史决策）/ `NEXT.md`（换会话用的启动提示词）
-- 方案文档：`docs/01` ~ `docs/14`（每批功能的定稿方案，改需求先改文档）
+- 方案文档：`docs/01` ~ `docs/26`（每批功能的定稿方案，改需求先改文档）；`docs/25` 是**面向使用者**的《软件操作手册》
 - 需求文档：`docs/素材管家-需求文档.docx`（唯一权威）
 
-## 分支（2026-09-30 起）
+## 分支（2026-10-04 起）
 
 | 分支 | 是什么 | 状态 |
 |---|---|---|
 | `main` | 第 1~10 批（= 标签 `v1.1.0` = `f20fa3d`） | **已封存，不许动**；1.1.0 安装包已发同事 |
-| `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被 `TM` 的 1.3.0 包取代） |
-| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（未指派提示 + 软件内指派写回企微表 + 机器人通知，方案 `docs/19`） | **当前分支**；版本 **1.4.0**；accept 715 项 + 11 场景全绿 |
+| `feature/incr` | 第 11~12 批：文案字典 + 术语统一「包→任务」+ 软件改名（`64ffc9e`，version 1.2.0） | 已验收（620 断言 / 9 场景）；**1.2.0 安装包未出**（已被后续包取代） |
+| **`TM`** | 第 13 批：**工单模块**；第 14 批：**上线前优化与 UI 打磨**；第 15 批：**热修**（GPU 崩溃打不开 + 安装器可选目录）；第 16 批：**M5 交付打包**；第 17 批：**设计师指派**（方案 `docs/19`） | 1.4.0 包已发同事；accept 715 项 + 11 场景全绿 |
+| `feature/multi-designer` | 第 18 批：**多设计师指派**（方案 `docs/20`） | 已交出（第 19 批在同一线上继续） |
+| `feature/export-report` | 第 19 批：**导出报表**（方案 `docs/22`） | 已交出 |
+| `feature/purge-disabled-sheet` | 第 20 批：**清理已禁用子表工单**（方案 `docs/24`） | 已交出 |
+| **`feature/wecom-bundle`**（当前） | 第 21 批：**企微连接**（wecom-cli 内置 + 扫码授权引导，方案 `docs/26`）+ 界面微调（顶栏改序改名、下拉深色） | **已出包 1.8.0**（`D:\_accept_ws\rel_out\v1.8.0`，包内含 `resources/wecom-cli/`）；accept **791 项** + tickets/version 场景全绿 |
 
 - **谁也不 merge 回 `main`**：增量功能采纳与否等用户拍板。完整台账、切换命令与各批细节见 `PROGRESS.md` / `NEXT.md`。
 - 新功能**先出方案再动代码**（方案文档从 `docs/15-…` 起编号）。
 
 ## 技术栈
 
-Electron + React + TypeScript（electron-vite）· SQLite（better-sqlite3）· sharp（图片）· FFmpeg（视频，随包分发）· pdfjs-dist（PDF）
+Electron + React + TypeScript（electron-vite）· SQLite（better-sqlite3）· sharp（图片）· FFmpeg（视频，随包分发）· pdfjs-dist（PDF）· wecom-cli（企微同步/授权，**原生 exe 随包分发**，第 21 批起）
 
 ## 日常开发
 
@@ -55,7 +59,9 @@ NODE_OPTIONS= npm run build:win
 
 - **出包配置只有一处** —— `package.json` 的 `build` 字段。electron-builder 的规则是：只要 package.json 里有 `build` 字段，`electron-builder.yml` 就会被完全忽略（已核 app-builder-lib 源码），所以那个文件已删除，**别再建回来**
 - `npmRebuild: false` 是刻意的 —— 三个原生模块全是 N-API 预编译，本机没装 Visual Studio，开了必失败
-- FFmpeg 走 `extraResources` 单独一份，`files` 里排除了 `resources/ffmpeg/**`，不排除会重复打包虚胖 267 MB
+- FFmpeg 走 `extraResources` 单独一份，`files` 里排除了 `resources/ffmpeg/**`，不排除会重复打包虚胖 267 MB；
+  **wecom-cli 同理**（第 21 批：`resources/wecom-cli/` → 安装目录 `resources/wecom-cli/`，+9.6 MB，
+  两个资源目录都在 `files` 里被排除，避免 asar 里再来一份）
 - 安装包未做代码签名：同事安装时 Windows 会弹「已保护你的电脑」，点「更多信息 → 仍要运行」
 - 改版本号只改 `package.json` 的 `version`（界面状态栏和安装包文件名都从这儿来）
 - **在 AI 会话里出包要拆两步**（整条 `npm run build:win` 会被沙箱删除护栏拦在 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，提权也拦）：
@@ -79,7 +85,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 715 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 791 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号

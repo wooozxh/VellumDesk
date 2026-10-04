@@ -4,9 +4,12 @@ import type {
   TicketPurgePreview,
   TicketSaveConfigResult,
   TicketStatus,
-  TicketType
+  TicketType,
+  WecomAuthState,
+  WecomCliInfo
 } from '../types'
 import { Icon } from './Icon'
+import { WecomAuthModal, wecomSourceText, wecomStatusText } from './WecomAuthModal'
 
 /**
  * 第 13 批：工单同步设置弹窗（docs/15 §6.3）—— 只在首配 / 换表时碰它。
@@ -53,6 +56,25 @@ export function TicketSettingsModal({
   const [purgeConfirm, setPurgeConfirm] = useState(false)
   const [purgeMsg, setPurgeMsg] = useState<string | null>(null)
   const [purgeErr, setPurgeErr] = useState<string | null>(null)
+  /** 第 21 批（docs/16 §4）：企微连接（内置 wecom-cli 的可用性 / 授权状态）+ 引导弹窗 */
+  const [cli, setCli] = useState<(WecomCliInfo & { onboardSeen: boolean }) | null>(null)
+  const [showWecom, setShowWecom] = useState(false)
+
+  /**
+   * 企微连接状态：打开设置就查一次（不轮询 —— 授权在引导弹窗里做，做完回来这里会重新查）。
+   * 查不到（主进程异常）就当没有这一块，不让设置弹窗打不开。
+   */
+  const loadCli = async (): Promise<void> => {
+    try {
+      setCli(await window.api.wecomCliInfo())
+    } catch {
+      setCli(null)
+    }
+  }
+
+  useEffect(() => {
+    void loadCli()
+  }, [])
 
   // 打开弹窗时拉一次预览（只有已配置过才有意义）
   useEffect(() => {
@@ -156,6 +178,26 @@ export function TicketSettingsModal({
         </h3>
 
         <div className="tk-settings">
+          {/* 第 21 批（docs/16 §4）：企微连接常驻入口 —— 内置组件状态 + 授权状态 + 扫码入口。
+              放最上面：连不上企微时，用户第一眼就该看到「是这一步没做」。 */}
+          {cli && (
+            <div className="tk-wecom">
+              <Icon name="clip" size={14} />
+              <span className="t">{COPY.wecom.title}</span>
+              <span className={`wc-pill${cli.auth === 'authorized' ? ' ok' : ''}`}>
+                {wecomStatusText(cli.auth as WecomAuthState)}
+              </span>
+              <span className="s" title={cli.path}>
+                {wecomSourceText(cli.source)}
+                {cli.version ? ` · v${cli.version}` : ''}
+              </span>
+              <span className="spacer" />
+              <button className="btn small" onClick={() => setShowWecom(true)}>
+                {COPY.wecom.openGuide}
+              </button>
+            </div>
+          )}
+
           <label className="tk-label">{COPY.ticket.settingsDocid}</label>
           <div className="tk-linkrow">
             <input
@@ -291,6 +333,16 @@ export function TicketSettingsModal({
           </div>
         </div>
       </div>
+
+      {/* 第 21 批：企微连接引导（从上面的常驻入口打开；授权完回来重新查一次状态） */}
+      {showWecom && (
+        <WecomAuthModal
+          onClose={() => {
+            setShowWecom(false)
+            void loadCli()
+          }}
+        />
+      )}
 
       {/* 第 20 批：清理工单的二次确认（删数据，必须再问一次） */}
       {purgeConfirm && purge && (

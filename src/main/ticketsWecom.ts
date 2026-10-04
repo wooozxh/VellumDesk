@@ -9,83 +9,19 @@
  * 硬规矩：**只许 spawn 异步**（沙箱 spawnSync 全 EBUSY；正式应用也不该阻塞主进程）。
  * 真实外部依赖不进自动测试（§4.3）—— accept 断言全部喂假数据，本文件不进断言。
  *
- * CLI 在哪：优先环境变量 WECOM_CLI_JS / WECOM_CLI_NODE（同事机器装机时统一设），
- * 兜底用开发机的已知路径。找不到 → 返回 cliMissing，界面降级提示，不影响其他功能。
+ * CLI 在哪：见 `wecomCli.ts`（第 21 批起**内置优先**：环境变量 WECOM_CLI_EXE →
+ * 安装包内 resources/wecom-cli/wecom-cli.exe → 老的环境变量 WECOM_CLI_JS → 开发机兜底路径）。
  */
-import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import {
+  runCliJson,
+  type CliResult
+} from './wecomCli'
 import type { SheetPayload, TicketRawRecord, TicketType, WecomSheetRef } from './tickets'
 
-/** 开发机的已知安装路径（用户机器 + 授权已配好；同事机器靠环境变量或同路径安装） */
-const DEV_CLI_JS =
-  'C:/Users/30873/.workbuddy/binaries/node/cli-connector-packages/node_modules/@wecom/cli/bin/wecom.js'
-const DEV_NODE = 'C:/Users/30873/.workbuddy/binaries/node/versions/22.22.2-3/node.exe'
-
-/** CLI 失败的三类出口（§4.4，界面按类型分别提示） */
-export type CliFailKind = 'cli-missing' | 'auth-expired' | 'unknown'
-
-export interface CliResult<T> {
-  ok: boolean
-  data?: T
-  error?: string
-  kind?: CliFailKind
-}
-
-interface RawRun {
-  code: number | null
-  out: string
-  err: string
-  spawnError?: string
-}
-
-/** 异步跑一次 CLI（绝不用 spawnSync） */
-function runRaw(args: string[], timeoutMs: number): Promise<RawRun> {
-  const cliJs = process.env.WECOM_CLI_JS || DEV_CLI_JS
-  const node = process.env.WECOM_CLI_NODE || (existsSync(DEV_NODE) ? DEV_NODE : 'node')
-  return new Promise((resolve) => {
-    if (!existsSync(cliJs)) {
-      resolve({ code: null, out: '', err: '', spawnError: 'CLI_NOT_FOUND' })
-      return
-    }
-    const child = spawn(node, [cliJs, ...args], { windowsHide: true })
-    let out = ''
-    let err = ''
-    const timer = setTimeout(() => {
-      child.kill()
-      resolve({ code: null, out, err: err + '\nCLI_TIMEOUT' })
-    }, timeoutMs)
-    child.stdout.on('data', (d) => (out += d.toString()))
-    child.stderr.on('data', (d) => (err += d.toString()))
-    child.on('error', (e) => {
-      clearTimeout(timer)
-      resolve({ code: null, out, err, spawnError: e.message })
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({ code: code ?? -1, out, err })
-    })
-  })
-}
-
-/** 跑 CLI 并解析 JSON 输出；识别授权过期 / 未安装（第 19 批：导出 reportWecom 复用） */
-export async function runCliJson<T>(args: string[], timeoutMs = 60000): Promise<CliResult<T>> {
-  const r = await runRaw(args, timeoutMs)
-  if (r.spawnError === 'CLI_NOT_FOUND' || r.spawnError === 'ENOENT') {
-    return { ok: false, kind: 'cli-missing', error: 'wecom-cli 未安装或路径未配置' }
-  }
-  const text = r.out + '\n' + r.err
-  if (/850003|权限已过期|使用权限已过期/.test(text)) {
-    return { ok: false, kind: 'auth-expired', error: '企微授权已过期' }
-  }
-  if (r.code !== 0) {
-    return { ok: false, kind: 'unknown', error: text.trim().slice(0, 500) }
-  }
-  try {
-    return { ok: true, data: JSON.parse(r.out) as T }
-  } catch {
-    return { ok: false, kind: 'unknown', error: 'CLI 输出不是合法 JSON：' + r.out.slice(0, 200) }
-  }
-}
+// 定位与 spawn 已下沉到 wecomCli.ts（第 21 批：内置 exe 优先）。
+// 老位置继续对外提供，tickets.ts / report.ts / reportWecom.ts / ipc.ts 的引用点不用改。
+export { runCliJson } from './wecomCli'
+export type { CliResult, CliFailKind } from './wecomCli'
 
 // ============================================================ docid 解析（设置里粘链接）
 

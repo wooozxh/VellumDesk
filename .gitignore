@@ -37,4 +37,7 @@ electron.vite.config.*.mjs
 _dl/
 resources/ffmpeg/*.exe
 resources/ffmpeg/LICENSE.txt
+# wecom-cli 原生二进制（9.6 MB，不入库；resources/wecom-cli/README.md 有重建方式）
+resources/wecom-cli/*.exe
+resources/wecom-cli/LICENSE.txt
 素材工作区/

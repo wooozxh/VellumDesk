@@ -28,6 +28,8 @@ import { TagManagerModal } from './components/TagManagerModal'
 import { TagPickerModal } from './components/TagPickerModal'
 // 第 13 批：工单视图（自包含组件 —— 新视图不再往本文件堆状态，给 App 减负）
 import { TicketsView } from './components/TicketsView'
+// 第 21 批：企微连接引导（首次启动弹一次）
+import { WecomAuthModal } from './components/WecomAuthModal'
 
 type ViewMode = 'packs' | 'files' | 'tickets'
 
@@ -117,13 +119,29 @@ export default function App(): React.JSX.Element {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
 
-  // ---- 第 17 批（docs/19 §3）：顶栏「工单」格的待指派徽标（存量常显）----
+  // ---- 第 17 批（docs/19 §3）：顶栏「工单队列」格的待指派徽标（存量常显）----
   const [tkUnassigned, setTkUnassigned] = useState(0)
   useEffect(() => {
     // 启动时拉一次；之后由 TicketsView 在每次同步/加载后回调刷新（onUnassignedCount）
     void window.api
       .ticketUnassignedCount()
       .then((n) => setTkUnassigned(n))
+      .catch(() => {})
+  }, [])
+
+  // ---- 第 21 批（docs/16 §4）：首次启动的企微连接引导 ----
+  /**
+   * 只在「内置组件在、但还没授权」时自动弹一次（这次扫码就能解决，弹了有意义）。
+   * 组件缺失 / 状态未知都不弹 —— 免得每次开机都挡路；入口常驻在「工单队列 → 齿轮」里。
+   * 弹过就写 meta（wecom_onboard_seen），以后不再自动弹。
+   */
+  const [showWecom, setShowWecom] = useState(false)
+  useEffect(() => {
+    void window.api
+      .wecomCliInfo()
+      .then((i) => {
+        if (i.available && i.auth === 'unauthorized' && !i.onboardSeen) setShowWecom(true)
+      })
       .catch(() => {})
   }, [])
 
@@ -851,23 +869,21 @@ export default function App(): React.JSX.Element {
 
         <div className="spacer" />
 
+        {/* 第 21 批：三格顺序按使用逻辑重排 —— 工单队列在最前（先看单、再回任务、最后查文件） */}
         <div className="tabs">
-          <button className={view === 'packs' ? 'on' : ''} onClick={() => setView('packs')}>
-
-            {COPY.top.viewPacks}
-          </button>
-          <button className={view === 'files' ? 'on' : ''} onClick={() => setView('files')}>
-
-            {COPY.top.viewFiles}
-          </button>
           <button className={view === 'tickets' ? 'on' : ''} onClick={() => setView('tickets')}>
-
             {COPY.ticket.viewTab}
             {tkUnassigned > 0 && (
               <span className="tab-badge" title={fmt(COPY.ticket.badgeUnassigned, { n: tkUnassigned })}>
                 {tkUnassigned}
               </span>
             )}
+          </button>
+          <button className={view === 'packs' ? 'on' : ''} onClick={() => setView('packs')}>
+            {COPY.top.viewPacks}
+          </button>
+          <button className={view === 'files' ? 'on' : ''} onClick={() => setView('files')}>
+            {COPY.top.viewFiles}
           </button>
         </div>
 
@@ -1566,6 +1582,18 @@ export default function App(): React.JSX.Element {
           suggestions={tagSuggestions}
           onClose={() => setTagPickerIds(null)}
           onSubmit={submitTags}
+        />
+      )}
+
+      {/* 第 21 批（docs/16 §4）：首次启动的企微连接引导 —— 只在「内置组件在、但还没授权」时弹一次 */}
+      {showWecom && (
+        <WecomAuthModal
+          onboard
+          onClose={() => {
+            setShowWecom(false)
+            void window.api.wecomOnboardSeen().catch(() => {})
+          }}
+          onToast={toast}
         />
       )}
 

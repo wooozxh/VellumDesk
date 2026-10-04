@@ -2404,8 +2404,21 @@ app.whenReady().then(async () => {
     const tabOk = await js(
       `(() => { const b = [...document.querySelectorAll('.tabs button')].find(x => x.innerText.trim().startsWith(${JSON.stringify(COPY.ticket.viewTab)})); if (b) { b.click(); return 'ok' } return 'no-el' })()`
     )
-    ok(tabOk === 'ok', `顶栏第三格「${COPY.ticket.viewTab}」出现了`)
+    ok(tabOk === 'ok', `顶栏「${COPY.ticket.viewTab}」格出现了`)
     await wait(1200)
+
+    // (1b) 第 21 批：顶栏三格按使用逻辑重排 —— 工单队列在最前（先看单、再回任务、最后查文件）
+    const tabBar = await js(
+      `(() => { const bs = [...document.querySelectorAll('.tabs button')]; return { n: bs.length, first: bs[0] ? bs[0].innerText.trim() : '', order: bs.map(b => b.innerText.trim()) } })()`
+    )
+    ok(
+      !!tabBar && tabBar.n === 3 && tabBar.first.startsWith(plain(COPY.ticket.viewTab)),
+      `顶栏第一格是「${plain(COPY.ticket.viewTab)}」（实际顺序：${tabBar ? tabBar.order.join(' / ') : '—'}）`
+    )
+    ok(
+      !!tabBar && tabBar.order[1] && tabBar.order[1].startsWith(plain(COPY.top.viewPacks)),
+      `第二格是${plain(COPY.top.viewPacks)}（顺序按使用逻辑而非功能新旧）`
+    )
 
     // (2) 筛选标签齐全 + 同步按钮在
     const chips = await js(`[...document.querySelectorAll('.tk-toolbar .chip')].map(b => b.innerText.trim())`)
@@ -2566,6 +2579,46 @@ app.whenReady().then(async () => {
       `危险操作区有说明文案（${danger ? danger.hints.join(' / ').slice(0, 60) : '—'}）`
     )
     await shot('shot-b17-1-settings-switch.png')
+
+    // (9c) 第 21 批（docs/16 §4）：设置弹窗顶部「企业微信连接」常驻入口 → 打开授权引导弹窗
+    // ⚠️ 只看形态：状态徽标 / 组件来源具体是什么取决于本机，不写死；也不点「开始扫码授权」
+    // （真去 auth init 会拉起真 CLI 等扫码 —— 真企微不进自动测试）
+    const wecomBlock = await js(
+      `(() => { const w = document.querySelector('.tk-wecom'); if (!w) return null; const btn = w.querySelector('.btn'); return { t: ((w.querySelector('.t')||{}).innerText||'').trim(), s: [...w.querySelectorAll('.s')].map(x => x.innerText.trim()).join(' '), btn: btn ? btn.innerText.trim() : '' } })()`
+    )
+    ok(
+      !!wecomBlock && wecomBlock.t === plain(COPY.wecom.title),
+      `设置弹窗顶部有「${plain(COPY.wecom.title)}」区块`
+    )
+    ok(
+      !!wecomBlock && wecomBlock.btn === plain(COPY.wecom.openGuide),
+      `区块有「${plain(COPY.wecom.openGuide)}」按钮（授权入口常驻，不依赖首次自动弹）`
+    )
+    await js(
+      `(() => { const b = document.querySelector('.tk-wecom .btn'); if (b) b.click(); return 'ok' })()`
+    )
+    await wait(900)
+    const wcModal = await js(
+      `(() => { const m = document.querySelector('.wc-modal'); if (!m) return null; return { title: ((m.querySelector('h3')||{}).innerText||'').trim(), pill: ((m.querySelector('.wc-pill')||{}).innerText||'').trim(), meta: ((m.querySelector('.wc-meta')||{}).innerText||'').trim(), intro: ((m.querySelector('.wc-intro')||{}).innerText||'').trim(), btns: [...m.querySelectorAll('.btn')].map(b => b.innerText.trim()) } })()`
+    )
+    ok(
+      !!wcModal && wcModal.title.includes(plain(COPY.wecom.title)),
+      `「${plain(COPY.wecom.title)}」引导弹窗能打开`
+    )
+    ok(!!wcModal && wcModal.pill.length > 0, `引导弹窗有状态徽标（${wcModal ? wcModal.pill : '—'}）`)
+    ok(
+      !!wcModal && wcModal.meta.length > 0,
+      `引导弹窗标出「组件来源 + 版本」（${wcModal ? wcModal.meta : '—'}）`
+    )
+    ok(!!wcModal && wcModal.intro.length > 20, '引导弹窗有一句话说明（授权只做一次 / 换机才需重扫）')
+    await shot('shot-b21-1-wecom-auth.png')
+    // 关掉引导弹窗（回到设置弹窗）
+    await js(
+      `(() => { const m = document.querySelector('.wc-modal'); const b = m && m.querySelector('.close'); if (b) b.click(); return 'ok' })()`
+    )
+    await wait(600)
+    const wecomClosed = await js(`!document.querySelector('.wc-modal')`)
+    ok(wecomClosed === true, '关掉引导弹窗后回到工单设置（不连带关掉设置弹窗）')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)
 
@@ -2587,6 +2640,18 @@ app.whenReady().then(async () => {
     ok(
       !!assignUi && assignUi.optText.includes(COPY.ticket.assignBusyLabel.split('{n}')[0]),
       '候选项带「在办 N 单」标注（辅助判断谁有空，不替人派）'
+    )
+    // 第 21 批（用户实测）：下拉原来没设背景 → 落到浏览器默认浅色控件（白底黑字），与深色界面割裂
+    const selStyle = await js(
+      `(() => { const s = document.querySelector('.tk-assign select'); if (!s) return null; const cs = getComputedStyle(s); return { bg: cs.backgroundColor, color: cs.color, scheme: cs.colorScheme } })()`
+    )
+    ok(
+      !!selStyle && selStyle.bg === 'rgb(35, 35, 35)',
+      `指派下拉闭合态用深色面板色（实际 ${selStyle ? selStyle.bg : '—'}）`
+    )
+    ok(
+      !!selStyle && selStyle.scheme === 'dark',
+      `下拉设了 color-scheme:dark —— 展开的列表跟着深色走，不再是白底（实际 ${selStyle ? selStyle.scheme : '—'}）`
     )
     const openTableBtn = await js(
       `(() => { const b = [...document.querySelectorAll('.tk-actions .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.openTable)})); return b ? 'ok' : 'no' })()`

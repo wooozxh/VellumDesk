@@ -122,6 +122,8 @@ import {
   type ReportRow
 } from './src/main/report'
 import type { ReportField } from './src/main/reportWecom'
+// 第 21 批：wecom-cli 定位顺序与状态解析（纯逻辑，不碰真企微、不 spawn 任何进程）
+import { parseAuthStatus, parseCliVersion, resolveCliCommand } from './src/main/wecomCli'
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
@@ -4650,6 +4652,89 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(cRoot)
+  }
+
+  // ============ 第 21 批 T-08：内置 wecom-cli 的定位与状态解析（docs/16 §4） ============
+  log('\n[39] 第 21 批：wecom-cli 定位顺序（env-exe → 内置 exe → env-js → 开发机）+ 版本/授权状态解析')
+  {
+    // 全部喂假路径 + 假 exists：真 exe 只是个文件，进不了断言（延续「真外部依赖不进自动测试」）
+    const P = {
+      envExe: 'C:\\tmp\\env\\wecom-cli.exe',
+      bundled: 'C:\\app\\resources\\wecom-cli\\wecom-cli.exe',
+      envJs: 'C:\\tmp\\js\\wecom.js',
+      devJs: 'C:\\dev\\cli\\wecom.js',
+      devNode: 'C:\\dev\\node\\node.exe'
+    }
+    /** 只有列出来的路径「存在」 */
+    const only = (...hit: string[]): ((p: string) => boolean) => (p) => hit.includes(p)
+
+    const c1 = resolveCliCommand({
+      envExe: P.envExe,
+      bundledExe: P.bundled,
+      exists: only(P.envExe, P.bundled)
+    })
+    ok(c1?.source === 'env-exe' && c1.cmd === P.envExe, '① 环境变量 WECOM_CLI_EXE 命中 → 用它（运维逃生口）')
+    ok(c1?.pre.length === 0, '① 直接跑 exe，不需要 node 中转')
+
+    const c2 = resolveCliCommand({
+      envExe: P.envExe,
+      bundledExe: P.bundled,
+      exists: only(P.bundled)
+    })
+    ok(c2?.source === 'bundled' && c2.cmd === P.bundled, '② 环境变量的 exe 不存在 → 落到内置 exe')
+    ok(c2?.pre.length === 0, '② 内置 exe 同样是直接跑（同事机器不用装 Node）')
+
+    const c3 = resolveCliCommand({
+      envExe: P.envExe,
+      bundledExe: P.bundled,
+      envJs: P.envJs,
+      envNode: P.devNode,
+      exists: only(P.envJs)
+    })
+    ok(c3?.source === 'env-js' && c3.cmd === P.devNode, '③ 两个 exe 都没有 → 退回环境变量里的 JS（一期老配法）')
+    ok(c3?.pre.length === 1 && c3.pre[0] === P.envJs, '③ JS 形态前置参数就是脚本路径')
+
+    const c4 = resolveCliCommand({
+      bundledExe: P.bundled,
+      envJs: P.envJs,
+      devJs: P.devJs,
+      devNode: P.devNode,
+      exists: only(P.envJs, P.devNode)
+    })
+    ok(c4?.cmd === P.devNode, '③ 没有 WECOM_CLI_NODE 时用存在的开发机 node 跑')
+
+    const c5 = resolveCliCommand({
+      bundledExe: P.bundled,
+      devJs: P.devJs,
+      devNode: P.devNode,
+      exists: only(P.devJs, P.devNode)
+    })
+    ok(c5?.source === 'dev-js', '④ 只剩开发机硬编码路径 → 兜底命中（老开发机不改环境变量也能跑）')
+
+    const c6 = resolveCliCommand({
+      envExe: P.envExe,
+      bundledExe: P.bundled,
+      envJs: P.envJs,
+      devJs: P.devJs,
+      exists: only()
+    })
+    ok(c6 === null, '⑤ 一条都不存在 → null（界面显示「内置组件缺失」，其余功能不受影响）')
+
+    // 版本解析
+    ok(
+      parseCliVersion('wecom-cli 1.3.4 (wecom 2026-09-23T11:47:44Z f9b2815)') === '1.3.4',
+      '版本行能抠出 1.3.4'
+    )
+    ok(parseCliVersion('wecom-cli 2.0.0') === '2.0.0', '版本行认两位版本号')
+    ok(parseCliVersion('') === null, '空输出 → 版本未知（不瞎编）')
+
+    // 授权状态解析：unauthorized 是 authorized 的超串，顺序判定必须正确
+    ok(parseAuthStatus('authorized') === 'authorized', 'authorized → 已授权')
+    ok(parseAuthStatus('unauthorized') === 'unauthorized', 'unauthorized → 未授权（不能被超串误判成已授权）')
+    ok(parseAuthStatus('UNAUTHORIZED\n') === 'unauthorized', '大小写与换行不影响判定')
+    ok(parseAuthStatus('Authorized（授权人：某某）') === 'authorized', '夹带其他文字也能认出已授权')
+    ok(parseAuthStatus('some unexpected output') === 'unknown', '认不出的输出 → 状态未知（不猜）')
+    ok(parseAuthStatus('') === 'unknown', '空输出 → 状态未知')
   }
 
 // ============ 汇总 ============

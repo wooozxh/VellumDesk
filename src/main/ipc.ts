@@ -107,6 +107,14 @@ import {
   sendBotTextMessage,
   updateRecords
 } from './ticketsWecom'
+// 第 21 批：企微连接（wecom-cli 内置 + 扫码授权引导，docs/16 §4）
+import {
+  cancelWecomAuth,
+  getCliInfo,
+  readAuthStatus,
+  startWecomAuth,
+  type WecomCliInfo
+} from './wecomCli'
 // 第 19 批：导出报表（docs/22）
 import {
   exportReport,
@@ -1211,6 +1219,62 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return purgeDisabledSheetTickets(root)
+  })
+
+  // ---------- 第 21 批：企微连接（docs/16 §4） ----------
+
+  /**
+   * 连接状态快照：内置组件在不在 / 从哪来 / 什么版本 / 授权了没。
+   * `onboardSeen` = 首次启动的授权引导是否已经弹过一次（弹过就不再自动弹，入口仍常驻设置里）。
+   */
+  ipcMain.handle(
+    'wecom:cliInfo',
+    async (): Promise<WecomCliInfo & { onboardSeen: boolean }> => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      const info = await getCliInfo()
+      return { ...info, onboardSeen: getMeta('wecom_onboard_seen') === '1' }
+    }
+  )
+
+  /** 只读授权状态（引导页每 2 秒轮询一次；查不到就说查不到，不猜） */
+  ipcMain.handle('wecom:authStatus', async () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return { auth: await readAuthStatus() }
+  })
+
+  /**
+   * 发起扫码授权：调 `auth init --noninteractive --output-qrcode <临时图>`，
+   * 等二维码出现就返回（data URL 给界面），**不等扫码**；进程留着，界面轮询 authStatus。
+   */
+  ipcMain.handle('wecom:authStart', async () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return startWecomAuth()
+  })
+
+  /** 取消授权（用户关弹窗 / 点取消）—— 杀掉等待中的 CLI，清掉临时二维码 */
+  ipcMain.handle('wecom:authCancel', () => {
+    cancelWecomAuth()
+    return { ok: true }
+  })
+
+  /** 授权成功后读本机身份（显示名字；userid 只在本机流转，不出界面） */
+  ipcMain.handle('wecom:identity', async () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const r = await fetchIdentity()
+    if (!r.ok || !r.data) return { ok: false, error: r.error ?? '' }
+    return { ok: true, name: r.data.name }
+  })
+
+  /** 标记「首次启动引导已看过」—— 只影响自动弹窗，不影响设置里的入口 */
+  ipcMain.handle('wecom:onboardSeen', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    setMeta('wecom_onboard_seen', '1')
+    return { ok: true }
   })
 
   // ---------- 第 19 批：导出报表（docs/22） ----------
