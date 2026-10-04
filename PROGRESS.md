@@ -793,6 +793,13 @@
 - **真机报错热修（本条提交）**：点「完成任务」报 `缩略图上传失败：PermissionError 893006 目标路径超出可访问范围 D:\素材工作区\.thumbs\...（允许范围: D:\proj_media, Temp）`。**根因**：wecom-cli 的文件访问白名单 = 其工作目录 + 系统临时目录，`ticket:completeByPack` 直接把工作区缩略图路径传给 `media upload` 被拒；导出报表的重传链路没踩坑是因为 `rehostReportThumb` 先把图下载进了 Temp。**修复**：`uploadReportImage` 统一收口——先把源文件 `copyFile` 进系统临时目录再传副本，`finally` 删临时文件，与调用方路径解耦（两条链路都安全）。全项目仅此一处给 CLI 传本地路径（已 grep 确认）。
 - **验收**：typecheck 0 错；重打三个 bundle；accept **746 OK + 1 FAIL**（FAIL 仍是 `访学证.psd` 环境问题）。复制到 Temp 的逻辑属真企微链路，按铁律不进自动测试，待用户真机复点「完成任务」确认。
 
+### 2026-10-04（第 28 次会话）—— 完成时间字段诊断 + docs/23 存档 + 交付打包崩软件热修
+
+- **「完成时间」字段语义诊断（用户拍板不改）**：用户问「测试1004 为何不进报表、其他单为何进了」。实查真实库：源表确有「完成时间」列（此前误判为没有），其值 = **审批流程走完那一刻**（已通过=「已办理」时刻、已驳回=「已驳回」时刻）；259 单里 254 条有值，5 条全空的都是「审批中」状态。测试1004 审批中 → 完成时间空 → 被报表「完成时间非空」过滤，符合逻辑。用户拍板**维持现状**（按审批完成时间统计）。
+- **docs/23 存档（提交 `4026a32`）**：新需求方向「软件 ↔ WorkBuddy 连接器 + Skill 审稿」（docs/21 的自动化演化），三个分叉（传输通道/触发方式/连接器形态）待用户细化，NEXT.md 候选清单已补。
+- **交付打包崩软件热修（本条提交）**：真机打包报「启动/运行异常」弹框 + 软件退出：`ENOENT ... open '...-10*1000cm-20261004-V1.zip'`。**双重根因**：① 主进程 `buildPackExportPlan` 里用户手填的 `zipName` 未过 `sanitizeFileName`（自动拼的默认名各段都洗过，唯独手填这条路径裸奔），Windows 文件名不允许 `*` → `createWriteStream` 打开失败；② `executePackExport` 里 outputStream 的 error 监听挂在 `await archive.finalize()` **之后**，open 失败的 error 事件在 finalize 期间发出时无任何监听 → Node 抛 uncaughtException（本该是弹窗内温和的「打包失败」）。**修复**：① 手填 zipName 同样清洗；② error/close 监听同步挂满（`streamClosed` promise），失败时清半成品 zip + 返回 `ok:false`。
+- **验收**：typecheck 0 错；重打三个 bundle；accept **750 OK + 1 FAIL**（+4 断言全绿：非法字符清洗 ×2 + 真机星号场景端到端 ×2；FAIL 仍是 `访学证.psd` 环境问题）；export 场景全绿、控制台零报错。
+
 <!-- ============ 下面是空白模板，以后每次会话复制一份填 ============
 
 ### YYYY-MM-DD（第 N 次会话）

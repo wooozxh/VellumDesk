@@ -4,7 +4,7 @@ import { getDb, type DeliveryRecordRow } from './db'
 import { getPackDetail, UNASSIGNED_ROLE } from './workspace'
 import { readImageMeta, readPsdMeta, readVideoMeta, isImage, isPsd, isVideo } from './thumbs'
 import { join, basename, extname } from 'path'
-import { createWriteStream, existsSync, statSync, mkdirSync } from 'fs'
+import { createWriteStream, existsSync, statSync, mkdirSync, unlinkSync } from 'fs'
 import { ZipArchive } from 'archiver'
 import type { Archiver } from 'archiver'
 
@@ -212,7 +212,10 @@ export async function buildPackExportPlan(input: PackExportInput): Promise<Expor
   const safeVersion = sanitizeFileName(versionLabel)
   const defaultZipName = [safeProject, safePack, safeSize, dateText, safeVersion].filter(Boolean).join('-')
 
-  const zipName = input.zipName.trim() || defaultZipName
+  // zip 名同样过非法字符清洗：默认名各段已洗过，但这里是用户手填的原始输入——
+  // Windows 文件名不允许 <>:"\/|?*（真机踩坑 2026-10-04：手填「10*1000cm」的星号
+  // 直接把 createWriteStream 干出 ENOENT，且错误监听有空窗 → uncaughtException 崩软件）
+  const zipName = sanitizeFileName(input.zipName.trim()) || defaultZipName
   const outputDir = input.outputDir || pack.folder_path
   const outputPath = join(outputDir, uniqueFileName(outputDir, `${zipName}.zip`))
 
@@ -399,7 +402,18 @@ export async function executePackExport(input: PackExportInput): Promise<PackExp
     return { ok: false, error: COPY.wsErr.notWritable }
   }
 
+  // error listener 必须紧跟 createWriteStream 同步挂上：open 失败（如路径含 Windows 非法字符）
+  // 的 error 事件会在下面 await finalize 期间发出，挂晚了 = 无监听 error = uncaughtException 崩软件
   const outputStream = createWriteStream(plan.outputPath)
+  let streamError: Error | null = null
+  const streamClosed = new Promise<void>((resolve) => {
+    outputStream.on('close', () => resolve())
+    outputStream.on('error', (err) => {
+      streamError = err
+      resolve()
+    })
+  })
+
   const archive: Archiver = new ZipArchive({ zlib: { level: 6 } })
 
   let archiveError: Error | null = null
@@ -420,13 +434,17 @@ export async function executePackExport(input: PackExportInput): Promise<PackExp
     archiveError = e as Error
   }
 
-  await new Promise<void>((resolve, reject) => {
-    outputStream.on('close', () => resolve())
-    outputStream.on('error', (err) => reject(err))
-  })
+  await streamClosed
 
-  if (archiveError) {
-    return { ok: false, error: COPY.exportPack.failed + archiveError.message }
+  const failure = streamError ?? archiveError
+  if (failure) {
+    // 清掉半成品 zip，别在工作区留垃圾（没写成时 unlink 失败就随它去）
+    try {
+      unlinkSync(plan.outputPath)
+    } catch {
+      /* ignore */
+    }
+    return { ok: false, error: COPY.exportPack.failed + failure.message }
   }
 
   // 计算实际 zip 大小

@@ -80,7 +80,7 @@ import {
   FIRST_VERSION_FOLDER
 } from './src/main/workspace'
 // 第 15 批：交付打包（M5，docs/18）
-import { executePackExport, listDeliveryRecords } from './src/main/exportPack'
+import { buildPackExportPlan, executePackExport, listDeliveryRecords } from './src/main/exportPack'
 import {
   applySync,
   detectStructure,
@@ -3851,6 +3851,37 @@ async function main(): Promise<void> {
     keepOriginalName: true
   })
   ok(!pe4.ok, '没有可打包内容时返回失败')
+
+  // (5) zip 名含 Windows 非法字符 → 主进程清洗（真机踩坑 2026-10-04：手填「10*1000cm」
+  // 的星号未经清洗直接落 createWriteStream → ENOENT + error 监听空窗 → uncaughtException 崩软件）
+  const plan5 = await buildPackExportPlan({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: '非法<>:"\\/|?*字符',
+    wrapFolder: true,
+    size: '10*1000cm',
+    keepOriginalName: true
+  })
+  ok(!/[<>:"\\/|?*]/.test(basename(plan5.outputPath)), 'zip 名含非法字符时计划落盘路径已清洗')
+  ok(basename(plan5.outputPath) === '非法_________字符.zip', '非法字符逐个替换为下划线')
+
+  // (6) 端到端：手填带星号的 zip 名（真机原始场景）也能打包成功
+  const pe5 = await executePackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: '海南升学集训营-讲座横幅-10*1000cm-20261004-V1',
+    wrapFolder: true,
+    size: '',
+    keepOriginalName: true
+  })
+  ok(pe5.ok && !!pe5.outputPath && existsSync(pe5.outputPath), '手填星号 zip 名打包成功（星号已清洗）')
+  ok(!pe5.outputPath!.includes('*'), '实际落盘 zip 路径不含星号')
 
   closeDb()
   hardRm(p15Root)
