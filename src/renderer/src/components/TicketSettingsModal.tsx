@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { COPY, fmt } from '../../../shared/copy'
-import type { TicketSaveConfigResult, TicketStatus, TicketType } from '../types'
+import type {
+  TicketPurgePreview,
+  TicketSaveConfigResult,
+  TicketStatus,
+  TicketType
+} from '../types'
 import { Icon } from './Icon'
 
 /**
@@ -11,6 +16,10 @@ import { Icon } from './Icon'
  *
  * 第 17 批（docs/19 §10 #3）：「允许在本机指派设计师」开关 —— 用户拍板的门槛形态
  * （部门里要派单的人自己开，不做身份校验；开 = 详情弹窗里能指派并写回企微表）。
+ *
+ * 第 20 批（docs/24）：「危险操作 · 清理已禁用子表的工单」——关掉子表只是"以后不再同步"，
+ * 已同步进来的工单会永久留在本地（同步只增不删），此前没有任何清理入口。这里补上：
+ * 按**已保存的**设置算（不看未保存草稿），先预览再二次确认，删除由主进程留痕后才执行。
  */
 interface SheetDraft {
   title: string
@@ -38,6 +47,62 @@ export function TicketSettingsModal({
   const [err, setErr] = useState<string | null>(null)
   /** 第 17 批：允许在本机指派设计师（初始值来自 status；改动即存，不走「保存」按钮） */
   const [allowAssign, setAllowAssign] = useState(initial?.allowAssign ?? false)
+  /** 第 20 批：清理预览（已关闭子表里有多少条可清 / 多少条因有任务包跳过） */
+  const [purge, setPurge] = useState<TicketPurgePreview | null>(null)
+  const [purgeBusy, setPurgeBusy] = useState(false)
+  const [purgeConfirm, setPurgeConfirm] = useState(false)
+  const [purgeMsg, setPurgeMsg] = useState<string | null>(null)
+  const [purgeErr, setPurgeErr] = useState<string | null>(null)
+
+  // 打开弹窗时拉一次预览（只有已配置过才有意义）
+  useEffect(() => {
+    if (!initial) return
+    let alive = true
+    void (async () => {
+      try {
+        const p = await window.api.ticketPurgePreview()
+        if (alive) setPurge(p)
+      } catch {
+        // 读不到就不显示计数（按钮会因 purge 为空而不渲染）
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [initial])
+
+  /** 子表草稿与已保存配置是否不一致（不一致时禁止清理 —— 清理按「已保存的」算） */
+  const sheetsDirty = initial
+    ? sheets.length !== initial.sheets.length ||
+      sheets.some((s) => {
+        const o = initial.sheets.find((x) => x.title === s.title)
+        return !o || o.enabled !== s.enabled
+      })
+    : false
+
+  const runPurge = async (): Promise<void> => {
+    if (purgeBusy) return
+    setPurgeBusy(true)
+    setPurgeErr(null)
+    try {
+      const r = await window.api.ticketPurgeDisabled()
+      if (r.error) {
+        setPurgeErr(r.error)
+        return
+      }
+      setPurgeConfirm(false)
+      setPurgeMsg(
+        r.removed > 0
+          ? fmt(COPY.ticket.purgeDone, { n: r.removed, path: r.backupPath ?? '' })
+          : COPY.ticket.purgeNothing
+      )
+      setPurge(await window.api.ticketPurgePreview())
+    } catch (e) {
+      setPurgeErr(fmt(COPY.ticket.purgeFailed, { msg: (e as Error).message }))
+    } finally {
+      setPurgeBusy(false)
+    }
+  }
 
   const toggleAllowAssign = async (v: boolean): Promise<void> => {
     setAllowAssign(v)
@@ -174,6 +239,42 @@ export function TicketSettingsModal({
             <div className="tk-firstwarn">{COPY.ticket.settingsFirstSyncWarn}</div>
           )}
 
+          {/* 第 20 批（docs/24）：危险操作 —— 清理已关闭子表的工单 */}
+          {initial && purge && (
+            <div className="tk-danger">
+              <div className="tk-danger-title">{COPY.ticket.purgeSectionTitle}</div>
+              {purge.sheets.length === 0 ? (
+                <div className="tk-danger-hint">{COPY.ticket.purgeHintNone}</div>
+              ) : (
+                <>
+                  <div className="tk-danger-hint">
+                    {fmt(COPY.ticket.purgeHint, { sheets: purge.sheets.join('、') })}
+                  </div>
+                  <div className="tk-danger-hint">
+                    {fmt(COPY.ticket.purgeCount, {
+                      removable: purge.removable,
+                      skipped: purge.packedSkipped
+                    })}
+                  </div>
+                </>
+              )}
+              {sheetsDirty && <div className="tk-danger-hint">{COPY.ticket.purgeDraftDirty}</div>}
+              {purgeErr && <div className="tk-err">{purgeErr}</div>}
+              {purgeMsg && <div className="tk-danger-done">{purgeMsg}</div>}
+              <button
+                className="btn danger"
+                disabled={purgeBusy || sheetsDirty || purge.sheets.length === 0 || purge.removable === 0}
+                onClick={() => {
+                  setPurgeMsg(null)
+                  setPurgeErr(null)
+                  setPurgeConfirm(true)
+                }}
+              >
+                {COPY.ticket.purgeBtn}
+              </button>
+            </div>
+          )}
+
           {err && <div className="tk-err">{err}</div>}
 
           <div className="tk-actions">
@@ -190,6 +291,39 @@ export function TicketSettingsModal({
           </div>
         </div>
       </div>
+
+      {/* 第 20 批：清理工单的二次确认（删数据，必须再问一次） */}
+      {purgeConfirm && purge && (
+        <div
+          className="mask"
+          onMouseDown={(e) => e.target === e.currentTarget && setPurgeConfirm(false)}
+        >
+          <div className="modal tk-confirm">
+            <h3>{COPY.ticket.purgeConfirmTitle}</h3>
+            <div className="content">
+              <div className="tk-confirm-body">
+                {fmt(COPY.ticket.purgeConfirmBody, {
+                  n: purge.removable,
+                  skipped: purge.packedSkipped
+                })}
+              </div>
+              {purgeErr && <div className="tk-err">{purgeErr}</div>}
+              <div className="tk-actions">
+                <button
+                  className="btn danger"
+                  disabled={purgeBusy}
+                  onClick={() => void runPurge()}
+                >
+                  {purgeBusy ? COPY.common.saving : COPY.ticket.purgeConfirmOk}
+                </button>
+                <button className="btn" disabled={purgeBusy} onClick={() => setPurgeConfirm(false)}>
+                  {COPY.common.cancel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

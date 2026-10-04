@@ -104,6 +104,9 @@ import {
   readTicketMetrics,
   thumbColName,
   writeTicketMetrics,
+  // 第 20 批：清理已禁用子表工单（docs/24）
+  previewPurgeDisabledSheetTickets,
+  purgeDisabledSheetTickets,
   type DesignerWriteAdapter,
   type SheetPayload,
   type TicketRawRecord,
@@ -4499,6 +4502,154 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(bRoot)
+  }
+
+  // ============ 第 20 批 T-07：清理已禁用子表工单（docs/24） ============
+  log('\n[38] 第 20 批：迁移 16（sheet_title）+ 清理已禁用子表工单（预览 / 留痕 / 跳过有包 / 边界）')
+  {
+    const cRoot = join('D:\\_accept_ws', `wstest20_${RUN_ID}`)
+    const cWs = join(cRoot, 'ws')
+    hardRm(cRoot)
+    mkdirSync(cWs, { recursive: true })
+    closeDb()
+    openDb(cWs)
+    initWorkspace(cWs)
+
+    // ---- (1) 迁移 16：列存在 ----
+    const cCols = getDb().prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+    ok(cCols.some((c) => c.name === 'sheet_title'), '迁移 16：tickets 有 sheet_title 列（幂等补列）')
+
+    // ---- (2) 同步写入 sheet_title ----
+    const cfgBoth = [
+      { title: '印刷子表A', sheet_id: 'shA', type: 'print' as const, enabled: true },
+      { title: '电子子表B', sheet_id: 'shB', type: 'digital' as const, enabled: true }
+    ]
+    writeTicketSheets(cfgBoth)
+    const cIdentity = { userid: 'uME', name: '本机测试员' }
+    const cRec = (no: string): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }]
+      }
+    })
+    const pA: SheetPayload = {
+      sheet_id: 'shA',
+      title: '印刷子表A',
+      type: 'print',
+      records: [cRec('P1'), cRec('P2')]
+    }
+    const pB: SheetPayload = {
+      sheet_id: 'shB',
+      title: '电子子表B',
+      type: 'digital',
+      records: [cRec('D1')]
+    }
+    const cSync = () =>
+      applySync({ payloads: [pA, pB], structureChanged: false, identity: cIdentity, workspaceRoot: cWs })
+    cSync() // 首次快照
+    cSync()
+    const cTitle = (no: string): string | null =>
+      (getDb().prepare('SELECT sheet_title FROM tickets WHERE ticket_no = ?').get(no) as
+        | { sheet_title: string | null }
+        | undefined)?.sheet_title ?? null
+    ok(
+      (getDb().prepare('SELECT COUNT(*) AS c FROM tickets').get() as { c: number }).c === 3,
+      '三个子表工单入库（2 + 1）'
+    )
+    ok(cTitle('P1') === '印刷子表A' && cTitle('P2') === '印刷子表A', '同步写入 sheet_title = 出生子表标题')
+    ok(cTitle('D1') === '电子子表B', '另一子表各自标对（不串）')
+
+    // ---- (3) 迁移 16 回填：清空后重开库 → 按 sheet_id→标题 映射补齐 ----
+    getDb().prepare('UPDATE tickets SET sheet_title = NULL').run()
+    closeDb()
+    openDb(cWs)
+    const cTitle2 = (no: string): string | null =>
+      (getDb().prepare('SELECT sheet_title FROM tickets WHERE ticket_no = ?').get(no) as
+        | { sheet_title: string | null }
+        | undefined)?.sheet_title ?? null
+    ok(
+      cTitle2('P1') === '印刷子表A' && cTitle2('D1') === '电子子表B',
+      '迁移 16 回填：历史行按当前配置的映射补齐标题'
+    )
+
+    // ---- (4) 关掉印刷子表 → 预览只认它 ----
+    writeTicketSheets([
+      { title: '印刷子表A', sheet_id: 'shA', type: 'print', enabled: false },
+      { title: '电子子表B', sheet_id: 'shB', type: 'digital', enabled: true }
+    ])
+    const pv1 = previewPurgeDisabledSheetTickets()
+    ok(
+      pv1.sheets.length === 1 && pv1.sheets[0] === '印刷子表A',
+      '预览：只认「已关闭」的子表（启用的不算）'
+    )
+    ok(pv1.removable === 2 && pv1.packedSkipped === 0, '预览：2 条可清理、0 条跳过')
+
+    // ---- (5) 有任务包的跳过 ----
+    const cProj = (getDb().prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get() as { id: number }).id
+    const cPk = createPack({ name: '清理测试包', projectId: cProj, workspaceRoot: cWs })
+    getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(cPk.id, 'P1')
+    const pv2 = previewPurgeDisabledSheetTickets()
+    ok(pv2.removable === 1 && pv2.packedSkipped === 1, '预览：有任务包的算「跳过」（不删）')
+
+    // ---- (6) 留痕 + 只删应删的；关联子表/本地字段一起清 ----
+    writeTicketMetrics('P2', { printCost: 100, performanceCost: 20, remark: 'x' })
+    getDb()
+      .prepare('INSERT INTO ticket_designers (ticket_no, userid, name, seq) VALUES (?, ?, ?, 0)')
+      .run('P2', 'uME', '本机测试员')
+    const pr = purgeDisabledSheetTickets(cWs)
+    ok(pr.removed === 1, '只删「已关闭子表 + 无任务包」的 1 条')
+    ok(!!pr.backupPath && existsSync(pr.backupPath), '删前留痕：备份文件已生成')
+    const bk = JSON.parse(readFileSync(pr.backupPath as string, 'utf-8')) as {
+      sheets: string[]
+      tickets: Array<{ ticket_no: string; sheet_title: string | null }>
+      designers: unknown[]
+      metrics: unknown[]
+    }
+    ok(bk.tickets.length === 1 && bk.tickets[0].ticket_no === 'P2', '备份含被删工单的完整行')
+    ok(bk.tickets[0].sheet_title === '印刷子表A' && bk.sheets[0] === '印刷子表A', '备份记下来源子表')
+    ok(bk.designers.length === 1 && bk.metrics.length === 1, '备份含关联的设计师子表 + 本地扩展字段')
+    ok(
+      !getDb().prepare('SELECT 1 AS x FROM tickets WHERE ticket_no = ?').get('P2'),
+      'P2 已从本地移除'
+    )
+    ok(
+      (getDb().prepare('SELECT COUNT(*) AS c FROM ticket_designers WHERE ticket_no = ?').get('P2') as {
+        c: number
+      }).c === 0,
+      '设计师子表随之清空'
+    )
+    ok(
+      (getDb().prepare('SELECT COUNT(*) AS c FROM ticket_metrics WHERE ticket_no = ?').get('P2') as {
+        c: number
+      }).c === 0,
+      '本地扩展字段随之清空'
+    )
+    ok(!!getDb().prepare('SELECT 1 AS x FROM tickets WHERE ticket_no = ?').get('D1'), '已启用子表的工单不受影响')
+    ok(!!getDb().prepare('SELECT 1 AS x FROM tickets WHERE ticket_no = ?').get('P1'), '有任务包的工单跳过不删')
+
+    // ---- (7) 边界：sheet_title 为空的历史行不删（映射不上 → 宁可留着） ----
+    getDb()
+      .prepare(
+        `INSERT INTO tickets (sheet_id, sheet_title, ticket_type, ticket_no, record_id,
+           first_seen_at, last_sync_at)
+         VALUES ('shA', NULL, 'print', 'OLD1', 'rec_OLD1', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+      )
+      .run()
+    const pv3 = previewPurgeDisabledSheetTickets()
+    ok(pv3.removable === 0, 'sheet_title 为空的历史行不参与清理')
+    ok(!!getDb().prepare('SELECT 1 AS x FROM tickets WHERE ticket_no = ?').get('OLD1'), '该行原样保留')
+
+    // ---- (8) 边界：没有已关闭子表 → 不删不建备份 ----
+    writeTicketSheets(cfgBoth)
+    const pv4 = previewPurgeDisabledSheetTickets()
+    ok(pv4.sheets.length === 0 && pv4.removable === 0, '没有已关闭子表 → 可清理 0 条')
+    const pr2 = purgeDisabledSheetTickets(cWs)
+    ok(pr2.removed === 0 && pr2.backupPath === null, '无禁用子表 → 不删任何工单、不建备份文件')
+
+    closeDb()
+    hardRm(cRoot)
   }
 
 // ============ 汇总 ============

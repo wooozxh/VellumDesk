@@ -626,6 +626,33 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     d.exec('ALTER TABLE tickets ADD COLUMN thumb_url TEXT')
   }
 
+  // ---- 迁移 16：清理已禁用子表工单（第 20 批 docs/24 §2.1）----
+  // tickets 原来只记 sheet_id（出生地指纹），但用户在设置里勾选/取消的粒度是**子表标题**，
+  // 且 sheet_id 在子表重建后会漂移（detectStructure 每轮回写新指纹）——拿它匹配禁用子表不稳。
+  // 故落一列 sheet_title，作为「工单来自哪个子表」的稳定标签（清理时按标题匹配）。
+  // 幂等：① 缺列才 ALTER；② 回填只填 sheet_title IS NULL 的行（重复启动不重跑）。
+  const ticketCols16 = d.prepare('PRAGMA table_info(tickets)').all() as Array<{ name: string }>
+  if (!ticketCols16.some((c) => c.name === 'sheet_title')) {
+    d.exec('ALTER TABLE tickets ADD COLUMN sheet_title TEXT')
+  }
+  // 回填：按当前配置的 sheet_id → 标题 映射（尽力而为；映射不上的留空 → 清理时不匹配、不删）
+  try {
+    const cfgRaw = d
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get('ticket_sheets') as { value: string } | undefined
+    if (cfgRaw?.value) {
+      const arr = JSON.parse(cfgRaw.value) as Array<{ title?: string; sheet_id?: string }>
+      const upd = d.prepare('UPDATE tickets SET sheet_title = ? WHERE sheet_id = ? AND sheet_title IS NULL')
+      for (const s of arr) {
+        if (typeof s.title === 'string' && s.title !== '' && typeof s.sheet_id === 'string' && s.sheet_id !== '') {
+          upd.run(s.title, s.sheet_id)
+        }
+      }
+    }
+  } catch {
+    // 配置坏了不该拦住启动：留空即可，清理功能对空标题行一律不删
+  }
+
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。
   // 仍是「空库才落」—— 已有库（含用户本机）不动，不会重复灌、也不覆盖用户改过的颜色。

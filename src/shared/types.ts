@@ -579,6 +579,26 @@ export interface ExportReportResult {
   error?: string
 }
 
+// ---------------- 第 20 批：清理已禁用子表工单（docs/24） ----------------
+
+/** 清理预览（只算不删）：设置弹窗二次确认用 */
+export interface TicketPurgePreview {
+  /** 将被清理的条数（来自已关闭子表、且没有任务包） */
+  removable: number
+  /** 有任务包、跳过不删的条数 */
+  packedSkipped: number
+  /** 已关闭（未启用）的子表标题 */
+  sheets: string[]
+}
+
+/** 一次清理的结果 */
+export interface TicketPurgeResult extends TicketPurgePreview {
+  removed: number
+  /** 留痕备份文件路径（什么都没删时为 null） */
+  backupPath: string | null
+  error?: string
+}
+
 export interface Api {
   /** refresh=true 时重新探测工作区（用于"插上移动硬盘后重试"） */
   wsInfo: (opts?: { refresh?: boolean }) => Promise<WsInfo>
@@ -804,6 +824,12 @@ export interface Api {
   reportStatus: () => Promise<ReportStatus>
   /** 导出报表：起止日期 → 建子表 → 写记录 */
   reportExport: (input: { link: string; start: string; end: string }) => Promise<ExportReportResult>
+
+  // ---------------- 第 20 批：清理已禁用子表工单（docs/24） ----------------
+  /** 只算不删：已关闭子表的工单里，多少条可清理 / 多少条因有任务包会跳过 */
+  ticketPurgePreview: () => Promise<TicketPurgePreview>
+  /** 真删：清理已关闭子表同步进来的工单（删前留痕，有任务包的跳过） */
+  ticketPurgeDisabled: () => Promise<TicketPurgeResult>
 
   // ---------------- 第 15 批：交付打包（M5） ----------------
   /** 执行打包，生成 zip 并写交付记录 */

@@ -146,6 +146,10 @@ const api = {
   reportExport: (input: { link: string; start: string; end: string }) =>
     ipcRenderer.invoke('report:export', input),
 
+  // 第 20 批：清理已禁用子表工单（docs/24）
+  ticketPurgePreview: () => ipcRenderer.invoke('ticket:purgePreview'),
+  ticketPurgeDisabled: () => ipcRenderer.invoke('ticket:purgeDisabled'),
+
   // 打开
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),

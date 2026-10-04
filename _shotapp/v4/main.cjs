@@ -2547,6 +2547,24 @@ app.whenReady().then(async () => {
     await wait(700)
     const swAfter = await js(`(() => { const c = document.querySelector('.tk-allowassign input'); return c ? c.checked : null })()`)
     ok(swAfter === true, '开关点开即存（meta 落库）')
+
+    // (9b) 第 20 批（docs/24）：设置弹窗底部「危险操作 · 清理已禁用子表工单」
+    // ⚠️ 只验形态，不真点清理 —— 真删工单不进自动测试（引擎行为由 accept 断言盖住）
+    const danger = await js(
+      `(() => { const d = document.querySelector('.tk-danger'); if (!d) return null; const btn = d.querySelector('.btn.danger'); return { title: ((d.querySelector('.tk-danger-title')||{}).innerText||'').trim(), hints: [...d.querySelectorAll('.tk-danger-hint')].map(x => x.innerText.trim()), btn: btn ? btn.innerText.trim() : '' } })()`
+    )
+    ok(
+      !!danger && danger.title === plain(COPY.ticket.purgeSectionTitle),
+      `设置弹窗底部有「${COPY.ticket.purgeSectionTitle}」区`
+    )
+    ok(
+      !!danger && danger.btn === plain(COPY.ticket.purgeBtn),
+      `危险操作区有「${COPY.ticket.purgeBtn}」按钮`
+    )
+    ok(
+      !!danger && danger.hints.length >= 1 && danger.hints.some((h) => h.length > 0),
+      `危险操作区有说明文案（${danger ? danger.hints.join(' / ').slice(0, 60) : '—'}）`
+    )
     await shot('shot-b17-1-settings-switch.png')
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)

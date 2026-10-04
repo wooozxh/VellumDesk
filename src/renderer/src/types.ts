@@ -36,5 +36,7 @@ export type {
   ScanProgress,
   PackExportInput,
   PackExportResult,
-  DeliveryRecord
+  DeliveryRecord,
+  TicketPurgePreview,
+  TicketPurgeResult
 } from '../../shared/types'

@@ -89,6 +89,9 @@ import {
   thumbColName,
   unassignedTicketCount,
   writeTicketMetrics,
+  // 第 20 批（docs/24）：清理已禁用子表工单
+  previewPurgeDisabledSheetTickets,
+  purgeDisabledSheetTickets,
   META_KEYS,
   readTicketConfig,
   writeTicketSheets,
@@ -1189,6 +1192,25 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unassignedTicketCount()
+  })
+
+  // ---------- 第 20 批：清理已禁用子表工单（docs/24） ----------
+
+  /**
+   * 只算不删：给设置弹窗的二次确认用（将删 N 条 / 跳过 M 条）。
+   * 不碰网络、不改数据 —— 纯读配置 + 查本地库。
+   */
+  ipcMain.handle('ticket:purgePreview', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return previewPurgeDisabledSheetTickets()
+  })
+
+  /** 真删：已关闭子表同步进来的工单（有任务包的跳过；删前留痕，留痕失败则中止） */
+  ipcMain.handle('ticket:purgeDisabled', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return purgeDisabledSheetTickets(root)
   })
 
   // ---------- 第 19 批：导出报表（docs/22） ----------

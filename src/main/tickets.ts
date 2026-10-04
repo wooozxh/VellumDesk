@@ -20,6 +20,7 @@ import { COPY, fmt } from '../shared/copy'
 import { getDb, getMeta, setMeta } from './db'
 import { createPack } from './workspace'
 import { join } from 'path'
+import { mkdirSync, writeFileSync } from 'fs'
 import { ensureAnyThumb } from './thumbs'
 
 // ============================================================ 类型
@@ -444,6 +445,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
     ticket_no: string
     record_id: string
     sheet_id: string
+    /** 第 20 批（docs/24 §2.1）：出生子表标题——清理已禁用子表工单时按它匹配 */
+    sheet_title: string
     ticket_type: TicketType
     /** 第 18 批：设计师列全量（多值） */
     designers: Array<{ userid: string; name: string | null }>
@@ -463,6 +466,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
         ticket_no,
         record_id: rec.record_id,
         sheet_id: p.sheet_id,
+        sheet_title: p.title,
         ticket_type: p.type,
         designers,
         fields,
@@ -483,14 +487,14 @@ export function applySync(input: ApplySyncInput): SyncResult {
   const seenNos = new Set<string>()
   const selByNo = db.prepare('SELECT * FROM tickets WHERE ticket_no = ?')
   const insTicket = db.prepare(`
-    INSERT INTO tickets (sheet_id, ticket_type, ticket_no, record_id,
+    INSERT INTO tickets (sheet_id, sheet_title, ticket_type, ticket_no, record_id,
       title, approval_state, applicant_userid, applicant_name, department,
       purpose, size_text, print_qty, material_form, use_scene,
       due_date, submit_time, done_time, remark, source_url, approval_url,
       receiver_name, receiver_phone, deliver_date,
       designer_userid, designer_name, project_name, reviewer_names, material_category,
       thumb_url, raw_json, first_seen_at, last_sync_at, is_history)
-    VALUES (@sheet_id, @ticket_type, @ticket_no, @record_id,
+    VALUES (@sheet_id, @sheet_title, @ticket_type, @ticket_no, @record_id,
       @title, @approval_state, @applicant_userid, @applicant_name, @department,
       @purpose, @size_text, @print_qty, @material_form, @use_scene,
       @due_date, @submit_time, @done_time, @remark, @source_url, @approval_url,
@@ -500,7 +504,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
   `)
   const updTicket = db.prepare(`
     UPDATE tickets SET
-      sheet_id = @sheet_id, record_id = @record_id,
+      sheet_id = @sheet_id, sheet_title = @sheet_title, record_id = @record_id,
       title = @title, approval_state = @approval_state,
       applicant_userid = @applicant_userid, applicant_name = @applicant_name,
       department = @department, purpose = @purpose, size_text = @size_text,
@@ -530,7 +534,9 @@ export function applySync(input: ApplySyncInput): SyncResult {
       record_id: row.record_id,
       raw_json: row.raw,
       now,
-      ...row.fields
+      ...row.fields,
+      // 第 20 批（docs/24 §2.1）：出生子表标题（放 spread 之后，防止 fields 里同名键覆盖）
+      sheet_title: row.sheet_title
     }
     if (seenNos.has(row.ticket_no)) {
       // 批内撞号：库里那份不动（可能刚插入），第二份原文存 dup_json —— 两份都留
@@ -1207,4 +1213,136 @@ export async function completeTicketTask(
     sheetId: t.sheet_id,
     thumbPath: join(workspaceRoot, rel)
   }
+}
+
+// ============================================================ 第 20 批（docs/24）：清理已禁用子表工单
+//
+// 起因（用户反馈 + 实证）：工单设置里关掉某个子表后，「以后不再同步」是生效的
+// （detectStructure 会跳过 enabled=false 的配置），但**已同步进来的工单永久留在本地**——
+// applySync 只对「本轮拉取过的子表」做删行检测，禁用子表既不删也不标失效，界面上也没有
+// 任何清理入口。本段补上这个入口：只清「已关闭子表」的工单，删前必留痕，有任务包的跳过。
+//
+// 三条硬边界（docs/24 §2.5）：
+//  ① 只碰 enabled=false 的子表（按**标题**匹配，不看 sheet_id —— 那个会随子表重建漂移）
+//  ② 有任务包（pack_id 非空）的**跳过不删**：删工单会把包的关联置空（pack_id 是
+//     ON DELETE SET NULL），而包本身还在磁盘上 —— 宁可不删，也不悄悄断链
+//  ③ 删前必写 `_system/backup/tickets-<时间戳>.json`（完整行 + 设计师子表 + 本地扩展字段）；
+//     留痕失败就**中止删除**（与包清理「留痕失败不拦」不同：这里删的是用户看得见的数据）
+
+export interface PurgePreview {
+  /** 将被清理的条数（来自已关闭子表、且没有任务包） */
+  removable: number
+  /** 有任务包、跳过不删的条数 */
+  packedSkipped: number
+  /** 已关闭（enabled=false）的子表标题 */
+  sheets: string[]
+}
+
+export interface PurgeResult extends PurgePreview {
+  removed: number
+  /** 留痕文件路径（什么都没删时为 null） */
+  backupPath: string | null
+  /** 中止原因（仅备份失败时有值） */
+  error?: string
+}
+
+/** 已关闭子表的标题清单（去重去空；没配过 → 空数组） */
+function disabledSheetTitles(): string[] {
+  const set = new Set<string>()
+  for (const s of readTicketConfig().sheets) {
+    if (!s.enabled && typeof s.title === 'string' && s.title !== '') set.add(s.title)
+  }
+  return [...set]
+}
+
+/** 只算不删：给界面二次确认弹窗用（docs/24 §2.3） */
+export function previewPurgeDisabledSheetTickets(): PurgePreview {
+  const sheets = disabledSheetTitles()
+  if (!sheets.length) return { removable: 0, packedSkipped: 0, sheets: [] }
+  const db = getDb()
+  const ph = sheets.map(() => '?').join(',')
+  const rows = db
+    .prepare(`SELECT pack_id FROM tickets WHERE sheet_title IN (${ph})`)
+    .all(...sheets) as Array<{ pack_id: number | null }>
+  let removable = 0
+  let packedSkipped = 0
+  for (const r of rows) {
+    if (r.pack_id === null) removable++
+    else packedSkipped++
+  }
+  return { removable, packedSkipped, sheets }
+}
+
+/** 把待删工单的完整样子写成留痕 JSON（照 backupPackRecords 路数，永不自动删） */
+function backupPurgedTickets(
+  workspaceRoot: string,
+  sheets: string[],
+  nos: string[]
+): string | null {
+  if (!nos.length) return null
+  try {
+    const db = getDb()
+    const ph = nos.map(() => '?').join(',')
+    const tickets = db.prepare(`SELECT * FROM tickets WHERE ticket_no IN (${ph})`).all(...nos)
+    const designers = db
+      .prepare(`SELECT * FROM ticket_designers WHERE ticket_no IN (${ph})`)
+      .all(...nos)
+    const metrics = db.prepare(`SELECT * FROM ticket_metrics WHERE ticket_no IN (${ph})`).all(...nos)
+    const dir = join(workspaceRoot, '_system', 'backup')
+    mkdirSync(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const file = join(dir, `tickets-${stamp}.json`)
+    writeFileSync(
+      file,
+      JSON.stringify(
+        { at: new Date().toISOString(), reason: 'purge-disabled-sheet', sheets, tickets, designers, metrics },
+        null,
+        2
+      ),
+      'utf-8'
+    )
+    return file
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 真删：把「已关闭子表」同步进来的工单从本地库移除。
+ *
+ * 顺序刻意这么排：先算 → 先留痕 → 再单事务删。任何一步不成立就不动数据。
+ */
+export function purgeDisabledSheetTickets(workspaceRoot: string): PurgeResult {
+  const pv = previewPurgeDisabledSheetTickets()
+  if (pv.removable === 0) return { ...pv, removed: 0, backupPath: null }
+
+  const db = getDb()
+  const ph = pv.sheets.map(() => '?').join(',')
+  const nos = (
+    db
+      .prepare(`SELECT ticket_no FROM tickets WHERE sheet_title IN (${ph}) AND pack_id IS NULL`)
+      .all(...pv.sheets) as Array<{ ticket_no: string }>
+  ).map((r) => r.ticket_no)
+  if (!nos.length) return { ...pv, removed: 0, backupPath: null }
+
+  const backupPath = backupPurgedTickets(workspaceRoot, pv.sheets, nos)
+  if (!backupPath) {
+    // 留痕失败 → 中止（宁可不删）
+    return { ...pv, removed: 0, backupPath: null, error: COPY.ticket.purgeBackupFailed }
+  }
+
+  const delTicket = db.prepare('DELETE FROM tickets WHERE ticket_no = ?')
+  const delDesigners = db.prepare('DELETE FROM ticket_designers WHERE ticket_no = ?')
+  const delMetrics = db.prepare('DELETE FROM ticket_metrics WHERE ticket_no = ?')
+  const tx = db.transaction(() => {
+    for (const no of nos) {
+      // 显式清关联（ticket_designers 本有 ON DELETE CASCADE；显式删更稳，
+      // 关掉外键的库也照样干净）；ticket_metrics 无外键，必须手动清。
+      delMetrics.run(no)
+      delDesigners.run(no)
+      delTicket.run(no)
+    }
+  })
+  tx()
+  return { ...pv, removed: nos.length, backupPath }
 }

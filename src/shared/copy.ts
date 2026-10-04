@@ -920,6 +920,21 @@ export const COPY = {
     exportReportRun: '导出',
     exportReportNoLink: '请先粘贴报表表格链接',
     exportReportEmpty: '该时间段没有已完成工单',
-    exportReportOk: '已导出 {n} 条到「工单报表」子表「{sheet}」'
+    exportReportOk: '已导出 {n} 条到「工单报表」子表「{sheet}」',
+    /** 第 20 批（docs/24）：清理已禁用子表工单 */
+    purgeSectionTitle: '危险操作',
+    purgeHint: '已关闭的子表：{sheets}',
+    purgeHintNone: '没有已关闭的子表（关掉子表后可在这里清理它的工单）',
+    purgeCount: '其中 {removable} 条工单可清理，{skipped} 条因已建任务包会跳过',
+    purgeBtn: '清理这些工单',
+    purgeConfirmTitle: '确认清理工单',
+    purgeConfirmBody:
+      '将从本地移除 {n} 条来自已关闭子表的工单（已建任务包的 {skipped} 条会跳过）。删除前会自动留一份备份，可在工作区 _system/backup 找回。',
+    purgeConfirmOk: '确认清理',
+    purgeNothing: '没有可清理的工单',
+    purgeDone: '已清理 {n} 条工单，备份在 {path}',
+    purgeBackupFailed: '备份失败，已中止清理（未删除任何工单）',
+    purgeDraftDirty: '子表设置有未保存的改动，请先保存再清理',
+    purgeFailed: '清理失败：{msg}'
   }
 } as const

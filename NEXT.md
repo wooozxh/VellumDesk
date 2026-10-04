@@ -14,13 +14,14 @@
 | `feature/incr` | `64ffc9e` | 第 11~12 批增量：**文案字典** + 术语统一「包→任务」+ `tools/copy-sheet` 在线表格控制台 + **软件改名**「营销中心-素材库」（version 1.2.0） | 已提交、已验收（accept 620 项全过 / 9 场景 0 FAIL）、**未出安装包**（已被 TM 的第 14 批 1.3.0 包取代） |
 | **`TM`** | `6dba4a1`（标签 `v1.4.0`） | 第 13 批工单模块 + 第 14 批上线前优化 + 第 15 批热修 + 第 16 批 M5 交付打包 + 第 17 批设计师指派 | ✅ 第 13~16 批关单；**第 17 批自动验收全过（2026-10-02）**：accept **715 项全过** + **11 个界面场景全绿**；版本 **1.4.0**；`D:\_accept_ws\rel_out\v1.4.0` 已生成并 bare-start 验证；**待真表人工验收** |
 | **`feature/multi-designer`** | 从 `TM` 的 `6dba4a1` 分出（已提交 `96d7dc3`、`7ca65ac`） | **第 18 批：多设计师指派**（指派下拉改多选 → 多名设计师各自建任务包、任务名后缀=本机姓名；落子表 `ticket_designers`；通知只发新增的人；**点选/移除攒草稿、点「提交指派」才同步**；方案 `docs/20`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept 721 OK（新增多设计师断言全绿）+ tickets/export 场景全绿（含提交按钮断言）；**待真表人工验收 + 出包 1.5.0**（第 19 批已从此分出新分支 `feature/export-report`） |
-| **`feature/export-report`**（当前） | 从 `feature/multi-designer` 的 `7ca65ac` 分出 | **第 19 批：导出报表**（工单本地扩展字段印刷/绩效/备注 + 「完成任务」生成缩略图写回工单队列 + 按完成时间起止导出智能表格报表带图；方案 `docs/22`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **746 OK**（新增导出报表断言 25 项全绿）+ tickets/export 场景全绿；**待 mcporter 机器 publish 文案（8 条）+ 出包 1.6.0 + 真表人工验收** |
+| **`feature/export-report`** | 从 `feature/multi-designer` 的 `7ca65ac` 分出（已提交 `9eb1564`、`1bd1f2b`、`51158f2`、`4026a32`、`9c34377`） | **第 19 批：导出报表**（工单本地扩展字段印刷/绩效/备注 + 「完成任务」生成缩略图写回工单队列 + 按完成时间起止导出智能表格报表带图；方案 `docs/22`）+ UI 打磨 + wecom-cli 白名单热修 + 交付打包热修 + docs/23 存档 | 代码完工、自动验收全过；**待 mcporter 机器 publish 文案（8 条）+ 出包 1.6.0 + 真表人工验收**（第 20 批已从此分出新分支 `feature/purge-disabled-sheet`） |
+| **`feature/purge-disabled-sheet`**（当前） | 从 `feature/export-report` 分出 | **第 20 批：清理已禁用子表工单**（迁移 16 `tickets.sheet_title` + `purgeDisabledSheetTickets` 引擎 + 设置弹窗「危险操作」区；方案 `docs/24`） | **代码完工、自动验收全过（2026-10-04）**：typecheck 0 错 + accept **772 OK**（新增 22 项断言全绿）+ tickets 场景全绿；**待真机点一次清理 + 出包 1.7.0** |
 
 要点：
 
-- **`TM` 是从 `feature/incr` 分出来的**（`64ffc9e`），带着文案字典与改名 —— 新模块直接在**新文案 + 新软件名**上开发；**`feature/multi-designer` 从 `TM` 的 `6dba4a1` 分出**（第 18 批多设计师指派）；**`feature/export-report` 从 `feature/multi-designer` 的 `7ca65ac` 分出**（第 19 批导出报表）。
+- **`TM` 是从 `feature/incr` 分出来的**（`64ffc9e`），带着文案字典与改名 —— 新模块直接在**新文案 + 新软件名**上开发；**`feature/multi-designer` 从 `TM` 的 `6dba4a1` 分出**（第 18 批多设计师指派）；**`feature/export-report` 从 `feature/multi-designer` 的 `7ca65ac` 分出**（第 19 批导出报表）；**`feature/purge-disabled-sheet` 从 `feature/export-report` 分出**（第 20 批清理已禁用子表工单）。
 - **谁也不许 merge 回 `main`**：用户说过增量功能"不一定用得上"，采纳与否等拍板。
-- 切分支：`git switch main` / `git switch feature/incr` / `git switch TM` / `git switch feature/multi-designer` / `git switch feature/export-report`（**当前在 `feature/export-report`**）。
+- 切分支：`git switch main` / `git switch feature/incr` / `git switch TM` / `git switch feature/multi-designer` / `git switch feature/export-report` / `git switch feature/purge-disabled-sheet`（**当前在 `feature/purge-disabled-sheet`**）。
 - **稳定点备份（项目外，2026-09-30 已做）**：
   - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
   - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
@@ -28,7 +29,8 @@
 - **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 是热修包；1.3.2 = 第 13~16 批；
   **1.4.0 = 第 17 批设计师指派**（最新包 `D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`）；
   **1.5.0 = 第 18 批多设计师指派**（代码已完工待出包）；
-  **1.6.0 = 第 19 批导出报表**（本批，代码已完工待出包）。
+  **1.6.0 = 第 19 批导出报表**（代码已完工待出包）；
+  **1.7.0 = 第 20 批清理已禁用子表工单**（本批，代码已完工待出包）。
 
 ---
 
@@ -172,6 +174,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 **第 17 批「设计师指派」已完工**（2026-10-02，accept 715 项 + 11 场景全绿，版本 1.4.0 已出包）——**只剩真表人工验收**：软件里指派 → 表格设计师那格真变 + 设计师收到通知；同事表格手改 → 同步跟随；断网写回 → 恢复自动补写；指派给自己 → 任务自动建出。
 **第 18 批「多设计师指派」已代码完工**（2026-10-04，typecheck 0 错 + accept 721 OK + tickets/export 场景全绿，方案 `docs/20`，已提交 `96d7dc3`；**用户验收后补「提交按钮」**也已落地并全绿）——**待办**：① 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（4 条新文案：assignMore / assignNeedOne / assignSubmit / assignDirty）；② 出包 1.5.0；③ 真表人工验收（多选两人 → 点提交 → 两人各自长任务包 + 新增的人收到通知 / 移除一人点提交 → 表格成员列真变 / 同事表格手改多选 → 同步跟随）。
 **第 19 批「导出报表」已代码完工**（2026-10-04，typecheck 0 错 + accept 746 OK + tickets/export 场景全绿，方案 `docs/22`）——**待办**：① 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（累计 8 条新文案：第 18 批 4 条 + 本批 4 条）；② 真表人工验收前，用户在工单队列手动加「缩略图」image 列；③ 出包 1.6.0（两步法 + 项目外全新空目录）；④ 真表人工验收（完成任务 → 工单队列「缩略图」列真出图 → 同步后导出 → 「工单报表」按起止日期新建子表、字段齐全、图正确、本地字段带出、绩效金额列为空待手填）。
+**第 20 批「清理已禁用子表工单」已代码完工**（2026-10-04，typecheck 0 错 + accept 772 OK + tickets 场景全绿，方案 `docs/24`）——起因是用户实测「关掉两个生产子表、只留测试子表，同步后仍是 200+ 条」→ 排查确认**不是 bug 是设计缺口**（关闭子表只停止后续同步，已同步的工单永久留存，且此前没有清理入口）。**待办**：① 真机点一次「清理这些工单」验证（会删掉那两个生产子表的 259 条，备份落 `_system/backup/tickets-*.json`）；② 文案 publish（本批新增约 12 条）；③ 出包 1.7.0。
 **下一批做什么等用户点名**，候选：
 
 - **1.3.0 / 1.4.0 装机反馈收尾**：同事装完报的问题（无签名会撞 SmartScreen 蓝条 → 「更多信息 → 仍要运行」；本轮拍板**不做代码签名**，证书路线存 `docs/17` §B）
@@ -187,7 +190,7 @@ M6 还剩的其他小项：
 
 其他候选：M8-04 一键备份完整版；M5 素材交付打包。
 
-**状态（2026-10-04）**：第 17 批已出包 **1.4.0** → `D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`（老包：1.1.0 在 `rel_out\v1.1.0\`、1.3.2 在 `rel_out\v1.3.2\`、1.0.0 在 `rel_out\` 根下）。`TM` 分支代码已提交 push；**第 18 批在 `feature/multi-designer` 分支（已提交 `96d7dc3`、`7ca65ac`）；第 19 批在 `feature/export-report` 分支**（本地 `_junk/` 不入库，是测试证据）。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**且**两个镜像都要设**（见下「环境坑速查」）。
+**状态（2026-10-04）**：第 17 批已出包 **1.4.0** → `D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`（老包：1.1.0 在 `rel_out\v1.1.0\`、1.3.2 在 `rel_out\v1.3.2\`、1.0.0 在 `rel_out\` 根下）。`TM` 分支代码已提交 push；第 18 批在 `feature/multi-designer`（`96d7dc3`、`7ca65ac`）；第 19 批在 `feature/export-report`（`9eb1564`、`1bd1f2b`、`51158f2`、`4026a32`、`9c34377`）；**第 20 批在 `feature/purge-disabled-sheet`**（本地 `_junk/` 不入库，是测试证据）。出包时 `npm run build:win` 会被沙箱删除护栏拦，**拆两步跑**且**两个镜像都要设**（见下「环境坑速查」）。
 
 ---
 
