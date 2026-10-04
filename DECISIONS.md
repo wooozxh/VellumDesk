@@ -774,3 +774,17 @@
   用户手动切过视图后**不记忆**（本批不做视图持久化）。
 - **放弃**：把默认视图写进 localStorage 记住上次（会带来「它怎么自己跳」的困惑，且用户没要求）；
   顺带在工单视图下也渲染左栏（工单视图本就自带 7 个筛选，左栏是多余的第二套）。
+
+## 2026-10-05　全站改名 Vellum工作台 / VellumDesk；分支只留 main（用户拍板，docs/28）
+
+- **决策**：界面显示「Vellum工作台」；exe / 安装包 / GitHub 仓库用「VellumDesk」；
+  appId 改 `com.vellumdesk`；userData 改 `vellumdesk_project`；工作区默认 `D://vellum_workspace`；
+  安装包 `VellumDesk-<版本>-Setup.exe`；仓库 `media-lib_zxh` → `VellumDesk`；分支清理后**只留 main**。
+- **代价与对策**：userData 改名 → 老用户升级后重选一次工作区（数据不丢，README/NEXT 已写提示）；
+  appId 改名 → 任务栏分组可能短暂分裂（装机面小，可接受）；npm 包名 `name` 保持 proj_media 不动
+  （不对外，改它要连带 lock 文件，铁律禁改）。
+- **教训**：①删远程分支被拒 = GitHub 仓库 HEAD 还指着它，先把 default_branch 设好再删；
+  ②历史记录（旧包真实路径、旧改名条目）**不回改**，批量替换脚本要带"历史行回修"规则；
+  ③改名验收要连 accept 断言一起改（exe 名/appId/安装包名三条断言硬编码了旧值）。
+- **边界**：磁盘内部目录名（01-成品/_回收站等）与数据库状态值**一律不动**；界面功能文案
+  「素材工作区」保留（功能概念，非品牌名）。

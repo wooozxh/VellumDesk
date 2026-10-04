@@ -944,3 +944,37 @@
 - **合规**：全文**不含真实姓名、内部文档 ID / 子表 ID / 字段 ID**；预置项目 / 标签用"原公司的 N 项"概述，不照搬具体业务名。
 - **改法**：纯新增一个 docs 文件，**未动任何代码**，未重跑 typecheck / accept / 界面场景。
   行尾：CRLF 179 / LF-only 0（与仓库 docs/*.md 一致）。
+
+
+### 2026-10-05（第 34 次会话）—— 全站改名（Vellum工作台 / VellumDesk）+ 新图标 + 出包 + 分支整理 + 仓库改名
+
+- **用户原话**：「把库的名字、各分支的名字、软件的名字、安装包的名字、安装包文件夹的名字、路径的名字、
+  整个软件内显示的软件名，全部都规范一下」；随后补「还需要修改软件图标以及出新包，图标图片我可以稍等发你」，
+  并发来 Vellum Desk 图标（1024 jpg，四角黑底）拍板「开工吧」。
+- **命名决策（用户经两轮选项拍板，方案 docs/28）**：中文产品名 **Vellum工作台**；英文标识 **VellumDesk**
+  （exe / 安装包 / 仓库）；appId **com.vellumdesk**；userData **vellumdesk_project**；
+  工作区默认 **D://vellum_workspace**；安装包 **VellumDesk-<版本>-Setup.exe**；仓库 **VellumDesk**。
+  npm 包名 `package.json` 的 `name`（proj_media）保持不动（不对外，改它要连带 lock 文件）。
+- **代码改动**（commit `4846b80`）：package.json（productName/appId/executableName/shortcutName/
+  uninstallDisplayName/artifactName，只动 build 字段）；copy.ts `COPY.app.name`；index.html 标题；
+  main/index.ts（setAppUserModelId + userData，注释重写）；workspace.ts（默认工作区与兜底名）；
+  accept.ts 三条断言同步（exe 名 / 安装包名改判 startsWith(executableName) / appId）。
+- **图标**：Pillow 检测原图圆角半径（≈140px）→ 圆角 mask 把四角黑底转透明 → `build/icon-source.png`（1024 留档）
+  + `resources/icon.png` / `build/icon.png`（512）+ `build/icon.ico`（256~16 六档）+ 删过期 `icon.icns`。
+  Alpha 校验：四角 (0,0,0,0)、边中点不透明。
+- **验收**：typecheck 0 错；三 bundle 重打；accept **800 OK + 1 FAIL**（唯一 FAIL 仍是硬编码 PSD 的历史环境问题）；
+  **11 个界面场景全绿**（lifecycle 首跑 4 FAIL 为场景工作区残留瞬态，复跑即绿）；
+  出包 **`VellumDesk-1.8.1-Setup.exe`（185 MB）**，包内 VellumDesk.exe / ffmpeg / ffprobe / wecom-cli 齐全；
+  裸启动冒烟 **2.0s 出窗**、窗口标题 `Vellum工作台`，冒烟脚本已适配新 exe 名与新标题。
+- **分支整理**：`feature/wecom-bundle`（含改名提交）**ff 合并进 main**（main 从 1.1.0 直接前进到 1.8.1+改名）；
+  删除 `TM` / `feature/incr` / `feature/export-report` / `feature/multi-designer` /
+  `feature/purge-disabled-sheet` / `feature/wecom-bundle`（本地+远程）。**此后仓库只剩 `main`**。
+  坑：远程拒绝删 wecom-bundle（"refusing to delete the current branch"）——GitHub 的 HEAD 还指着它，
+  先用 API 把 `default_branch` 设为 `main` 才删掉。
+- **仓库改名**：GitHub API `PATCH /repos` 一步完成 `media-lib_zxh` → **`VellumDesk`** + default_branch=main；
+  本地 `remote set-url` 更新；public 状态保持。
+- **文档**：README / NEXT / PROJECT / docs/25 / docs/27 软件名与路径更新
+  （用「折行替换 + 历史行回修」脚本：v1.3.0/v1.4.0 旧包真实路径、第 12 批改名记录等**有意保留旧名**）；
+  docs/28 方案文档（新增）；README/NEXT 补「老用户升级后重选一次工作区」提示。
+- **老用户影响**：userData 目录改名 → 本机与同事机升级后首次打开需**重选一次工作区位置**（数据不丢）；
+  appId 改名 → 任务栏图标分组可能短暂分裂。
