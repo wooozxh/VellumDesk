@@ -24,6 +24,8 @@ export interface PackCard {
   name: string
   project_id: number | null
   category: string
+  /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
+  channel: string
   folder_path: string
   created_at: string
   updated_at: string
@@ -117,6 +119,8 @@ export interface UnboundProject extends Project {
 export interface UpdatePackPatch {
   name?: string
   category?: string
+  /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
+  channel?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
 }
@@ -363,6 +367,8 @@ export interface Tag {
 export interface TagWithCount extends Tag {
   /** 被多少条素材使用（左栏显示数量、删标签前提示用） */
   assetCount: number
+  /** 第 23 批（docs/29）：被多少个任务（包）使用 —— 左栏数字 = 任务数 + 文件数 */
+  packCount: number
 }
 
 export interface DimensionGroup {
@@ -734,6 +740,8 @@ export interface Api {
     name?: string
     projectId?: number | null
     category?: string
+    /** 第 23 批（docs/29）：任务的「使用场景」 */
+    channel?: string
   }) => Promise<{ ok: boolean; pack?: PackCard; error?: string }>
   refreshScan: () => Promise<ScanResult>
   /**

@@ -653,6 +653,11 @@ export function applySync(input: ApplySyncInput): SyncResult {
         typeof row.fields.material_category === 'string' && row.fields.material_category !== ''
           ? row.fields.material_category
           : ''
+      // 第 23 批（docs/29）：工单「物料使用场景」→ 任务的 channel（与物料类别对称）
+      const channel =
+        typeof row.fields.use_scene === 'string' && row.fields.use_scene !== ''
+          ? row.fields.use_scene
+          : ''
       // 第 18 批（docs/20 §6 路 A）：多设计师（≥2 人）时任务名 = 物料名称-本机姓名；
       // 单设计师时 = 物料名称（向后兼容，不悄悄改既有命名）
       const designers = designersOf(row.ticket_no)
@@ -663,6 +668,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
         name: packName,
         projectId,
         category,
+        channel,
         workspaceRoot: input.workspaceRoot
       })
       setPack.run(pack.id, row.ticket_no)
@@ -742,13 +748,14 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
 } {
   const db = getDb()
   const pendings = db
-    .prepare('SELECT ticket_no, approval_state, project_name, title, material_category FROM tickets WHERE need_confirm = 1')
+    .prepare('SELECT ticket_no, approval_state, project_name, title, material_category, use_scene FROM tickets WHERE need_confirm = 1')
     .all() as Array<{
     ticket_no: string
     approval_state: string | null
     project_name: string | null
     title: string | null
     material_category: string | null
+    use_scene: string | null
   }>
   let confirmed = 0
   let tasksCreated = 0
@@ -781,6 +788,7 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
         name: packName,
         projectId: proj.id,
         category: t.material_category ?? '',
+        channel: t.use_scene ?? '',
         workspaceRoot
       })
       setPack.run(pack.id, t.ticket_no)
@@ -799,9 +807,15 @@ export function createTaskForTicketManually(
 ): { ok: boolean; packId?: number; packName?: string; msg?: string } {
   const db = getDb()
   const t = db
-    .prepare('SELECT pack_id, project_name, title, material_category FROM tickets WHERE ticket_no = ?')
+    .prepare('SELECT pack_id, project_name, title, material_category, use_scene FROM tickets WHERE ticket_no = ?')
     .get(ticket_no) as
-    | { pack_id: number | null; project_name: string | null; title: string | null; material_category: string | null }
+    | {
+        pack_id: number | null
+        project_name: string | null
+        title: string | null
+        material_category: string | null
+        use_scene: string | null
+      }
     | undefined
   if (!t) return { ok: false, msg: COPY.ticket.detailTitle /* 不存在 */ }
   if (t.pack_id !== null) return { ok: false, msg: fmt(COPY.ticket.linkedTask, { name: '' }) }
@@ -819,6 +833,7 @@ export function createTaskForTicketManually(
       name: t.title ?? ticket_no,
       projectId: proj.id,
       category: t.material_category ?? '',
+      channel: t.use_scene ?? '',
       workspaceRoot
     })
     db.prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack.id, ticket_no)

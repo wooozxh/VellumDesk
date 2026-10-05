@@ -18,32 +18,38 @@ import { Icon } from './Icon'
 export function NewPackModal({
   projects,
   categories,
+  channels,
   onClose,
   onSubmit
 }: {
   projects: ProjectWithCount[]
   categories: string[]
+  /** 第 23 批（docs/29）：使用场景清单（同样派生自左栏标签维度） */
+  channels: string[]
   onClose: () => void
   onSubmit: (v: {
     name: string
     projectId: number | null
     category: string
+    channel: string
   }) => Promise<void>
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [projectId, setProjectId] = useState<number | null>(projects[0]?.id ?? null)
   const [category, setCategory] = useState(categories[0] ?? '未分类')
+  const [channel, setChannel] = useState(channels[0] ?? '未分类')
   const [busy, setBusy] = useState(false)
 
   // 清单可能比弹窗后到，也可能刚被左栏改过：选中的那个不在清单里就顺延到第一个，
   // 一个都没有就记「未分类」（跟后端 `UNCATEGORIZED` 同一个值）
   const picked = categories.includes(category) ? category : (categories[0] ?? '未分类')
+  const pickedChannel = channels.includes(channel) ? channel : (channels[0] ?? '未分类')
 
   const submit = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
     try {
-      await onSubmit({ name, projectId, category: picked })
+      await onSubmit({ name, projectId, category: picked, channel: pickedChannel })
     } finally {
       setBusy(false)
     }
@@ -98,26 +104,37 @@ export function NewPackModal({
             <label>{COPY.dim.category}</label>
             {categories.length === 0 ? (
               <div className="hint" style={{ color: 'var(--warn)' }}>
-                
                 {COPY.newPack.noCategory}
               </div>
             ) : (
-              <div className="chips">
+              // 第 23 批（docs/29）：平铺 chips 改成下拉 —— 标签越加越多时弹窗不会被撑臃肿
+              <select value={picked} onChange={(e) => setCategory(e.target.value)}>
                 {categories.map((c) => (
-                  <button
-                    key={c}
-                    className={`chip${c === picked ? ' on' : ''}`}
-                    onClick={() => setCategory(c)}
-                  >
+                  <option key={c} value={c}>
                     {c}
-                  </button>
+                  </option>
                 ))}
-              </div>
+              </select>
             )}
-            <div className="hint">
-              
-              {COPY.newPack.categoryHint}
-            </div>
+            <div className="hint">{COPY.newPack.categoryHint}</div>
+          </div>
+
+          <div className="field">
+            <label>{COPY.dim.channel}</label>
+            {channels.length === 0 ? (
+              <div className="hint" style={{ color: 'var(--warn)' }}>
+                {COPY.newPack.noChannel}
+              </div>
+            ) : (
+              <select value={pickedChannel} onChange={(e) => setChannel(e.target.value)}>
+                {channels.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="hint">{COPY.newPack.channelHint}</div>
           </div>
 
           <div

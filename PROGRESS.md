@@ -1005,3 +1005,34 @@
   完整 PNG 通过 / 0 字节 / 只有头 / 尾非 IEND / 头非 PNG 签名均拦截）；**tickets 界面场景全绿、控制台零报错**；
   **端到端证明**：直接调修复后的 `startWecomAuth` 跑真 CLI，839ms 拿到 3565 字节完整 PNG（isCompletePng = true），不再破图。
 - **下一步**：等用户测完本轮全部 bug 统一打包（纯热修 → **1.8.2**）；push GitHub 前提醒用户开代理（github.com:443 间歇拦截）。
+
+### 2026-10-05（第 36 次会话）—— 修 bug 会话②：任务标签筛选打通 + 使用场景绑定 + 建任务面板改下拉（第 23 批）
+
+- **用户报的三件事**：① 新建任务 / 工单自动建任务后，左侧筛选标签面板的数字不更新、点标签也筛不出任务；
+  ② 「使用场景」标签在软件里无作用，任务上绑不了；③ 建任务面板绑定标签的控件改下拉（标签多了会臃肿，注意深色底）。
+- **排查结论（两套账 + 一个反作用 effect）**：
+  - 任务分类存 `packs.category`，而左侧标签数字算的是「贴了该标签的**素材文件数**」（asset_tags），跟任务无关；
+    点标签也只筛文件视图 —— 所以新建任务后左侧数字不动、点标签筛不出任务。
+  - **更深一层的真根因**：`App.tsx` 有一条第 4/7 批留下的 effect `if (tagChanged && view !== 'files') setView('files')`
+    （「标签只筛文件」时代的写法）—— 用户在**任务视图**点标签会被强行拽到文件视图，根本看不到任务被筛。
+- **用户拍板**（方案 `docs/29`）：① 筛选口径 = **任务 + 文件一起管**（数字 = 任务数 + 文件数，点标签两个视图都筛）；
+  ② 任务绑「使用场景」= **单值**（与物料类别对称）。
+- **改动**：
+  - 迁移 17：`packs` 加 `channel` 列（`tickets.use_scene` 第 13 批已有，只是建任务时没带出去）。
+  - `tags.ts`：`PACK_DIM_COLUMN` 维度→列映射；`countPacksWithDimension`；`listTagDimensions` 数字扩成
+    `assetCount + packCount`（packCount 跟随项目范围）；改名 / 删除联动覆盖 channel。
+  - `workspace.ts`：`createPack` / `updatePack` / `movePackTo` 贯通 channel。
+  - `tickets.ts`：三处建任务带 `channel = use_scene`（自动建 / 批量补建 / 手动补建）。
+  - `App.tsx`：`shownPacks` 按选中标签的 category/channel 名字筛任务；抽 `packsInProject` 供文件视图用（避免被任务标签二次收窄）；
+    **点标签留在当前视图**（只有工单视图点标签才切任务视图）；建包 / 编辑面板传 channel 清单。
+  - `NewPackModal` / `EditPackModal`：物料类别平铺按钮 → 下拉，新增「使用场景」下拉（深色底色沿用现成 `.field select`）。
+  - `TagPanel`：数字显示「任务 + 文件」，悬停分解成「任务 N 个 + 文件 M 条」。
+  - `copy.ts`：新增 `newPack.noChannel` / `newPack.channelHint` / `editPack.channelHint`，改写 `tagPanel.usage` / `usageNone`（待 publish）。
+- **改了哪些文件**：`src/main/{db.ts,tags.ts,workspace.ts,tickets.ts,ipc.ts}`；`src/shared/{types.ts,copy.ts}`；
+  `src/preload/index.ts`；`src/renderer/src/App.tsx` + `components/{NewPackModal,EditPackModal,TagPanel}.tsx`；
+  `accept.ts`；`_shotapp/v4/main.cjs`；`docs/29`（新）、`PROGRESS.md`、`NEXT.md`
+- **验收结果**：typecheck 0 错；重打三个 `out/test` bundle + `npx electron-vite build`；
+  accept **834 项全过**（816 → +18）；**11 个界面场景全绿、控制台零报错**（含 tagcount 断言改成「文件数 + 任务数」动态口径、
+  category 新增 5 条第 23 批断言）。
+- **下一步**：等用户测完本轮全部 bug 统一出包 **1.8.2**（出包必核对包内 `resources/wecom-cli/wecom-cli.exe`）；
+  push GitHub 前提醒用户开代理。

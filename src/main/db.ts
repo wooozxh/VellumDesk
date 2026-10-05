@@ -35,6 +35,8 @@ export interface PackRow {
   name: string
   project_id: number | null
   category: string
+  /** 第 23 批（docs/29）：任务的「使用场景」，与 category 完全对称 */
+  channel: string
   folder_path: string
   created_at: string
   updated_at: string
@@ -288,6 +290,8 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       name         TEXT    NOT NULL,
       category     TEXT    NOT NULL DEFAULT '未分类',
+      -- 第 23 批（docs/29）：任务的「使用场景」（与 category 完全对称，存标签名字不是外键）
+      channel      TEXT    NOT NULL DEFAULT '未分类',
       folder_path  TEXT    NOT NULL UNIQUE,
       created_at   TEXT    NOT NULL,
       updated_at   TEXT    NOT NULL
@@ -651,6 +655,17 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     }
   } catch {
     // 配置坏了不该拦住启动：留空即可，清理功能对空标题行一律不删
+  }
+
+  // ---- 迁移 17：任务也能绑「使用场景」（第 23 批 docs/29）----
+  // 用户的 bug：左侧标签面板的数字/筛选只认素材（asset_tags），任务分类（packs.category）
+  // 是另一套账 —— 新建任务后左侧数字不动、点标签筛不出任务。本批把「任务」纳入标签体系：
+  //   · packs.channel —— 任务的「使用场景」（与 category 完全对称，存标签名字不是外键）
+  // 工单侧的「物料使用场景」第 13 批就已全量同步进 tickets.use_scene，本批只是建任务时带出去。
+  // 幂等：缺列才 ALTER（老库 packs 表已存在，CREATE TABLE IF NOT EXISTS 会跳过）。
+  const packCols17 = d.prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+  if (!packCols17.some((c) => c.name === 'channel')) {
+    d.exec("ALTER TABLE packs ADD COLUMN channel TEXT NOT NULL DEFAULT '未分类'")
   }
 
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----

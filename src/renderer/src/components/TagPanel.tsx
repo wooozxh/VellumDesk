@@ -15,9 +15,10 @@ import { Icon } from './Icon'
  *   当前没有单选维度，但这是条无害的防御路径，将来加回单选维度即可复用
  * - 顶部一行汇总「已选 N 个」，一键清除
  * - 项目归属不在这里（走左栏项目面板）；时间用物料固有字段，都不做成标签
- * - 标签后面的数字 = **当前左栏项目范围内**贴了该标签的素材条数（第 7 批起跟随项目，
- *   之前是全库口径，选了项目后数字与右侧结果对不上）；0 条的标签仍列出但压暗
- * - 维度标题右边的数字是「这个维度下有几个标签」，别跟上面的素材数混
+ * - 标签后面的数字 = **当前左栏项目范围内**用它的「任务数 + 文件数」合计（第 23 批 docs/29：
+ *   用户拍板任务+文件一起管，悬停提示分解成「任务 N 个 + 文件 M 条」）；0 条仍列出但压暗
+ * - 点击标签**同时**驱动任务视图与文件视图的筛选（任务按 category/channel 名字、文件按 asset_tags）
+ * - 维度标题右边的数字是「这个维度下有几个标签」，别跟上面的数量混
  *
  * 组件只负责勾选与回显，筛选发生在界面层（交给 listAssets 的 tagIds）。
  */
@@ -119,7 +120,10 @@ export function TagPanel({
                 )}
                 {dim.tags.map((t) => {
                   const on = selectedSet.has(t.id)
-                  const zero = t.assetCount === 0
+                  // 第 23 批（docs/29）：数字 = 任务数 + 文件数（用户拍板「任务+文件一起管」）；
+                  // 悬停时分解，避免「数字比右侧列出的多」的困惑。
+                  const total = t.assetCount + t.packCount
+                  const zero = total === 0
                   return (
                     <button
                       key={t.id}
@@ -128,7 +132,12 @@ export function TagPanel({
                       title={
                         zero
                           ? fmt(COPY.tagPanel.usageNone, { name: t.name, scope: scopeText })
-                          : fmt(COPY.tagPanel.usage, { name: t.name, scope: scopeText, n: t.assetCount })
+                          : fmt(COPY.tagPanel.usage, {
+                              name: t.name,
+                              scope: scopeText,
+                              p: t.packCount,
+                              a: t.assetCount
+                            })
                       }
                       style={
                         on
@@ -138,7 +147,7 @@ export function TagPanel({
                     >
                       {!on && <i className="cdot" style={{ background: t.color }} />}
                       <span className="tp-tag-name">{t.name}</span>
-                      <span className="tp-tag-n">{t.assetCount}</span>
+                      <span className="tp-tag-n">{total}</span>
                     </button>
                   )
                 })}

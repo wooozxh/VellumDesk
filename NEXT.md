@@ -239,3 +239,6 @@ M6 还剩的其他小项：
 | **改文案走表格，别再手改 `copy.ts`** | 流程在 `tools/copy-sheet/README.md`：表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`（刷新表，链接不变） |
 | ⛔ **wecom-cli 出二维码是「先建 0 字节文件、~1.5s 后写完整 PNG」** | 等码必须校验 PNG 完整性（`isCompletePng`：头签名 + IEND 尾双校验），只判 `existsSync` 会抢读 0 字节 → 空 data URL → 界面破图（2026-10-05 修，探针 3/3 必现） |
 | ⛔ **`resources/wecom-cli/wecom-cli.exe` 同 ffmpeg 一样会丢（gitignore 不入库）** | 出包前必查包内 exe 存在（1.8.1-vellum 包就缺了，台账「齐全」是误记）。恢复来源：`@wecom/cli` npm 平台依赖 `node_modules/@wecom/cli-win32-x64/bin/wecom-cli.exe`（10,091,560 字节） |
+| ⛔ **点左侧标签会自动切到文件视图** | 第 4/7 批遗留（「标签只筛文件」年代）。第 23 批已改「留在当前视图，只有工单视图点标签才切任务视图」。以后再动标签筛选语义，先看 `App.tsx` 里 `tagChanged` 那个 effect |
+| **建包 / 编辑任务的类别与场景是下拉（第 23 批起）** | 场景壳读类别清单要用 `readNewPackSelect()`（读对应 field 的 `select option`），别再用 `.chips .chip`；lifecycle 的编辑弹窗断言已是「4 块 / 3 下拉」 |
+| **左侧标签数字 = 任务数 + 文件数（第 23 批起）** | 任务分类存 `packs.category`/`channel`（名字，不是外键），跟素材标签 `asset_tags` 是两套。改计数口径时两边都要过一遍；tagcount 场景断言已改成动态口径 |

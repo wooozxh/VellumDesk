@@ -3326,7 +3326,10 @@ async function main(): Promise<void> {
     `删前查得到：${eUsage.packCount} 个包正在用「易拉宝」（界面确认弹窗就是拿这个数字说话）`
   )
   const eChTag = createTag({ dimension: 'channel', name: '类别测试渠道' }).tag!
-  ok(tagUsage(eChTag.id).packCount === 0, '【只算类别维度】渠道标签的包计数恒为 0（包跟它无关）')
+  ok(
+    tagUsage(eChTag.id).packCount === 0,
+    '渠道标签的包计数按 packs.channel 统计（第 23 批起场景也绑任务；此刻没有包的场景 = 该标签，故为 0）'
+  )
 
   // ---- (4) 改名 → 已有包的类别跟着改（不留"面板里查不到的老名字"）----
   const eRename = updateTag(eNewTag.id, { name: '易拉宝-大展架' })
@@ -3348,12 +3351,15 @@ async function main(): Promise<void> {
   const eChPoster = createTag({ dimension: 'channel', name: '海报' }).tag!
   ok(!!eChPoster, '【布景】渠道维度里也放一个叫「海报」的标签（跨维度允许同名）')
   const eChRename = updateTag(eChPoster.id, { name: '海报（渠道）' })
-  ok(eChRename.ok && eChRename.packsUpdated === 0, '改渠道维度的同名标签 → 0 个包受影响')
-  ok(eCat(ePackC.id) === '海报', '【关键】包丙的类别纹丝不动（只认「物料类别」这一个维度）')
+  ok(
+    eChRename.ok && eChRename.packsUpdated === 0,
+    '改渠道维度标签只联动 packs.channel、不动 packs.category（没有包的场景 = 海报，故 0 个受影响）'
+  )
+  ok(eCat(ePackC.id) === '海报', '【关键】包丙的类别纹丝不动（维度之间互不串门）')
   const eDelCh = removeTag(eChPoster.id)
   ok(
     eDelCh.ok && eDelCh.packsAffected === 0 && eCat(ePackC.id) === '海报',
-    `【关键】删渠道维度的同名标签，0 个包受影响、包丙的类别照样不动（packsAffected=${eDelCh.packsAffected}）`
+    `【关键】删渠道维度标签不动 packs.category（包丙类别照样「海报」），也没有场景 ≠ 它的包受影响（packsAffected=${eDelCh.packsAffected}）`
   )
 
   // ---- (6) 删除 → 用它的包类别归「未分类」----
@@ -3401,6 +3407,149 @@ async function main(): Promise<void> {
     !!eManualRow && eManualRow.category === '未分类',
     '【兜底】手工建的包文件夹被扫进来时类别记「未分类」（不是空串）'
   )
+
+  // ============ 第 23 批 T-08：任务标签筛选打通 + 使用场景绑定（docs/29）============
+  log('\n[40] 第 23 批：任务绑「使用场景」+ 标签数字含任务 + 改名/删除联动 + 工单带场景')
+  {
+    const fRoot = join('D:\\_accept_ws', `wstest23_${RUN_ID}`)
+    const fWs = join(fRoot, 'ws')
+    hardRm(fRoot)
+    mkdirSync(fWs, { recursive: true })
+    closeDb()
+    openDb(fWs)
+    initWorkspace(fWs)
+
+    const fProj = createProject({ name: '场景-甲', workspaceRoot: fWs }).project!
+    const fCh = (id: number): string =>
+      (getDb().prepare('SELECT channel FROM packs WHERE id = ?').get(id) as { channel: string })
+        .channel
+    const fCat = (id: number): string =>
+      (getDb().prepare('SELECT category FROM packs WHERE id = ?').get(id) as { category: string })
+        .category
+    const fTags = (key: string): Array<{ id: number; name: string; packCount: number; assetCount: number }> =>
+      (listTagDimensions().find((d) => d.key === key)?.tags ?? []) as never
+
+    // ---- (1) 迁移 17：packs 有 channel 列 ----
+    const fCols = (
+      getDb().prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+    ).map((c) => c.name)
+    ok(fCols.includes('channel'), '迁移 17：packs 表有 channel 列（任务的「使用场景」）')
+
+    // ---- (2) 建包带 channel；不传 = 未分类（与类别同一个兜底）----
+    const fScene = createTag({ dimension: 'channel', name: '场景-地推咨询' }).tag!
+    const fPackA = createPack({
+      name: '场景包甲',
+      projectId: fProj.id,
+      category: '海报',
+      channel: '场景-地推咨询',
+      workspaceRoot: fWs
+    })
+    const fPackB = createPack({
+      name: '场景包乙',
+      projectId: fProj.id,
+      category: '海报',
+      channel: '场景-地推咨询',
+      workspaceRoot: fWs
+    })
+    const fPackC = createPack({
+      name: '场景包丙',
+      projectId: fProj.id,
+      category: '单页',
+      workspaceRoot: fWs
+    })
+    ok(
+      fCh(fPackA.id) === '场景-地推咨询' && fCh(fPackB.id) === '场景-地推咨询',
+      '建包选的「使用场景」落在 packs.channel 上'
+    )
+    ok(fCh(fPackC.id) === '未分类', '不传使用场景 → 记「未分类」（不是空串）')
+    ok(
+      listPacks().find((p) => p.id === fPackA.id)!.channel === '场景-地推咨询',
+      'listPacks 把 channel 带出来（界面按它筛任务）'
+    )
+
+    // ---- (3) 【核心】标签数字含任务数（用户报的 bug：新建任务后左侧数字不动）----
+    const fPosterTag = fTags('category').find((t) => t.name === '海报')!
+    ok(
+      fPosterTag.packCount === 2,
+      `【核心】「海报」的任务数 = ${fPosterTag.packCount}（bug：以前这个数跟任务无关，恒 0）`
+    )
+    const fSceneTag = fTags('channel').find((t) => t.name === '场景-地推咨询')!
+    ok(!!fSceneTag && fSceneTag.packCount === 2, '「使用场景」标签同样统计到任务数 = 2')
+
+    // ---- (4) 改名联动 → packs.channel 跟着改 ----
+    const fRename = updateTag(fScene.id, { name: '场景-地推咨询-改' })
+    ok(fRename.ok && fRename.packsUpdated === 2, `改名：${fRename.packsUpdated} 个包的场景跟着改了`)
+    ok(
+      fCh(fPackA.id) === '场景-地推咨询-改' && fCh(fPackB.id) === '场景-地推咨询-改',
+      '两个包的场景都是新名字'
+    )
+    ok(fCh(fPackC.id) === '未分类', '【边界】没用这个场景的包一个没动')
+
+    // ---- (5) 维度之间互不串门：改「物料类别」标签不动 packs.channel ----
+    const fChBefore = fCh(fPackA.id)
+    updateTag(fPosterTag.id, { name: '海报-改' })
+    ok(fCh(fPackA.id) === fChBefore, '【只认自己维度】改「物料类别」标签 → packs.channel 纹丝不动')
+    ok(fCat(fPackA.id) === '海报-改', '包的类别跟着改（对照）')
+
+    // ---- (6) 删除联动 → packs.channel 归「未分类」----
+    const fDel = removeTag(fScene.id)
+    ok(fDel.ok && fDel.packsAffected === 2, `删场景标签：${fDel.packsAffected} 个包的场景归「未分类」`)
+    ok(fCh(fPackA.id) === '未分类' && fCh(fPackB.id) === '未分类', '两个包的场景都成了「未分类」')
+    ok(fCat(fPackA.id) === '海报-改', '【边界】包的类别不受影响')
+
+    // ---- (7) updatePack 改 channel（编辑任务面板走这条路）----
+    const fEdit = updatePack(fPackC.id, { channel: '场景-新' }, fWs)
+    ok(fEdit.ok && fCh(fPackC.id) === '场景-新', '编辑任务能改「使用场景」（纯数据，不碰磁盘）')
+
+    // ---- (8) 工单「物料使用场景」→ 自动建任务的 channel（假数据，不碰真企微）----
+    const fRec = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        设计师: [{ userId: 'uME', userName: '本机测试员' }],
+        业务归属: [{ text: '场景-甲' }],
+        ...over
+      }
+    })
+    const fPayload = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheetF',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const fIdentity = { userid: 'uME', name: '本机测试员' }
+    // 首轮 = 快照（全标历史、零任务），第二轮才是新单
+    applySync({
+      payloads: [fPayload([fRec('F0001')])],
+      structureChanged: false,
+      identity: fIdentity,
+      workspaceRoot: fWs
+    })
+    const fSync = applySync({
+      payloads: [
+        fPayload([fRec('F0010', { 物料类别: [{ text: '海报-改' }], 物料使用场景: [{ text: '场景-工单' }] })])
+      ],
+      structureChanged: false,
+      identity: fIdentity,
+      workspaceRoot: fWs
+    })
+    ok(fSync.tasksCreated === 1, `工单自动建任务：${fSync.tasksCreated} 个`)
+    const fPackId = (
+      getDb().prepare('SELECT pack_id FROM tickets WHERE ticket_no = ?').get('F0010') as {
+        pack_id: number | null
+      }
+    ).pack_id
+    ok(fPackId !== null, '任务已关联到工单')
+    ok(
+      fPackId !== null && fCh(fPackId) === '场景-工单' && fCat(fPackId) === '海报-改',
+      '【核心】自动建任务把工单的「物料类别」和「物料使用场景」都带上了'
+    )
+
+    closeDb()
+    hardRm(fRoot)
+  }
 
   // ============ 第 13 批 T-01：工单表迁移 10（方案 15 §5） ============
   log('\n[30] 第 13 批：tickets 表迁移（唯一键=审批单编号，sheet_id 只是出生地属性）')

@@ -36,8 +36,10 @@ const api = {
   // 第 7 批：记录生命周期（docs/09）
   unbindProject: (id: number) => ipcRenderer.invoke('project:unbind', id),
   restoreProject: (id: number) => ipcRenderer.invoke('project:restore', id),
-  updatePack: (id: number, patch: { name?: string; category?: string; projectId?: number | null }) =>
-    ipcRenderer.invoke('pack:update', { id, patch }),
+  updatePack: (
+    id: number,
+    patch: { name?: string; category?: string; channel?: string; projectId?: number | null }
+  ) => ipcRenderer.invoke('pack:update', { id, patch }),
 
   // 第 8 批：重新定位（M8-03）
   relocateAsset: (assetId: number) => ipcRenderer.invoke('asset:relocate', assetId),
@@ -61,7 +63,7 @@ const api = {
   setCurrentVersion: (versionId: number) => ipcRenderer.invoke('version:setCurrent', versionId),
 
   // 建包 / 扫描
-  createPack: (input: { name?: string; projectId?: number | null; category?: string }) =>
+  createPack: (input: { name?: string; projectId?: number | null; category?: string; channel?: string }) =>
     ipcRenderer.invoke('pack:create', input),
   refreshScan: () => ipcRenderer.invoke('scan:refresh'),
   /**

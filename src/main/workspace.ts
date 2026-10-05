@@ -447,6 +447,8 @@ export interface CreatePackInput {
   name?: string
   projectId?: number | null
   category?: string
+  /** 第 23 批（docs/29）：任务的「使用场景」（标签名字）；留空记「未分类」 */
+  channel?: string
   workspaceRoot: string
 }
 
@@ -474,6 +476,7 @@ export function createPack(input: CreatePackInput): PackRow {
   const rawName = (input.name ?? '').trim()
   const name = rawName || fallbackPackName()
   const category = (input.category ?? '').trim() || UNCATEGORIZED
+  const channel = (input.channel ?? '').trim() || UNCATEGORIZED
 
   // 三级结构下"归属哪个项目"直接决定包放进哪个文件夹，所以项目必须先确定
   ensureFolderNames()
@@ -512,10 +515,10 @@ export function createPack(input: CreatePackInput): PackRow {
   const ts = nowIso()
   const info = db
     .prepare(
-      `INSERT INTO packs (name, project_id, category, folder_path, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO packs (name, project_id, category, channel, folder_path, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(name, projectId, category, folderPath, ts, ts)
+    .run(name, projectId, category, channel, folderPath, ts, ts)
 
   const packId = Number(info.lastInsertRowid)
 
@@ -877,13 +880,13 @@ export function scanAll(workspaceRoot: string): ScanResult {
   // 2. 让硬盘上的包文件夹与数据库对齐（同事可能手动建了文件夹）
   const knownPack = db.prepare('SELECT id FROM packs WHERE folder_path = ?')
   const insPack = db.prepare(
-    `INSERT INTO packs (name, project_id, category, folder_path, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO packs (name, project_id, category, channel, folder_path, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
   for (const p of packPlan) {
     if (knownPack.get(p.dir)) continue
-    // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名，类别先记「未分类」）
-    insPack.run(basename(p.dir), p.projectId, UNCATEGORIZED, p.dir, ts, ts)
+    // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名，类别/场景先记「未分类」）
+    insPack.run(basename(p.dir), p.projectId, UNCATEGORIZED, UNCATEGORIZED, p.dir, ts, ts)
   }
 
   // 3. 收集所有文件
@@ -2090,7 +2093,7 @@ function removeProjectToTrash(
 export function movePackTo(
   workspaceRoot: string,
   packId: number,
-  target: { projectId: number | null; name: string; category: string }
+  target: { projectId: number | null; name: string; category: string; channel: string }
 ): UpdatePackResult {
   const db = getDb()
   const cur = db.prepare('SELECT * FROM packs WHERE id = ?').get(packId) as PackRow | undefined
@@ -2108,6 +2111,7 @@ export function movePackTo(
   const name = target.name.trim()
   if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category = target.category.trim() || UNCATEGORIZED
+  const channel = target.channel.trim() || UNCATEGORIZED
 
   // ---- 目标文件夹 ----
   // 名字与父目录都没变就别加 -2 后缀（uniqueFolderPath 只认 existsSync，会误判自己）
@@ -2118,15 +2122,11 @@ export function movePackTo(
       : uniqueFolderPath(parentDir, sanitizeFolderName(name))
   const needMove = to.toLowerCase() !== cur.folder_path.toLowerCase()
 
-  // 只改类别 → 纯数据，不碰磁盘
+  // 只改类别 / 场景 → 纯数据，不碰磁盘
   if (!needMove) {
-    db.prepare('UPDATE packs SET name = ?, category = ?, project_id = ?, updated_at = ? WHERE id = ?').run(
-      name,
-      category,
-      target.projectId,
-      nowIso(),
-      packId
-    )
+    db.prepare(
+      'UPDATE packs SET name = ?, category = ?, channel = ?, project_id = ?, updated_at = ? WHERE id = ?'
+    ).run(name, category, channel, target.projectId, nowIso(), packId)
     return { ok: true, pack: getPackRow(packId) }
   }
 
@@ -2147,8 +2147,8 @@ export function movePackTo(
     let paths = 0
     db.transaction(() => {
       db.prepare(
-        'UPDATE packs SET name = ?, category = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
-      ).run(name, category, to, target.projectId, nowIso(), packId)
+        'UPDATE packs SET name = ?, category = ?, channel = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
+      ).run(name, category, channel, to, target.projectId, nowIso(), packId)
       paths = reprefixPaths(workspaceRoot, cur.folder_path, to)
     })()
     return { ok: true, pack: getPackRow(packId), moved: { from: cur.folder_path, to, paths } }
@@ -2171,6 +2171,8 @@ function getPackRow(id: number): PackRow | undefined {
 export interface UpdatePackPatch {
   name?: string
   category?: string
+  /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
+  channel?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
 }
@@ -2201,9 +2203,10 @@ export function updatePack(
   if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category =
     patch.category === undefined ? cur.category : patch.category.trim() || UNCATEGORIZED
+  const channel = patch.channel === undefined ? cur.channel : patch.channel.trim() || UNCATEGORIZED
   const projectId = patch.projectId === undefined ? cur.project_id : patch.projectId
 
-  return movePackTo(workspaceRoot, packId, { projectId, name, category })
+  return movePackTo(workspaceRoot, packId, { projectId, name, category, channel })
 }
 
 // ---------------------------------------------------------------- 项目解绑 / 还原

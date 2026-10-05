@@ -17,18 +17,22 @@ export function EditPackModal({
   pack,
   projects,
   categories,
+  channels,
   onClose,
   onSubmit
 }: {
   pack: PackCard
   projects: ProjectWithCount[]
   categories: string[]
+  /** 第 23 批（docs/29）：使用场景清单（同样派生自左栏标签维度） */
+  channels: string[]
   onClose: () => void
   onSubmit: (patch: UpdatePackPatch) => Promise<{ ok: boolean; error?: string }>
 }): React.JSX.Element {
   const isLoose = pack.project_id === null
   const [name, setName] = useState(pack.name)
   const [category, setCategory] = useState(pack.category)
+  const [channel, setChannel] = useState(pack.channel)
   const [projectId, setProjectId] = useState<number | null>(
     isLoose ? (projects[0]?.id ?? null) : pack.project_id
   )
@@ -38,6 +42,7 @@ export function EditPackModal({
   const nameChanged = name.trim() !== pack.name
   const projectChanged = projectId !== pack.project_id
   const categoryChanged = category !== pack.category
+  const channelChanged = channel !== pack.channel
   const willMove = nameChanged || projectChanged
 
   const targetProject = projects.find((p) => p.id === projectId) ?? null
@@ -53,16 +58,18 @@ export function EditPackModal({
     const r = await onSubmit({
       name: name.trim(),
       category,
+      channel,
       projectId
     })
     setBusy(false)
     if (!r.ok) setErr(r.error ?? COPY.editPack.saveFailed)
   }
 
-  // 类别 chips 就是左栏标签维度「物料类别」那一套（App 派生后传进来）。
-  // 当前类别不在清单里时把它补在第一格 —— 第 10 批起「删类别」会连带把包的类别改成「未分类」，
+  // 类别 / 场景下拉的清单就是左栏标签维度那一套（App 派生后传进来）。
+  // 当前值不在清单里时把它补在第一格 —— 第 10 批起「删标签」会连带把包的类别改成「未分类」，
   // 正常不会再出现孤儿值；这一手是给老数据 / 手工改过库的情况留的逃生口。
-  const chips = categories.includes(category) ? categories : [category, ...categories]
+  const categoryList = categories.includes(category) ? categories : [category, ...categories]
+  const channelList = channels.includes(channel) ? channels : [channel, ...channels]
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -133,21 +140,27 @@ export function EditPackModal({
 
           <div className="field">
             <label>{COPY.dim.category}</label>
-            <div className="chips">
-              {chips.map((c) => (
-                <button
-                  key={c}
-                  className={`chip${c === category ? ' on' : ''}`}
-                  onClick={() => setCategory(c)}
-                >
+            {/* 第 23 批（docs/29）：平铺 chips 改成下拉 —— 标签越加越多时弹窗不会被撑臃肿 */}
+            <select value={category} onChange={(e) => setCategory(e.target.value)}>
+              {categoryList.map((c) => (
+                <option key={c} value={c}>
                   {c}
-                </button>
+                </option>
               ))}
-            </div>
-            <div className="hint">
-              
-              {COPY.editPack.categoryHint}
-            </div>
+            </select>
+            <div className="hint">{COPY.editPack.categoryHint}</div>
+          </div>
+
+          <div className="field">
+            <label>{COPY.dim.channel}</label>
+            <select value={channel} onChange={(e) => setChannel(e.target.value)}>
+              {channelList.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <div className="hint">{COPY.editPack.channelHint}</div>
           </div>
 
           <div
@@ -166,7 +179,7 @@ export function EditPackModal({
             <br />
             {willMove
               ? COPY.editPack.saveHintMove
-              : categoryChanged
+              : categoryChanged || channelChanged
                 ? COPY.editPack.saveHintCategory
                 : COPY.editPack.noChange}
           </div>

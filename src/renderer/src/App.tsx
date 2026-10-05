@@ -233,6 +233,21 @@ export default function App(): React.JSX.Element {
     [tagDimensions]
   )
 
+  /**
+   * 第 23 批（docs/29）：任务的「使用场景」清单 —— 与物料类别同一套派生方式，
+   * 来自左栏标签维度「使用场景」（channel）。建 / 编辑任务面板的第二个下拉用它。
+   */
+  const channelOptions = useMemo(
+    () => tagDimensions.find((d) => d.key === 'channel')?.tags.map((t) => t.name) ?? [],
+    [tagDimensions]
+  )
+
+  /** 已选标签的完整信息（含维度与名字）—— 任务分类存的是**名字**，筛选时要把 tagId 还原成名字 */
+  const selectedTagObjs = useMemo(() => {
+    const set = new Set(selectedTagIds)
+    return tagDimensions.flatMap((d) => d.tags).filter((t) => set.has(t.id))
+  }, [tagDimensions, selectedTagIds])
+
   const loadAssets = useCallback(
     async (
       kw: string,
@@ -286,9 +301,14 @@ export default function App(): React.JSX.Element {
 
   // 标签勾选变化：左侧筛选立即生效
   // 第 7 批修正：这个 effect 以前把 wsLive 也放进了依赖数组 —— 工作区一连上就被顺带触发，
-  // `setView('files')` 跟着执行，结果软件每次启动都落在文件视图，包视图（主视图）得手点
+  // 切视图跟着执行，结果软件每次启动都落在文件视图，包视图（主视图）得手点
   // （第 4 批引入，界面验证壳第 7 批才抓到）。现在只在「标签真的变了」时才切视图；
   // wsLive 翻转只负责把当前筛选的素材重载一遍。
+  //
+  // 第 23 批（docs/29）：标签筛选**同时**作用于任务与文件了，所以点标签后**留在当前视图**
+  // 看结果 —— 此前一律 `setView('files')`（旧语义：标签只筛文件），用户在任务视图点标签
+  // 想看筛出的任务，会被强行拽到文件视图，这正是「点标签筛不出任务」的深层原因。
+  // 只有工单视图不响应标签筛选，在那里点标签才切到任务视图给个反馈（否则点了像没反应）。
   const prevTagIdsRef = useRef<number[]>([])
   useEffect(() => {
     if (!wsLive) return
@@ -297,7 +317,7 @@ export default function App(): React.JSX.Element {
       prev.length !== selectedTagIds.length ||
       prev.some((t, i) => t !== selectedTagIds[i])
     prevTagIdsRef.current = selectedTagIds
-    if (tagChanged && view !== 'files') setView('files')
+    if (tagChanged && view === 'tickets') setView('packs')
     loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTagIds, wsLive])
@@ -538,6 +558,7 @@ export default function App(): React.JSX.Element {
     name: string
     projectId: number | null
     category: string
+    channel: string
   }): Promise<void> => {
     if (!requireWs()) return
     try {
@@ -820,7 +841,8 @@ export default function App(): React.JSX.Element {
     [packs, knownProjectIds]
   )
 
-  const shownPacks = useMemo(() => {
+  /** 左栏项目范围内的包（**不含**标签筛选）—— 文件视图的项目范围用它，避免被任务标签二次收窄 */
+  const packsInProject = useMemo(() => {
     if (projectFilter === '全部') return packs
     if (projectFilter === null) {
       return packs.filter((p) => p.project_id === null || !knownProjectIds.has(p.project_id))
@@ -828,11 +850,32 @@ export default function App(): React.JSX.Element {
     return packs.filter((p) => p.project_id === projectFilter)
   }, [packs, projectFilter, knownProjectIds])
 
+  /**
+   * 第 23 批（docs/29）：任务视图的可显示包 = 项目范围 ∩ 标签筛选。
+   *
+   * 用户报的 bug 是「点左侧标签筛不出任务」—— 因为以前标签只筛文件。这里把选中标签
+   * 也作用到任务上：任务的 category / channel 存的是标签**名字**（不是外键），所以按名字集合筛；
+   * 同维度「或」、跨维度「并且」，与文件视图的 tagIds 语义一致。
+   */
+  const shownPacks = useMemo(() => {
+    let list = packsInProject
+    if (selectedTagObjs.length) {
+      const catNames = selectedTagObjs.filter((t) => t.dimension === 'category').map((t) => t.name)
+      const chNames = selectedTagObjs.filter((t) => t.dimension === 'channel').map((t) => t.name)
+      list = list.filter((p) => {
+        if (catNames.length && !catNames.includes(p.category)) return false
+        if (chNames.length && !chNames.includes(p.channel)) return false
+        return true
+      })
+    }
+    return list
+  }, [packsInProject, selectedTagObjs])
+
   const shownAssets = useMemo(() => {
     if (projectFilter === '全部') return assets
-    const ids = new Set(shownPacks.map((p) => p.id))
+    const ids = new Set(packsInProject.map((p) => p.id))
     return assets.filter((a) => a.pack_id !== null && ids.has(a.pack_id))
-  }, [assets, shownPacks, projectFilter])
+  }, [assets, packsInProject, projectFilter])
 
   const shownSize = useMemo(() => shownAssets.reduce((s, i) => s + i.size, 0), [shownAssets])
 
@@ -1488,6 +1531,7 @@ export default function App(): React.JSX.Element {
         <NewPackModal
           projects={projects}
           categories={categoryOptions}
+          channels={channelOptions}
           onClose={() => setShowNew(false)}
           onSubmit={doCreatePack}
         />
@@ -1515,6 +1559,7 @@ export default function App(): React.JSX.Element {
           pack={editingPack}
           projects={projects}
           categories={categoryOptions}
+          channels={channelOptions}
           onClose={() => setEditingPackId(null)}
           onSubmit={submitPackEdit}
         />

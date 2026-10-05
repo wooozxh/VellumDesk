@@ -12,30 +12,52 @@ import { VISIBLE_PACK_SQL } from './workspace'
 /**
  * 「物料类别」这个维度的 key。
  *
- * 这个维度跟别的两个不一样：它**同时是建包 / 编辑包时的类别下拉清单**。
+ * 这个维度跟别的维度不一样：它**同时是建包 / 编辑包时的类别下拉清单**。
  * 第 3 批之前，建包用的是 `db.ts` 里写死的 `CATEGORIES` 常量（海报 / 视频 / 折页 / 推文配图 / PPT / 其他），
  * 跟左栏这一套只有「海报、折页」是重叠的 —— 用户 2026-09-30 实测发现后拍板：**两套合一**，
  * 建包清单跟着标签走，并且改名 / 删除时反向联动到包上（见下面 updateTag / removeTag）。
+ *
+ * 第 23 批（docs/29）：**「使用场景」（channel）也走同一套** —— 用户报的 bug 是
+ * 任务的分类（packs.category）跟左侧标签面板（asset_tags）是两套账，新建任务后左侧数字不动、
+ * 点标签筛不出任务。本批把两个维度都接到任务上：packs.category / packs.channel。
  */
 const CATEGORY_DIM = 'category'
 
 /**
- * 有多少个包的「物料类别」正是这个标签名。
+ * 维度 key → `packs` 表上对应的列名。
  *
- * - 只有 `category` 维度参与：渠道维度就算撞了同名标签，也跟包的类别无关
+ * 只有能绑到**任务**上的维度才在这里（物料类别 / 使用场景）。任务的分类存的是标签**名字**
+ * （不是外键），所以这些维度改名 / 删除时要反向联动到 `packs`，否则会留下一个
+ * 「面板里再也找不到的名字」（第 10 批为物料类别定下的规矩，第 23 批扩展到使用场景）。
+ */
+const PACK_DIM_COLUMN: Record<string, string> = {
+  [CATEGORY_DIM]: 'category',
+  channel: 'channel'
+}
+
+/**
+ * 有多少个包的某个分类维度（物料类别 / 使用场景）正是这个标签名。
+ *
+ * - 只有 PACK_DIM_COLUMN 里的维度参与：其余维度就算撞了同名标签，也跟包无关
  * - 统计**全库**包（含已解绑项目名下的）：那些包界面上隐身，但数据得跟着走，
  *   将来项目重新绑定回来时类别才不会是个面板里找不到的老名字
  */
-function countPacksWithCategory(dimension: string, name: string): number {
-  if (dimension !== CATEGORY_DIM) return 0
+function countPacksWithDimension(dimension: string, name: string): number {
+  const col = PACK_DIM_COLUMN[dimension]
+  if (!col) return 0
   const db = getDb()
   return (
-    db.prepare('SELECT COUNT(*) AS c FROM packs WHERE category = ?').get(name) as { c: number }
+    db.prepare(`SELECT COUNT(*) AS c FROM packs WHERE ${col} = ?`).get(name) as { c: number }
   ).c
 }
 
 export interface TagWithCount extends TagRow {
   assetCount: number
+  /**
+   * 第 23 批（docs/29）：用这个标签的**任务（包）数**。
+   * 左侧标签后面的数字 = assetCount + packCount（任务 + 文件一起管，用户拍板）。
+   */
+  packCount: number
 }
 
 export interface DimensionGroup {
@@ -83,19 +105,39 @@ export function listTagDimensions(scope?: { projectId?: number | null }): Dimens
     }
   }
 
+  // 第 23 批（docs/29）：任务数（packCount）也跟随同一个项目范围 —— 数字与点开结果必须一致
+  // （第 7 批口径）。已解绑项目的包两边都要排掉。
+  const packWhere: string[] = []
+  if (scoped) {
+    packWhere.push(
+      pid === null
+        ? '(kp.project_id IS NULL OR kp.project_id NOT IN (SELECT id FROM projects))'
+        : 'kp.project_id = @scopeProjectId'
+    )
+  }
+  const packScopeSql = packWhere.length ? ` AND ${packWhere.join(' AND ')}` : ''
+
   const sql = `SELECT t.*, (
                  SELECT COUNT(*) FROM asset_tags at
                    JOIN assets a ON a.id = at.asset_id
                    LEFT JOIN packs k ON k.id = a.pack_id
                   WHERE at.tag_id = t.id AND ${where.join(' AND ')}
-               ) AS assetCount
+               ) AS assetCount,
+               (
+                 SELECT COUNT(*) FROM packs kp
+                   LEFT JOIN projects pj ON pj.id = kp.project_id
+                  WHERE (pj.archived IS NULL OR pj.archived = 0)${packScopeSql}
+                    AND (CASE WHEN t.dimension = 'category' THEN kp.category = t.name
+                              WHEN t.dimension = 'channel'  THEN kp.channel  = t.name
+                              ELSE 0 END)
+               ) AS packCount
                  FROM tags t
                 WHERE t.dimension = @dim
                 ORDER BY t.sort_order ASC, t.id ASC`
 
   for (const dim of TAG_DIMENSIONS) {
     const rows = db.prepare(sql).all({ ...params, dim: dim.key }) as Array<
-      TagRow & { assetCount: number }
+      TagRow & { assetCount: number; packCount: number }
     >
     out.push({
       key: dim.key,
@@ -169,9 +211,10 @@ export function updateTag(
 
     const tx = db.transaction(() => {
       db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name, id)
-      if (cur.dimension === CATEGORY_DIM && name !== cur.name) {
+      const col = PACK_DIM_COLUMN[cur.dimension]
+      if (col && name !== cur.name) {
         packsUpdated = db
-          .prepare('UPDATE packs SET category = ?, updated_at = ? WHERE category = ?')
+          .prepare(`UPDATE packs SET ${col} = ?, updated_at = ? WHERE ${col} = ?`)
           .run(name, new Date().toISOString(), cur.name).changes
       }
     })
@@ -200,7 +243,8 @@ export function tagUsage(id: number): { assetCount: number; packCount: number } 
     assetCount: r.c,
     // 第 10 批：删「物料类别」前要把用它的包数一并告诉用户 ——
     // 界面上得说清「不只是素材上的标签没了，这些包的类别也会被去掉」
-    packCount: cur ? countPacksWithCategory(cur.dimension, cur.name) : 0
+    // 第 23 批：「使用场景」同理。
+    packCount: cur ? countPacksWithDimension(cur.dimension, cur.name) : 0
   }
 }
 
@@ -228,9 +272,10 @@ export function removeTag(id: number): {
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM asset_tags WHERE tag_id = ?').run(id)
     db.prepare('DELETE FROM tags WHERE id = ?').run(id)
-    if (cur.dimension === CATEGORY_DIM) {
+    const col = PACK_DIM_COLUMN[cur.dimension]
+    if (col) {
       packsAffected = db
-        .prepare('UPDATE packs SET category = ?, updated_at = ? WHERE category = ?')
+        .prepare(`UPDATE packs SET ${col} = ?, updated_at = ? WHERE ${col} = ?`)
         .run(UNCATEGORIZED, new Date().toISOString(), cur.name).changes
     }
   })

@@ -1171,21 +1171,37 @@ app.whenReady().then(async () => {
     const editBox = await js(
       `(() => {
          const m = document.querySelector('.modal')
-         if (!m) return { title: '', fields: 0, chips: 0, path: '' }
+         if (!m) return { title: '', fields: 0, selects: 0, path: '' }
          return {
            title: (m.querySelector('h3') || {}).innerText || '',
            fields: m.querySelectorAll('.field').length,
-           chips: m.querySelectorAll('.chips .chip').length,
+           selects: m.querySelectorAll('.field select').length,
            path: (m.querySelector('.path') || {}).innerText || ''
          }
        })()`
     )
     ok(editBox.title.includes(COPY.editPack.title), `弹窗标题：${editBox.title.trim()}`)
-    ok(editBox.fields === 3, `三块可改：名称 / 所属项目 / 类别（${editBox.fields} 块）`)
+    ok(editBox.fields === 4, `四块可改：名称 / 所属项目 / 物料类别 / 使用场景（${editBox.fields} 块）`)
+    ok(
+      editBox.selects === 3,
+      `项目 / 物料类别 / 使用场景 三个下拉（第 23 批起类别与场景由按钮改下拉；${editBox.selects} 个）`
+    )
     ok(editBox.path.includes('招生折页-A4'), '弹窗里显示了当前文件夹在哪')
     await shot('shot-b7-2-lifecycle-editpack.png')
 
-    await clickByText('.modal .chips .chip', '单页')
+    // 第 23 批：类别改下拉 —— 用原生 setter + change 事件触发 React onChange
+    await js(`(() => {
+      const m = document.querySelector('.modal')
+      if (!m) return 'no-modal'
+      const f = [...m.querySelectorAll('.field')]
+        .find(x => ((x.querySelector('label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.category)})
+      const s = f && f.querySelector('select')
+      if (!s) return 'no-select'
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+      setter.call(s, '单页')
+      s.dispatchEvent(new Event('change', { bubbles: true }))
+      return 'ok'
+    })()`)
     await wait(200)
     await clickModalOk()
     await wait(1200)
@@ -1387,20 +1403,56 @@ app.whenReady().then(async () => {
     // ============================================================
     await js(`window.confirm = () => true; 'patched'`)
 
+    // 第 23 批（docs/29）：左侧标签数字口径扩成「任务数 + 文件数」（用户拍板任务+文件一起管）。
+    // 下面的断言全部改成「数字 = 文件数 + 任务数」，任务数按范围实时查库 —— 比写死数字更稳、
+    // 也把新口径钉死在断言里。
+    const DatabaseTC = require('better-sqlite3')
+    const dbPathTC = join(s.workspaceRoot, '_system', 'media.db')
+    const qTC = (sql, ...args) => {
+      const dd = new DatabaseTC(dbPathTC, { readonly: true })
+      try {
+        return dd.prepare(sql).get(...args)
+      } finally {
+        dd.close()
+      }
+    }
+    const packCountIn = (sqlWhere) =>
+      (
+        qTC(
+          `SELECT COUNT(*) AS c FROM packs k LEFT JOIN projects p ON p.id = k.project_id ${sqlWhere}`
+        ) || {}
+      ).c
+    const packAll = () => packCountIn('WHERE k.project_id IS NULL OR p.archived = 0')
+    const packOfProj = (name) =>
+      (
+        qTC(
+          `SELECT COUNT(*) AS c FROM packs k JOIN projects p ON p.id = k.project_id WHERE p.name = ?`,
+          name
+        ) || {}
+      ).c
+    const packLoose = () =>
+      packCountIn('WHERE k.project_id IS NULL OR k.project_id NOT IN (SELECT id FROM projects)')
+
     const dimOpen = await expandDim('物料类别')
     ok(dimOpen !== 'no-head', `左栏标签面板有「物料类别」维度（${dimOpen}）`)
 
-    // (1) 全部 = 4
+    // (1) 全部 = 4 文件 + 全库任务数（第 23 批起数字含任务）
     const all0 = await tagNum('海报')
     ok(!!all0, '「海报」标签在面板里')
-    ok(all0 && all0.n === 4, `【全部】数字 = ${all0 && all0.n}（4 个文件都贴了「海报」）`)
+    ok(
+      all0 && all0.n === 4 + packAll(),
+      `【全部】数字 = ${all0 && all0.n}（4 个文件 + ${packAll()} 个任务）`
+    )
     ok(!!all0 && all0.title.includes('全库'), `悬停提示说清了范围：${all0 && all0.title}`)
 
     // (2) 甲项目 = 2 —— 数字必须跟着项目走（用户报的就是这里对不上）
     const pickA = await pickSideItem('海南升学集训营', '.side .proj-item')
     ok(pickA === 'ok', `点了「海南升学集训营」（${pickA}）`)
     const a1 = await tagNum('海报')
-    ok(a1 && a1.n === 2, `【甲项目】数字跟着变成 ${a1 && a1.n}（该项目下 2 个文件）`)
+    ok(
+      a1 && a1.n === 2 + packOfProj('海南升学集训营'),
+      `【甲项目】数字跟着变成 ${a1 && a1.n}（该项目下 2 个文件 + ${packOfProj('海南升学集训营')} 个任务）`
+    )
     ok(
       !!a1 && a1.title.includes('海南升学集训营'),
       `悬停提示跟着换范围：${a1 && a1.title}`
@@ -1419,7 +1471,10 @@ app.whenReady().then(async () => {
     ok(clickTag === 'ok', `在甲项目下勾选「海报」（${clickTag}）`)
     await wait(900)
     const listedA = await js(`document.querySelectorAll('.main-scroll .file-row').length`)
-    ok(listedA === 2, `【一致】勾上「海报」真列出 ${listedA} 条，与面板数字 2 相等`)
+    ok(
+      listedA === 2,
+      `【文件视图】勾上「海报」列出 ${listedA} 条文件（第 23 批起面板数字 = 任务 + 文件，这是其中的文件部分）`
+    )
     await shot('shot-b7-5-tagcount-project.png')
 
     // 取消勾选 + 回包视图，别影响后面的数字
@@ -1437,24 +1492,30 @@ app.whenReady().then(async () => {
     const pickB = await pickSideItem('精英升学先修营', '.side .proj-item')
     ok(pickB === 'ok', `点了「精英升学先修营」（${pickB}）`)
     const b1 = await tagNum('海报')
-    ok(b1 && b1.n === 1, `【乙项目】数字 ${b1 && b1.n}（该项目下 1 个文件）`)
+    ok(
+      b1 && b1.n === 1 + packOfProj('精英升学先修营'),
+      `【乙项目】数字 ${b1 && b1.n}（1 个文件 + ${packOfProj('精英升学先修营')} 个任务）`
+    )
 
-    // (5) 待归类 = 1
+    // (5) 待归类 = 1 文件 + 待归类任务数
     const pickLoose = await pickSideItem('待归类')
     ok(pickLoose === 'ok', `点了「待归类」（${pickLoose}）`)
     const l1 = await tagNum('海报')
-    ok(l1 && l1.n === 1, `【待归类】数字 ${l1 && l1.n}（游离包里的 1 个文件）`)
+    ok(l1 && l1.n === 1 + packLoose(), `【待归类】数字 ${l1 && l1.n}（1 个文件 + ${packLoose()} 个任务）`)
 
     // (6) 0 条的标签仍然列出，只是压暗
     const fold0 = await tagNum('折页')
     ok(!!fold0 && fold0.n === 0, `没人用的「折页」数字是 0（${fold0 && fold0.n}）`)
     ok(!!fold0 && fold0.zero, '0 条的标签被压暗（不会让人以为标签丢了）')
 
-    // (7) 切回「全部」= 4
+    // (7) 切回「全部」= 4 文件 + 全库任务数
     const backAll = await pickSideItem('全部')
     ok(backAll === 'ok', `切回「全部」（${backAll}）`)
     const all1 = await tagNum('海报')
-    ok(all1 && all1.n === 4, `【全部】切回来还是 ${all1 && all1.n}`)
+    ok(
+      all1 && all1.n === 4 + packAll(),
+      `【全部】切回来还是 ${all1 && all1.n}（4 个文件 + ${packAll()} 个任务）`
+    )
 
     // (8) 解绑一个项目 → 全库数字立刻跟着减（原 bug：纹丝不动）
     const names = await projRowNames()
@@ -1473,7 +1534,11 @@ app.whenReady().then(async () => {
     ok(unbindClick === 'ok', `点了解绑（${unbindClick}）`)
     await wait(1600)
     const all2 = await tagNum('海报')
-    ok(all2 && all2.n === 3, `【回归】解绑后全库数字立刻 4 → ${all2 && all2.n}（不再纹丝不动）`)
+    // 解绑乙项目 → 乙项目那 1 个文件也随项目隐身（4 → 3 文件），任务数同步少 1
+    ok(
+      all2 && all1 && all2.n === 3 + packAll() && all2.n < all1.n,
+      `【回归】解绑后全库数字立刻 ${all1 && all1.n} → ${all2 && all2.n}（3 个文件 + ${packAll()} 个任务；数字含任务数，解绑后随之减少）`
+    )
     const foldAfter = await tagNum('折页')
     ok(!!foldAfter && foldAfter.zero, '解绑后面板照常渲染，0 条标签仍置灰')
   } else if (SCEN === 'missing') {
@@ -2220,13 +2285,20 @@ app.whenReady().then(async () => {
       )
       await wait(700)
     }
-    const readNewPackChips = () =>
+    // 第 23 批（docs/29）：建包弹窗的类别 / 场景由平铺 chips 改成**下拉**，
+    // 读取方式跟着改成读对应 field 里 select 的 option。
+    const readNewPackSelect = (dimLabel) =>
       js(`(() => {
          const m = [...document.querySelectorAll('.mask > .modal')]
            .find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.top.newPack)}))
          if (!m) return null
-         return [...m.querySelectorAll('.chips .chip')].map(b => b.innerText.trim())
+         const f = [...m.querySelectorAll('.field')]
+           .find(x => ((x.querySelector('label')||{}).innerText||'').trim() === ${JSON.stringify(dimLabel)})
+         const s = f && f.querySelector('select')
+         if (!s) return []
+         return [...s.querySelectorAll('option')].map(o => (o.textContent||'').trim())
        })()`)
+    const readNewPackChips = () => readNewPackSelect(COPY.dim.category)
 
     await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(900)
@@ -2247,6 +2319,22 @@ app.whenReady().then(async () => {
       `【布景】左栏「物料类别」里有 ${Array.isArray(panelCats) ? panelCats.length : 0} 个标签`
     )
 
+    // (1b) 第 23 批：左栏「使用场景」维度的标签清单（建包面板那个新下拉要跟它对齐）
+    await expandDim(COPY.dim.channel)
+    await wait(500)
+    const panelScenes = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.channel)})
+         if (!d) return null
+         return [...d.querySelectorAll('.tp-tag-name')].map(x => x.innerText.trim())
+       })()`
+    )
+    ok(
+      Array.isArray(panelScenes) && panelScenes.length >= 5,
+      `【布景】左栏「使用场景」里有 ${Array.isArray(panelScenes) ? panelScenes.length : 0} 个标签`
+    )
+
     // (2) 新建包弹窗的 chips 必须与左栏一字不差 —— 这就是用户报的那个 bug
     await openNewPack()
     const chips1 = await readNewPackChips()
@@ -2261,8 +2349,61 @@ app.whenReady().then(async () => {
       Array.isArray(chips1) && !chips1.includes('推文配图') && !chips1.includes('PPT'),
       '【核心】原来那套写死的 6 项（视频 / 推文配图 / PPT…）已经不存在了'
     )
+    // (2b) 第 23 批：使用场景也能在建包面板绑定，清单跟左栏一致（第 23 批前任务上根本绑不了它）
+    const scenes1 = await readNewPackSelect(COPY.dim.channel)
+    ok(
+      Array.isArray(scenes1) && scenes1.length > 0,
+      `新建包弹窗有「使用场景」下拉（${Array.isArray(scenes1) ? scenes1.join('、') : String(scenes1)}）`
+    )
+    ok(
+      Array.isArray(scenes1) &&
+        Array.isArray(panelScenes) &&
+        JSON.stringify(scenes1) === JSON.stringify(panelScenes),
+      '【核心】建包能选的「使用场景」= 左栏「使用场景」，一字不差'
+    )
     await shot('shot-b10-1-newpack-same-list.png')
     await closeTopModal()
+
+    // (2c) 第 23 批【核心】标签数字含任务数 + 点标签筛任务（用户报的 bug：新建任务后
+    //      左侧数字不动、点标签筛不出任务）
+    const catRows = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.category)})
+         if (!d) return null
+         return [...d.querySelectorAll('.tp-tag')].map(b => ({
+           name: ((b.querySelector('.tp-tag-name')||{}).innerText||'').trim(),
+           n: ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim(),
+           tip: b.getAttribute('title') || ''
+         }))
+       })()`
+    )
+    const posterRow = Array.isArray(catRows) ? catRows.find((x) => x.name === '海报') : null
+    ok(
+      !!posterRow && Number(posterRow.n) > 0,
+      `【核心】左侧标签数字统计到任务（「海报」= ${posterRow && posterRow.n}）`
+    )
+    ok(
+      !!posterRow && posterRow.tip.includes('任务') && posterRow.tip.includes('文件'),
+      `悬停提示把数字分解成「任务 + 文件」：${posterRow && posterRow.tip}`
+    )
+    const cardsBefore = await js(`document.querySelectorAll('.grid .pack-card').length`)
+    await js(`(() => {
+      const d = [...document.querySelectorAll('.tp-dim')]
+        .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.category)})
+      const b = d && [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === '海报')
+      if (b) b.click(); return b ? 'ok' : 'no-tag'
+    })()`)
+    await wait(700)
+    const cardsAfter = await js(`document.querySelectorAll('.grid .pack-card').length`)
+    ok(
+      cardsAfter >= 1 && cardsAfter < cardsBefore,
+      `【核心】点「海报」标签后任务视图按类别筛出任务：卡片 ${cardsBefore} → ${cardsAfter}（bug：以前筛不出任务）`
+    )
+    await shot('shot-b23-1-filter-tasks-by-tag.png')
+    // 复位筛选，别影响后面的断言
+    await js(`(() => { const b = document.querySelector('.tp-clear'); if (b) b.click(); return 'ok' })()`)
+    await wait(600)
 
     // (3) 左栏加一个「易拉宝」→ 建包弹窗当场多一项
     await openManager()

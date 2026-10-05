@@ -244,7 +244,7 @@ export function registerIpc(): void {
   // 第 7 批 ②③：改包信息（名称 / 类别 / 所属项目）—— 改项目 = 搬文件夹
   ipcMain.handle(
     'pack:update',
-    (_e, args: { id: number; patch: { name?: string; category?: string; projectId?: number | null } }) => {
+    (_e, args: { id: number; patch: { name?: string; category?: string; channel?: string; projectId?: number | null } }) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       try {
@@ -422,7 +422,7 @@ export function registerIpc(): void {
   // ---------- A-01 建包 ----------
   ipcMain.handle(
     'pack:create',
-    (_e, input: { name?: string; projectId?: number | null; category?: string }) => {
+    (_e, input: { name?: string; projectId?: number | null; category?: string; channel?: string }) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       // 第 6 批：项目缺失时 createPack 会抛错，转成 {ok:false,error} 交给界面显示，
