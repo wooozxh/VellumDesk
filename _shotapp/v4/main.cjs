@@ -96,6 +96,12 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_export'),
     workspaceRoot: join(BASE, 'shot_wsexp'),
     shot: 'shot-b16-1-export-modal.png'
+  },
+  // 第 25 批：未归属池入口（用户报的 bug —— 点虚线「未归属」卡片时弹窗一直「加载中」）
+  unassigned: {
+    userData: join(BASE, 'shot4_unassigned'),
+    workspaceRoot: join(BASE, 'shot_wsu'),
+    shot: 'shot-b25-4-unassigned-final.png'
   }
 }
 
@@ -510,6 +516,43 @@ app.whenReady().then(async () => {
     const scanned = wsm.scanAll(ws)
     say('seeded packs          : 3（海报 / 单页 / 折页）')
     say('auto-recognized vers  : ' + scanned.newVersions)
+  }
+
+  if (SCEN === 'unassigned') {
+    // 第 25 批：一个正常任务 + 一个丢在工作区根目录的散文件。
+    // 后者就是「未归属池」的内容 —— 池子非空时，任务视图里才会多出那张虚线「未归属」卡片。
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const blob = (kb) => 'x'.repeat(kb * 1024)
+
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const proj = d
+      .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
+      .get('海南升学集训营')
+
+    const packDir = join(ws, proj.folder_name, '招生海报-未归属演示')
+    for (const sub of SUB) mkdirSync(join(packDir, 'V1', sub), { recursive: true })
+    writeFileSync(join(packDir, 'V1', '01-成品', '海报终稿.png'), blob(300), 'utf-8')
+    d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run('招生海报-未归属演示', '海报', packDir, proj.id, now, now)
+    d.close()
+
+    // 工作区根目录的散文件 = 未归属池（本场景断言的主角）
+    writeFileSync(join(ws, '待整理的散图.png'), blob(120), 'utf-8')
+
+    wsm.scanAll(ws)
+    say('seeded packs          : 1（招生海报-未归属演示）')
+    say('unassigned seeded     : 1（工作区根目录「待整理的散图.png」）')
   }
 
   if (SCEN === 'tickets') {
@@ -1368,7 +1411,14 @@ app.whenReady().then(async () => {
     )
     ok(confirmLabel.includes('回收站'), `按钮文案跟着变成「${confirmLabel}」`)
     await clickModalOk()
-    await wait(1500)
+    // 删项目 = 把整个项目文件夹搬进 _回收站 + 清库 + 左栏重新加载，冷启动磁盘操作偶尔要几秒。
+    // 2026-10-05 第 25 批实测：只等 DB 落库还不够 —— 库已经干净了、左栏 DOM 可能还没重渲染
+    //（会误报「被删的项目从左栏消失了」）。所以直接等**左栏那一行**消失，最多 10s。
+    for (let i = 0; i < 40; i++) {
+      const names = await projRowNames()
+      if (!names.includes('海南升学集训营')) break
+      await wait(250)
+    }
 
     const gone = q('SELECT COUNT(*) AS c FROM projects WHERE name = ?', '海南升学集训营')
     ok(gone.c === 0, '【库】项目记录已删')
@@ -2969,6 +3019,100 @@ app.whenReady().then(async () => {
     ok(zipStat.size > 1000, '生成的 zip 非空（' + Math.round(zipStat.size / 1024) + ' KB）')
 
     await shot('shot-b16-1-export-done.png')
+  } else if (SCEN === 'unassigned') {
+    // ============================================================
+    // 第 25 批：未归属池入口 —— 用户报的 bug
+    //   现象：任务视图里那张虚线「未归属」卡片，点开弹窗一直「加载中」，关掉再点还是一样
+    //   根因：它点开的是「任务详情」弹窗（PackDetailModal），而那个组件收到 packId='unassigned'
+    //         时**连数据都不加载**（`if (packId !== 'unassigned') load()`），组件里也从来没有
+    //         未归属的渲染分支 —— 第 1 批留下的半成品：所有内容都挂在 `detail &&` 下，
+    //         于是 detail 永远为 null → 弹窗只剩标题「加载中…」永远转圈。
+    //   修法：卡片点击改成跟左栏「未归属」按钮同一个去处（文件视图 + 未归属筛选），
+    //         在那里勾选文件 → 认领栏出现 → 选目标任务 + 子文件夹 → 认领。
+    // ============================================================
+    await wait(1200)
+
+    // (1) 任务视图里，虚线「未归属」卡片在，而且它不是任务
+    const grid = await js(`(() => {
+      const cards = [...document.querySelectorAll('.grid .pack-card')]
+      const un = cards.find((c) => c.classList.contains('unassigned'))
+      return {
+        nCards: cards.length,
+        hasUn: !!un,
+        name: un ? ((un.querySelector('.name') || {}).innerText || '').trim() : '',
+        sub: un ? ((un.querySelector('.sub') || {}).innerText || '').replace(/\\s+/g, ' ').trim() : '',
+        tag: un ? ((un.querySelector('.tags .tag') || {}).innerText || '').trim() : ''
+      }
+    })()`)
+    ok(grid.hasUn, `【布景】任务视图里有虚线「未归属」卡片（网格共 ${grid.nCards} 张卡）`)
+    ok(
+      grid.name === COPY.side.unassigned,
+      `卡片名 = 「${grid.name}」—— 它不是任务，是未归属池入口`
+    )
+    ok(grid.sub.includes('1'), `卡片标出池里现有 1 个文件：${grid.sub}`)
+    ok(grid.tag === COPY.card.pending, `卡片上的橙色标签是「${grid.tag}」`)
+    await shot('shot-b25-1-unassigned-card.png')
+
+    // (2) 【核心】点它 → 必须跳到文件视图 + 未归属筛选；绝不能弹出那个一直转圈的详情弹窗
+    const clicked = await js(`(() => {
+      const c = [...document.querySelectorAll('.grid .pack-card')]
+        .find((x) => x.classList.contains('unassigned'))
+      if (!c) return 'no-card'
+      c.click(); return 'ok'
+    })()`)
+    ok(clicked === 'ok', '点击「未归属」卡片')
+    await wait(1400)
+
+    const after = await js(`(() => {
+      const modal = document.querySelector('.mask .modal')
+      const onUn = [...document.querySelectorAll('.side .item')].some(
+        (b) =>
+          b.classList.contains('on') &&
+          (b.innerText || '').includes(${JSON.stringify(COPY.side.unassigned)})
+      )
+      return {
+        modalOpen: !!modal,
+        modalTitle: modal ? ((modal.querySelector('h3') || {}).innerText || '').replace(/\\s+/g, ' ').trim() : '',
+        rows: document.querySelectorAll('.main-scroll .file-row').length,
+        onUn
+      }
+    })()`)
+    ok(
+      !after.modalOpen,
+      `【核心】不再弹出那个永远「加载中」的详情弹窗（修前必现：弹窗打开、标题=${after.modalTitle}）`
+    )
+    ok(after.onUn, '跳到了文件视图，左栏「未归属」筛选已点亮')
+    ok(after.rows === 1, `列出池里的 1 个散文件：实际 ${after.rows} 条`)
+    await shot('shot-b25-2-unassigned-jumped.png')
+
+    // (3) 勾选它 → 认领栏出现（目标任务 + 子文件夹两个下拉）→ 说明这条路真能把散文件收编进任务
+    const checked = await js(`(() => {
+      const cb = document.querySelector('.main-scroll .file-row input.cb')
+      if (!cb) return 'no-cb'
+      cb.click(); return 'ok'
+    })()`)
+    ok(checked === 'ok', '勾选这个未归属文件')
+    await wait(700)
+    const claim = await js(`(() => {
+      const bar = document.querySelector('.claimbar')
+      if (!bar) return null
+      const sels = bar.querySelectorAll('select')
+      return {
+        txt: ((bar.querySelector('.txt') || {}).innerText || '').trim(),
+        nSelect: sels.length,
+        packOpts: sels[0] ? sels[0].querySelectorAll('option').length : 0
+      }
+    })()`)
+    ok(!!claim, '勾选后出现认领栏（能把散文件认领进任务）')
+    ok(
+      !!claim && claim.nSelect === 2,
+      `认领栏有「目标任务」+「子文件夹」两个下拉（实际 ${claim && claim.nSelect} 个）`
+    )
+    ok(
+      !!claim && claim.packOpts >= 2,
+      `目标任务下拉里能选到任务（${claim && claim.packOpts} 项，含一个占位项）`
+    )
+    await shot('shot-b25-3-claim-bar.png')
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

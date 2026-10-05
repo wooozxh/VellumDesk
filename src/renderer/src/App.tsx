@@ -98,7 +98,7 @@ export default function App(): React.JSX.Element {
   const [claimTarget, setClaimTarget] = useState<string>('02-素材')
 
   const [showNew, setShowNew] = useState(false)
-  const [openPackId, setOpenPackId] = useState<number | 'unassigned' | null>(null)
+  const [openPackId, setOpenPackId] = useState<number | null>(null)
 
   // 项目维护弹窗
   const [showProjectModal, setShowProjectModal] = useState(false)
@@ -1321,7 +1321,17 @@ export default function App(): React.JSX.Element {
                     <UnassignedCard
                       count={stats.unassigned}
                       size={unassignedSize}
-                      onOpen={() => setOpenPackId('unassigned')}
+                      // 第 25 批（用户报的 bug：点它弹窗一直「加载中」）：
+                      // 未归属池没有「任务详情」可看 —— PackDetailModal 收到 packId='unassigned'
+                      // 时连数据都不加载（第 1 批留下的半成品，组件里从来没有未归属的渲染分支），
+                      // 于是 detail 永远 null，弹窗只剩标题「加载中…」一直转圈。
+                      // 改成跟左栏那个「未归属」按钮**完全同一个去处**：文件视图 + 未归属筛选
+                      // —— 在那里勾选文件，认领栏会出来（选目标任务 + 子文件夹 → 认领）。
+                      onOpen={() => {
+                        setView('files')
+                        setUnassignedOnly(true)
+                        setMissingOnly(false)
+                      }}
                     />
                   )}
                   {shownPacks.map((p) => (

@@ -62,7 +62,7 @@ export function PackDetailModal({
   onEdit,
   toast
 }: {
-  packId: number | 'unassigned'
+  packId: number
   subFolders: string[]
   onClose: () => void
   onChanged: () => void
@@ -84,7 +84,7 @@ export function PackDetailModal({
   const verInited = useRef(false)
 
   const load = async (): Promise<void> => {
-    const d = await window.api.packDetail(packId as number)
+    const d = await window.api.packDetail(packId)
     setDetail(d)
     if (!verInited.current) {
       // 首次打开：默认看当前版本（没有版本就看"未分版本"）
@@ -104,7 +104,11 @@ export function PackDetailModal({
   }
 
   useEffect(() => {
-    if (packId !== 'unassigned') load()
+    // 第 25 批：这里原来是 `if (packId !== 'unassigned') load()` —— 未归属池那条路
+    // 从第 1 批起就没实现（不加载数据、组件里也没有对应分支），点开只能看到
+    // 标题停在「加载中…」。现在未归属卡片改走文件视图（见 App.tsx），
+    // 传进来的 packId 只可能是真实的包 id，直接加载即可。
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packId])
 
@@ -278,10 +282,10 @@ export function PackDetailModal({
                 </button>
                 <button
                   className="btn"
-                  disabled={completeBusy || typeof packId !== 'number'}
+                  disabled={completeBusy}
                   title={COPY.ticket.completeBtnTip}
                   onClick={() => {
-                    if (completeBusy || typeof packId !== 'number') return
+                    if (completeBusy) return
                     setCompleteBusy(true)
                     void window.api
                       .ticketCompleteByPack(packId)
