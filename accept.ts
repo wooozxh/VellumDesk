@@ -123,7 +123,7 @@ import {
 } from './src/main/report'
 import type { ReportField } from './src/main/reportWecom'
 // 第 21 批：wecom-cli 定位顺序与状态解析（纯逻辑，不碰真企微、不 spawn 任何进程）
-import { parseAuthStatus, parseCliVersion, resolveCliCommand } from './src/main/wecomCli'
+import { isCompletePng, parseAuthStatus, parseCliVersion, resolveCliCommand } from './src/main/wecomCli'
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
@@ -4736,6 +4736,14 @@ async function main(): Promise<void> {
     ok(parseAuthStatus('Authorized（授权人：某某）') === 'authorized', '夹带其他文字也能认出已授权')
     ok(parseAuthStatus('some unexpected output') === 'unknown', '认不出的输出 → 状态未知（不猜）')
     ok(parseAuthStatus('') === 'unknown', '空输出 → 状态未知')
+
+    // 二维码完整性判定（2026-10-05 修「破图」bug）：CLI 先建 0 字节文件、~1.5s 后才写完整 PNG，
+    // 抢读 0 字节曾导致空 data URL → 界面破图。必须头尾双签名都齐才交给界面。
+    ok(isCompletePng(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(100), Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])])), '头+IEND 尾都齐 → 完整 PNG（可交给界面）')
+    ok(!isCompletePng(Buffer.alloc(0)), '0 字节（CLI 刚建文件的抢读现场）→ 不完整，继续等')
+    ok(!isCompletePng(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), '只有头 8 字节、没有 IEND 尾 → 半截，继续等')
+    ok(!isCompletePng(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(10), Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])])), '头对但尾部不是 IEND → 不完整，继续等')
+    ok(!isCompletePng(Buffer.concat([Buffer.from('GIF89a!!'), Buffer.alloc(20), Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])])), '尾部像 IEND 但头部不是 PNG 签名 → 不完整，继续等')
   }
 
 // ============ 汇总 ============

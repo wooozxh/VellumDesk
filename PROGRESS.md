@@ -978,3 +978,30 @@
   docs/28 方案文档（新增）；README/NEXT 补「老用户升级后重选一次工作区」提示。
 - **老用户影响**：userData 目录改名 → 本机与同事机升级后首次打开需**重选一次工作区位置**（数据不丢）；
   appId 改名 → 任务栏图标分组可能短暂分裂。
+
+### 2026-10-05（第 35 次会话）—— 修 bug 会话①：企微授权二维码「破图」（抢读竞态）+ 顺带抓回丢失的 wecom-cli.exe
+
+- **用户报的 bug**：首次安装启动后无法加载 wecom-cli 授权二维码（截图：扫码区破图小图标 + 「已等待 0 秒」）。
+- **排查（全程实证）**：
+  - 先排除「CLI 出图失败」：`%TEMP%` 残留 `wecom-auth-*.png` 3515 字节、PNG 头尾签名齐全、内容可正常渲染成二维码；
+    IPC（`wecom:authStart` → preload → `setQr`）纯透传；CSP `img-src` 已放行 `data:`。
+  - **探针 3/3 必现根因**：`auth init --output-qrcode` 的真实时序是**先创建 0 字节文件、约 1.5 秒后才写入完整 PNG**。
+    `startWecomAuth` 的轮询只判 `existsSync`，第一次就抢读到 0 字节 → 返回空 data URL → 界面破图。
+    「已等待 0 秒」「破图」全部吻合。**必现 bug，非偶现**。
+  - 为什么第 21 批没拦住：当时验证的是「CLI 能产出完整 PNG」（直接看文件），没走 UI 抢读路径；「真企微不进自动测试」
+    让 accept 也不考这条链路 → 从第 21 批起 UI 扫码首次真用即翻车。
+- **修复（最小改动，只动 `src/main/wecomCli.ts`）**：
+  - 新增纯函数 `isCompletePng(buf)`：PNG 头 8 字节签名 + 尾部 IEND 块双校验（可断言）；
+  - `startWecomAuth` 轮询改为「读到**写完整的** PNG 才交给界面」，不完整/读占用（Windows 写入期 EBUSY）都等下一轮，
+    仍在原 20 秒预算内；超时/CLI 退出分支原样保留。改的是「抢读」这个根因，授权流程其余环节零改动。
+- **顺带抓回一个丢失资源**：`resources/wecom-cli/wecom-cli.exe` 不在 git 里（gitignore），本机工作区已丢（目录只剩 README，
+  今早 08:48 被动过）；**且 `VellumDesk-1.8.1-Setup.exe` 包内也缺**（7z 内该目录只有 README.md，第 34 次台账「包内 wecom-cli 齐全」
+  与事实不符）——已发出的 1.8.1 包在同事新机器上会直接「内置组件缺失」（连扫码区都不会出现）。已从 `@wecom/cli` npm 平台依赖
+  （`cli-win32-x64/bin/wecom-cli.exe`）恢复到 `resources/wecom-cli/`：10,091,560 字节与第 30 批台账逐字节一致，`--version` = 1.3.4 正常。
+  **下次出 1.8.2 必须核对包内 `resources/wecom-cli/wecom-cli.exe` 存在**（与 ffmpeg 同一条检查）。
+- **探针存证**：`_junk/wecom_auth_probe/`（probe.cjs 复现抢读 / verify_fix.cjs 端到端验证 / cred_backup 授权凭据备份，
+  探针全程未扫码、凭据 diff 前后一致未被动过）。临时解包 nsis_tmp 已清。
+- **验收结果**：typecheck 0 错；重打三个 `out/test` bundle；accept **816 项全过**（811 → +5，新增 isCompletePng 断言 5 项：
+  完整 PNG 通过 / 0 字节 / 只有头 / 尾非 IEND / 头非 PNG 签名均拦截）；**tickets 界面场景全绿、控制台零报错**；
+  **端到端证明**：直接调修复后的 `startWecomAuth` 跑真 CLI，839ms 拿到 3565 字节完整 PNG（isCompletePng = true），不再破图。
+- **下一步**：等用户测完本轮全部 bug 统一打包（纯热修 → **1.8.2**）；push GitHub 前提醒用户开代理（github.com:443 间歇拦截）。

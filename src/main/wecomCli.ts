@@ -252,6 +252,22 @@ export interface AuthStartResult {
   error?: string
 }
 
+/**
+ * 判断 buffer 是不是一张**写完整了**的 PNG：头 8 字节是 PNG 签名、尾 8 字节是 IEND 块。
+ *
+ * 为什么不能只看「文件存在」就读（2026-10-05 修的必现 bug）：
+ * `auth init --output-qrcode` 的实际时序是**先创建 0 字节文件、约 1.5 秒后才写入完整图片**
+ * （探针 3/3 复现：第一次读到 size=0，+1.5s 重读才是 3.5KB 完整 PNG）。
+ * 抢读到 0 字节会返回空 data URL，界面二维码显示为破图。
+ * 头尾双签名都对上才认为写完 —— 纯函数，accept 有断言。
+ */
+export function isCompletePng(buf: Buffer): boolean {
+  if (buf.length < 16) return false
+  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const IEND_TAIL = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+  return buf.subarray(0, 8).equals(PNG_SIG) && buf.subarray(buf.length - 8).equals(IEND_TAIL)
+}
+
 let authChild: ChildProcess | null = null
 let authQrFile = ''
 let authLog = ''
@@ -306,14 +322,17 @@ export async function startWecomAuth(): Promise<AuthStartResult> {
     if (authChild === child) authChild = null
   })
 
-  // 等二维码出现（CLI 要先联网换码，通常 1~3 秒）
+  // 等二维码写完整（CLI 要先联网换码，通常 1~3 秒；文件会先以 0 字节出现，见 isCompletePng 注释）
   for (let i = 0; i < 100; i++) {
     if (existsSync(qrFile)) {
       try {
         const buf = await readFile(qrFile)
-        return { ok: true, qr: `data:image/png;base64,${buf.toString('base64')}`, log: authLog }
-      } catch (e) {
-        return { ok: false, log: authLog, error: '读二维码图片失败：' + (e as Error).message }
+        if (isCompletePng(buf)) {
+          return { ok: true, qr: `data:image/png;base64,${buf.toString('base64')}`, log: authLog }
+        }
+        // 文件已创建但还没写完（或读到半截）—— 不把残缺数据交给界面，下一轮再读
+      } catch {
+        // Windows 上 CLI 正在写时读取可能撞占用 —— 同样等下一轮，不让单次读失败判死
       }
     }
     if (exited) {

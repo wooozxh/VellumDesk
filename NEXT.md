@@ -237,3 +237,5 @@ M6 还剩的其他小项：
 | **`set_range_value_by_csv` 跳过空单元格** | 想清空某列不能靠"写空值"，得调 `clear_range_cells`。否则上一轮表格里填的「改成」列残留，下次被当成新改动读回来（`push.cjs` 已内置这一步） |
 | **表格「改成」列可以整列复制** | 用户习惯用批量替换 → 未改动的行也会复制一遍。`diff.cjs` 只认「真变化」，其余自动忽略；**别要求用户"只填改动行"**。同时它会把"批量替换误伤"（标签配对/占位符结构变了但裸文字没变）单独列出来人工确认 |
 | **改文案走表格，别再手改 `copy.ts`** | 流程在 `tools/copy-sheet/README.md`：表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`（刷新表，链接不变） |
+| ⛔ **wecom-cli 出二维码是「先建 0 字节文件、~1.5s 后写完整 PNG」** | 等码必须校验 PNG 完整性（`isCompletePng`：头签名 + IEND 尾双校验），只判 `existsSync` 会抢读 0 字节 → 空 data URL → 界面破图（2026-10-05 修，探针 3/3 必现） |
+| ⛔ **`resources/wecom-cli/wecom-cli.exe` 同 ffmpeg 一样会丢（gitignore 不入库）** | 出包前必查包内 exe 存在（1.8.1-vellum 包就缺了，台账「齐全」是误记）。恢复来源：`@wecom/cli` npm 平台依赖 `node_modules/@wecom/cli-win32-x64/bin/wecom-cli.exe`（10,091,560 字节） |
