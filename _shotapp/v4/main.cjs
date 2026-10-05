@@ -599,6 +599,10 @@ app.whenReady().then(async () => {
     )
     setM.run('ticket_identity', JSON.stringify({ userid: 'uME', name: '测试设计师' }))
     setM.run('ticket_first_sync_done', '1')
+    // 第 26 批（docs/31）：**显式关掉自动同步**。上面配的是假 docid，若不关掉，软件启动
+    // 15 秒后会真去跑 wecom-cli 拉这张不存在的表 —— 后台行为污染场景、还白等一次进程 spawn。
+    // 自动同步的判定 / 记账逻辑由 accept 断言覆盖，界面场景只验形态与读写闭环。
+    setM.run('ticket_auto_sync', '0')
 
     const addTicket = d.prepare(`
       INSERT INTO tickets (sheet_id, ticket_type, ticket_no, record_id, title, approval_state,
@@ -2753,6 +2757,18 @@ app.whenReady().then(async () => {
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)
 
+    // (8b) 第 26 批（docs/31）：工具栏上的「上次同步」—— 后台自动同步**静默跑**，
+    // 这块是它唯一的可见凭据。本场景自动同步关着、也没手动同步过 → 应显示「尚未同步」。
+    const lastSyncEl = await js(
+      `(() => { const e = document.querySelector('.tk-lastsync'); return e ? { txt: e.innerText.trim(), bad: e.classList.contains('bad') } : null })()`
+    )
+    ok(!!lastSyncEl, '工具栏上有「上次同步」提示')
+    ok(
+      !!lastSyncEl && lastSyncEl.txt === plain(COPY.ticket.lastSyncNever),
+      `还没同步过时显示「${lastSyncEl && lastSyncEl.txt}」`
+    )
+    ok(!!lastSyncEl && !lastSyncEl.bad, '没过同步失败 → 不落在失败态（不无故报红）')
+
     // (9) 第 17 批：设置弹窗里开「允许在本机指派设计师」
     await js(
       `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => (x.getAttribute('title')||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)})); if (b) b.click(); return 'ok' })()`
@@ -2783,6 +2799,93 @@ app.whenReady().then(async () => {
       `危险操作区有说明文案（${danger ? danger.hints.join(' / ').slice(0, 60) : '—'}）`
     )
     await shot('shot-b17-1-settings-switch.png')
+
+    // (9d) 第 26 批（docs/31）：设置里的「自动同步」区 —— 开关默认开 + 间隔默认 30
+    const autoBlock = await js(
+      `(() => {
+         const a = document.querySelector('.tk-autosync')
+         if (!a) return null
+         const cb = a.querySelector('input[type=checkbox]')
+         const num = a.querySelector('input[type=number]')
+         return {
+           label: ((a.querySelector('.tk-check span') || {}).innerText || '').trim(),
+           checked: cb ? cb.checked : null,
+           intervalLabel: ((a.querySelector('.tk-label') || {}).innerText || '').trim(),
+           interval: num ? num.value : '',
+           hint: ((a.querySelector('.tk-autosync-hint') || {}).innerText || '').trim()
+         }
+       })()`
+    )
+    ok(!!autoBlock, '工单设置里有「自动同步」区')
+    ok(
+      !!autoBlock && autoBlock.label === plain(COPY.ticket.autoSyncLabel),
+      `开关文案：${autoBlock && autoBlock.label}`
+    )
+    ok(
+      !!autoBlock && autoBlock.checked === false,
+      '（本场景为测试隔离显式关了自动同步）开关读到「关」'
+    )
+    // 点开 → 当场落库（改动即存，与「允许指派」同一模式）
+    await js(
+      `(() => { const c = document.querySelector('.tk-autosync input[type=checkbox]'); if (c) c.click(); return 'ok' })()`
+    )
+    await wait(900)
+    const DatabaseSw = require('better-sqlite3')
+    const dbSw = new DatabaseSw(join(s.workspaceRoot, '_system', 'media.db'), { readonly: true })
+    const swRow = dbSw.prepare('SELECT value FROM meta WHERE key = ?').get('ticket_auto_sync')
+    dbSw.close()
+    ok(
+      !!swRow && String(swRow.value) === '1',
+      `点开开关后 meta 落库（ticket_auto_sync = ${swRow && swRow.value}）`
+    )
+    // 关回去：假 docid 下开着也不会拉到数据，但不给后续流程留脏状态
+    await js(
+      `(() => { const c = document.querySelector('.tk-autosync input[type=checkbox]'); if (c) c.click(); return 'ok' })()`
+    )
+    await wait(700)
+    ok(
+      !!autoBlock && autoBlock.intervalLabel === plain(COPY.ticket.autoSyncInterval),
+      `间隔标签：${autoBlock && autoBlock.intervalLabel}`
+    )
+    ok(
+      !!autoBlock && autoBlock.interval === '30',
+      `间隔默认 30 分钟（实际 ${autoBlock && autoBlock.interval}）`
+    )
+    ok(!!autoBlock && autoBlock.hint.length > 0, '区里给了说明（关掉就只能手动点同步）')
+    await shot('shot-b26-1-autosync-settings.png')
+
+    // (9e) 第 26 批：改间隔 → 当场落库（改动即存，不走「保存」按钮）
+    // ⚠️ React 的 onBlur 实际监听的是**冒泡的 focusout**；离屏窗口里 element.blur() 不产生它，
+    // 所以要手动派发 focusout（真实用户点别处时浏览器会自己发，行为一致）。
+    await js(`(() => {
+      const num = document.querySelector('.tk-autosync input[type=number]')
+      if (!num) return 'no-input'
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(num, '45')
+      num.dispatchEvent(new Event('input', { bubbles: true }))
+      num.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      return 'ok'
+    })()`)
+    await wait(900)
+    const DatabaseAuto = require('better-sqlite3')
+    const dbAuto = new DatabaseAuto(join(s.workspaceRoot, '_system', 'media.db'), { readonly: true })
+    const ivRow = dbAuto.prepare('SELECT value FROM meta WHERE key = ?').get('ticket_sync_interval_min')
+    dbAuto.close()
+    ok(
+      !!ivRow && String(ivRow.value) === '45',
+      `间隔改成 45 后落库（meta ticket_sync_interval_min = ${ivRow && ivRow.value}）`
+    )
+    // 复位成默认（别把后面的同步流程带歪）
+    await js(`(() => {
+      const num = document.querySelector('.tk-autosync input[type=number]')
+      if (!num) return 'no-input'
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      setter.call(num, '30')
+      num.dispatchEvent(new Event('input', { bubbles: true }))
+      num.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      return 'ok'
+    })()`)
+    await wait(700)
 
     // (9c) 第 21 批（docs/16 §4）：设置弹窗顶部「企业微信连接」常驻入口 → 打开授权引导弹窗
     // ⚠️ 只看形态：状态徽标 / 组件来源具体是什么取决于本机，不写死；也不点「开始扫码授权」

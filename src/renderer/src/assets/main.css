@@ -2676,6 +2676,63 @@ svg {
   font-size: 11.5px;
 }
 
+/* 第 26 批（docs/31）：工具栏里的「上次同步 15:24」——
+   后台自动同步是静默跑的（不弹窗是设计），这块是它唯一的可见凭据。 */
+.tk-lastsync {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: default;
+}
+.tk-lastsync:hover {
+  color: var(--text-2);
+}
+/* 失败态：静默失败不等于瞒着用户 —— 变红 + 可点（点开设置看原因） */
+.tk-lastsync.bad {
+  color: var(--warn);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+/* 第 26 批：工单设置里的「自动同步」区（与「允许指派」同属"改动即存"的本机开关） */
+.tk-autosync {
+  margin: 4px 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.tk-autosync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tk-autosync-row input[type='number'] {
+  width: 88px;
+  padding: 4px 10px;
+  background: var(--bg-mute);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  outline: none;
+}
+.tk-autosync-row input[type='number']:focus {
+  border-color: var(--accent);
+}
+.tk-autosync-row input[type='number']:disabled {
+  opacity: 0.45;
+}
+.tk-autosync-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.55;
+}
+
 /* 列表行（表头 + 数据行共用栅格） */
 .tk-row {
   display: grid;

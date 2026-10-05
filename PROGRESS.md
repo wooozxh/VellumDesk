@@ -1179,3 +1179,47 @@
   `npx electron-vite build` 重打渲染层；**12 个界面场景全绿、控制台零报错**（原 11 个 + 新增 `unassigned`）；
   `unset ELECTRON_RUN_AS_NODE && NODE_OPTIONS= npm run dev` 启动冒烟正常出窗（无 `isPackaged` 报错），无残留进程。
 - **下一步**：等用户测完本轮全部 bug 统一出包（纯热修 → **1.8.3**）；push 前提醒用户开代理。
+
+### 2026-10-05（第 43 次会话）—— 工单定时自动同步（第 26 批，docs/31）：把 docs/16 §3 被搁置的那块捡起来
+
+- **用户指令**：拉 GitHub 上的新 issue 分析 → 拍板方向 → 施工。
+- **issue #1「企业微信智能表格同步不及时」分析结论（先诊断后动手）**：
+  - 链路：`企微审批` →（官方「审批自动同步」）→ `工单智能表格` →（软件拉）→ `Vellum工作台`。
+  - **延迟卡在第 2 段，是企微产品限制**：官方社区两处答复 —— 「智能表格同步其他表格数据的时间频率**目前不支持调整**」、
+    「有没有让表格立即同步的 API」→「**暂无相关接口支持**」；官方帮助文档也写明那个「立即同步数据」按钮**只在客户端**。
+  - **CLI 侧同样没有**：核对内置 `wecom-cli 1.3.4` 命令树，`smartsheet` 下只有
+    `create/get/import/records/sheets/views/charts/fields/files/images` —— 全是 CRUD，**没有任何同步/刷新命令**。
+  - 所以 issue 里提的「同步前用 wecom-cli 触发表格同步」**做不到**；用户确认他手点的是**企微里的「立即同步数据」**，
+    即瓶颈 100% 在上游。
+  - **但 issue 的「可优化方向：如何实现自动/半自动同步」有现成答案**：`docs/16-工单二期方案` §3 把「定时自动同步」
+    设计得很完整（连默认值都定了），而 PROGRESS 第 649 行记着 2026-10-01 用户拍板「工单二期搁置」——
+    后来状态写回 / 指派设计师 / CLI 打进包三块都被单独捡起来做了，**只有定时自动同步一直没人捡**（代码里零痕迹：
+    `ticket_auto_sync`/`autoSync` 搜不到，`src/main` 里连一个 `setInterval` 都没有）。
+- **用户拍板两点**：① 下一步做「定时自动同步」；② 后台自动同步拉到的工单**照旧自动建任务**（与手动同步完全一致）。
+- **改动**：
+  - 新增 `src/main/ticketScheduler.ts`：**纯调度**（排表 / 停表 / 防重入），业务动作靠注入、跑完记账靠回调 ——
+    调度不碰业务、业务不碰定时器，两边都能单独测（承接 docs/15 的架构铁律）。
+  - `src/main/ipc.ts`：把 `ticket:sync` 的内联逻辑抽成 **`doTicketSync()`**（手动 / 自动共用一条链路，
+    docs/16 §3.3 原话「复用，一字不改」）；新增 `ticket:autoSyncGet` / `ticket:autoSyncSet`；
+    `registerIpc` 末尾起调度器 + `will-quit` 停表；推送用 `BrowserWindow.getAllWindows()` 广播（定时器没有 `e.sender`）。
+  - `src/main/tickets.ts`：meta 键 5 个（`ticket_auto_sync` / `ticket_sync_interval_min` / `ticket_last_sync_at|ok|err`）
+    + 读写函数（**未设 = 开**，与 docs/16 §8 #3 默认一致）。
+  - `src/preload/index.ts` + `src/shared/types.ts`：`ticketAutoSyncGet` / `ticketAutoSyncSet` / `onTicketSynced`（订阅返退订）。
+  - `TicketsView.tsx`：工具栏「上次同步 HH:MM」（失败变红 + 点开设置）；订阅 `ticket:synced` 刷列表 —— **界面永不轮询**。
+  - `TicketSettingsModal.tsx`：「自动同步」区（开关 + 间隔，与「允许指派」同一「改动即存」模式）。
+  - `main.css`：`.tk-lastsync`（含失败态）/ `.tk-autosync` 系列样式。
+  - `copy.ts`：新增 7 条文案（autoSyncLabel / autoSyncInterval / autoSyncHint / lastSyncAt / lastSyncFailed /
+    lastSyncNever / lastSyncFailedTip）→ **已 publish 刷回在线表**（字典 725 条，7 条全接线，审计未引用数保持 21 不变）。
+- **施工中抓到两个真问题（都由断言/实测暴露）**：
+  - ① **`clampIntervalMin(null)` 返回 10 而不是默认 30**：`Number(null) === 0`、`Number(空串) === 0` 都是**合法数字**，
+    会被当成「用户填的 0」夹到下限 → **默认值永远用不上**。改成先判空值。这是 accept 断言 `ok(syncIntervalMin() === 30)` 直接抓到的。
+  - ② **场景会被后台行为污染**：tickets 场景布景配的是**假 docid**，若不关自动同步，软件启动 15 秒后会**真去跑 wecom-cli** 拉那张
+    不存在的表。已在场景布景里显式写 `ticket_auto_sync = 0`（自动同步的判定 / 记账交给 accept 断言，界面场景只验形态）。
+- **验收结果**：typecheck 0 错；重打三个 `out/test` bundle + `npx electron-vite build`；
+  accept **854 项全过**（834 → **+20**）；**12 个界面场景全绿、控制台零报错**（tickets 新增 10 条断言）；
+  `unset ELECTRON_RUN_AS_NODE && NODE_OPTIONS= npm run dev` 启动冒烟正常出窗，无残留进程。
+- **意外收获：在真实工作区做了端到端验证**（冒烟用的是 `D:/vellum_workspace`，配着真 docid）——
+  启动 15 秒后调度器**真跑了一次同步且成功**：`ticket_last_sync_at = 2026-10-05T08:39:04Z`、`ok = 1`，
+  而 `ticket_auto_sync` / `interval` 两个键**都是未设状态** → 证明走的就是**默认值（开 + 30 分钟）**。
+  工单数 261 未变、**没有误建任务**（表里最新数据仍是 10-04 15:24，上游那 1 小时延迟照旧，符合预期）。
+- **本批未打包、未 push**；下次发版按纯热修 → **1.8.3**。上线前提醒用户开代理。

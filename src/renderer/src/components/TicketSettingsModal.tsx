@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { COPY, fmt } from '../../../shared/copy'
 import type {
+  TicketAutoSyncState,
   TicketPurgePreview,
   TicketSaveConfigResult,
   TicketStatus,
@@ -59,6 +60,13 @@ export function TicketSettingsModal({
   /** 第 21 批（docs/16 §4）：企微连接（内置 wecom-cli 的可用性 / 授权状态）+ 引导弹窗 */
   const [cli, setCli] = useState<(WecomCliInfo & { onboardSeen: boolean }) | null>(null)
   const [showWecom, setShowWecom] = useState(false)
+  /**
+   * 第 26 批（docs/31）：自动同步开关 + 间隔。
+   * 与「允许指派」同一模式：**改动即存**，不走下面的「保存」按钮（那个按钮只管表格配置）。
+   * 间隔先用草稿字符串，失焦时才提交 —— 否则输入框里删到空就会当场存成默认值。
+   */
+  const [autoSync, setAutoSync] = useState<TicketAutoSyncState | null>(null)
+  const [intervalDraft, setIntervalDraft] = useState('30')
 
   /**
    * 企微连接状态：打开设置就查一次（不轮询 —— 授权在引导弹窗里做，做完回来这里会重新查）。
@@ -75,6 +83,47 @@ export function TicketSettingsModal({
   useEffect(() => {
     void loadCli()
   }, [])
+
+  // 第 26 批：自动同步配置（只在已配置工单表时才有意义 —— 下面的渲染也按这个条件）
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const s = await window.api.ticketAutoSyncGet()
+        if (!alive) return
+        setAutoSync(s)
+        setIntervalDraft(String(s.intervalMin))
+      } catch {
+        // 读不到就不显示这一块，不让设置弹窗打不开
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /**
+   * 第 26 批：改自动同步设置 —— 主进程改完会**立即重排定时器**，返回值就是最新的真实状态，
+   * 直接拿它刷界面（不用再查一遍）。失败则回读一次，绝不把没落库的值留在界面上。
+   */
+  const patchAutoSync = async (input: {
+    enabled?: boolean
+    intervalMin?: number
+  }): Promise<void> => {
+    try {
+      const s = await window.api.ticketAutoSyncSet(input)
+      setAutoSync(s)
+      setIntervalDraft(String(s.intervalMin))
+    } catch {
+      try {
+        const s = await window.api.ticketAutoSyncGet()
+        setAutoSync(s)
+        setIntervalDraft(String(s.intervalMin))
+      } catch {
+        // 两次都读不到就维持现状，不猜
+      }
+    }
+  }
 
   // 打开弹窗时拉一次预览（只有已配置过才有意义）
   useEffect(() => {
@@ -276,6 +325,36 @@ export function TicketSettingsModal({
               <em>（{COPY.ticket.allowAssignHint}）</em>
             </span>
           </label>
+
+          {/* 第 26 批（docs/31）：自动同步 —— 与「允许指派」同一个「改动即存」模式。
+              只在已配置工单表时出现：没配表时它根本不会跑，摆出来只会让人以为坏了。 */}
+          {initial && autoSync && (
+            <div className="tk-autosync">
+              <label className="tk-check">
+                <input
+                  type="checkbox"
+                  checked={autoSync.enabled}
+                  onChange={(e) => void patchAutoSync({ enabled: e.target.checked })}
+                />
+                <span>{COPY.ticket.autoSyncLabel}</span>
+              </label>
+              <div className="tk-autosync-row">
+                <span className="tk-label">{COPY.ticket.autoSyncInterval}</span>
+                {/* 范围权威在 src/main/ticketScheduler.ts 的 clampIntervalMin（主进程会夹紧），
+                    这里的 min/max 只是输入框的提示，别当第二处真源 */}
+                <input
+                  type="number"
+                  min={10}
+                  max={1440}
+                  value={intervalDraft}
+                  disabled={!autoSync.enabled}
+                  onChange={(e) => setIntervalDraft(e.target.value)}
+                  onBlur={() => void patchAutoSync({ intervalMin: Number(intervalDraft) })}
+                />
+              </div>
+              <div className="tk-autosync-hint">{COPY.ticket.autoSyncHint}</div>
+            </div>
+          )}
 
           {initial && !initial.firstSyncDone && (
             <div className="tk-firstwarn">{COPY.ticket.settingsFirstSyncWarn}</div>

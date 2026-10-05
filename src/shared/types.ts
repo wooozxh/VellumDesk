@@ -523,6 +523,28 @@ export interface TicketSyncResult {
   warnings: string[]
 }
 
+/** 第 26 批（docs/31）：自动同步配置 + 上一次同步的结果（工单视图头部显示「上次同步 HH:MM」） */
+export interface TicketAutoSyncState {
+  /** 自动同步开关（默认开） */
+  enabled: boolean
+  /** 间隔分钟数（10~1440，默认 30） */
+  intervalMin: number
+  /** 上一次同步：从没同步过时 at/ok 为 null */
+  lastSync: {
+    at: string | null
+    ok: boolean | null
+    error: string | null
+  }
+}
+
+/** 第 26 批：后台自动同步跑完后的推送载荷（主进程 → 界面） */
+export interface TicketSyncedEvent {
+  ok: boolean
+  /** 本次同步时间（ISO） */
+  at: string
+  error?: string
+}
+
 // ---------------- 第 17 批：设计师指派（docs/19） ----------------
 
 /** 候选设计师（历史工单设计师去重 + 在办单数） */
@@ -834,6 +856,17 @@ export interface Api {
   ) => Promise<{ ok: boolean; packId?: number; packName?: string; msg?: string }>
   /** 打开审批链接（浏览器） */
   ticketOpenApproval: (url: string) => Promise<{ ok: boolean; error?: string }>
+
+  // ---- 第 26 批（docs/31）：工单自动同步（捡起 docs/16 §3 被搁置的那块） ----
+  /** 读自动同步设置 + 「上次同步」状态 */
+  ticketAutoSyncGet: () => Promise<TicketAutoSyncState>
+  /** 改自动同步设置（改完主进程立即重排定时器，不用重启软件） */
+  ticketAutoSyncSet: (input: {
+    enabled?: boolean
+    intervalMin?: number
+  }) => Promise<TicketAutoSyncState & { ok: boolean }>
+  /** 后台自动同步完成的推送（返回退订函数，组件卸载时必须调用） */
+  onTicketSynced: (cb: (p: TicketSyncedEvent) => void) => () => void
 
   // ---------------- 第 17 批：设计师指派（docs/19） ----------------
   /** 详情弹窗指派区原料：开关 / 列可用性 / 候选池 / 表格链接 */

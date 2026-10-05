@@ -943,7 +943,15 @@ export const COPY = {
     purgeDone: '已清理 {n} 条工单，备份在 {path}',
     purgeBackupFailed: '备份失败，已中止清理（未删除任何工单）',
     purgeDraftDirty: '子表设置有未保存的改动，请先保存再清理',
-    purgeFailed: '清理失败：{msg}'
+    purgeFailed: '清理失败：{msg}',
+    /** 第 26 批（docs/31）：工单定时自动同步（捡起 docs/16 §3 被搁置的那块） */
+    autoSyncLabel: '每隔一段时间自动同步',
+    autoSyncInterval: '间隔（分钟，10~1440）',
+    autoSyncHint: '启动 15 秒后先同步一次，之后按上面的间隔自动拉取。关掉就只能手动点「同步」。',
+    lastSyncAt: '上次同步 {time}',
+    lastSyncFailed: '上次同步失败 {time}',
+    lastSyncNever: '尚未同步',
+    lastSyncFailedTip: '点这里去设置里看看'
   },
 
   // ==================== 企业微信连接（第 21 批；docs/16 §4） ====================

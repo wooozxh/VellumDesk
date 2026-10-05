@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { COPY, fmt } from '../../../shared/copy'
-import type { TicketDetail, TicketListItem, TicketStatus } from '../types'
+import type {
+  TicketAutoSyncState,
+  TicketDetail,
+  TicketListItem,
+  TicketStatus
+} from '../types'
 import { Icon } from './Icon'
 import { TicketDetailModal } from './TicketDetailModal'
 import { TicketSettingsModal } from './TicketSettingsModal'
@@ -39,6 +44,14 @@ function stateClass(s: string | null): string {
   return ''
 }
 
+/** 第 26 批：「上次同步 HH:MM」——只到分钟，日期不显示（同步频率是分钟级，看时间就够） */
+function hhmm(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export function TicketsView({
   onToast,
   onUnassignedCount
@@ -60,6 +73,12 @@ export function TicketsView({
   const [newUnassigned, setNewUnassigned] = useState(0)
   /** 第 21 批：同步撞上「组件缺失 / 未授权」→ 直接把连接引导摆出来（那一步就是全部原因） */
   const [showWecom, setShowWecom] = useState(false)
+  /**
+   * 第 26 批（docs/31）：自动同步配置 + 「上次同步」状态。
+   * 后台自动同步是**静默**跑的（不弹窗），这块就是它唯一的可见凭据 ——
+   * 用户看一眼就知道"数据新不新、上次拉成功没有"。
+   */
+  const [autoSync, setAutoSync] = useState<TicketAutoSyncState | null>(null)
 
   const toast = useCallback(
     (msg: string) => {
@@ -97,16 +116,43 @@ export function TicketsView({
     }
   }, [])
 
+  const loadAutoSync = useCallback(async (): Promise<void> => {
+    try {
+      setAutoSync(await window.api.ticketAutoSyncGet())
+    } catch {
+      // 工作区不可用等 → 不显示这一小块，不影响列表本身
+      setAutoSync(null)
+    }
+  }, [])
+
   useEffect(() => {
     void (async () => {
       try {
         const st = await loadStatus()
         if (st?.configured) await loadList('mine')
+        await loadAutoSync()
       } catch {
         // 第 22 批：列表读取同理（工作区不可用时静默，横幅已在顶部说明）
       }
     })()
-  }, [loadStatus, loadList])
+  }, [loadStatus, loadList, loadAutoSync])
+
+  /**
+   * 第 26 批（docs/31）：后台自动同步跑完时，主进程会推一条 `ticket:synced`。
+   * 收到就刷新列表 + 更新「上次同步」——**界面永不轮询**（docs/16 §3.3 定下的形态）。
+   */
+  useEffect(() => {
+    const off = window.api.onTicketSynced((p) => {
+      setAutoSync((prev) =>
+        prev
+          ? { ...prev, lastSync: { at: p.at, ok: p.ok, error: p.error ?? null } }
+          : prev
+      )
+      void loadStatus()
+      void loadList(filter)
+    })
+    return off
+  }, [filter, loadStatus, loadList])
 
   const switchFilter = async (f: TkFilter): Promise<void> => {
     setFilter(f)
@@ -213,6 +259,29 @@ export function TicketsView({
           ))}
         </div>
         <div className="spacer" />
+        {/* 第 26 批（docs/31）：上次同步时间 —— 后台自动同步**静默跑**（不弹窗是设计），
+            这块就是它唯一的可见凭据。失败时变红，点一下直接去设置里看原因。 */}
+        {autoSync && (
+          <button
+            className={`tk-lastsync${autoSync.lastSync.ok === false ? ' bad' : ''}`}
+            onClick={() => {
+              if (autoSync.lastSync.ok === false) setShowSettings(true)
+            }}
+            title={
+              autoSync.lastSync.ok === false
+                ? `${COPY.ticket.lastSyncFailedTip}${
+                    autoSync.lastSync.error ? `：${autoSync.lastSync.error}` : ''
+                  }`
+                : ''
+            }
+          >
+            {autoSync.lastSync.ok === false
+              ? fmt(COPY.ticket.lastSyncFailed, { time: hhmm(autoSync.lastSync.at) })
+              : autoSync.lastSync.at
+                ? fmt(COPY.ticket.lastSyncAt, { time: hhmm(autoSync.lastSync.at) })
+                : COPY.ticket.lastSyncNever}
+          </button>
+        )}
         {filter === 'pending' && pendingCount > 0 && (
           <button className="btn" onClick={() => void doConfirmBatch()}>
             {COPY.ticket.confirmBatch}
@@ -377,6 +446,7 @@ export function TicketsView({
             setShowSettings(false)
             await loadStatus()
             await loadList(filter)
+            await loadAutoSync()
           }}
         />
       )}

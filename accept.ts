@@ -107,11 +107,26 @@ import {
   // 第 20 批：清理已禁用子表工单（docs/24）
   previewPurgeDisabledSheetTickets,
   purgeDisabledSheetTickets,
+  // 第 26 批：工单定时自动同步（docs/31）
+  autoSyncEnabled,
+  syncIntervalMin,
+  setAutoSyncEnabled,
+  setSyncIntervalMin,
+  readLastSync,
+  writeLastSync,
   type DesignerWriteAdapter,
   type SheetPayload,
   type TicketRawRecord,
   type TicketSheetConfig
 } from './src/main/tickets'
+// 第 26 批（docs/31）：自动同步调度器（纯调度 + 依赖注入 —— 不碰 electron，可直接测）
+import {
+  clampIntervalMin,
+  schedulerState,
+  startTicketScheduler,
+  stopTicketScheduler,
+  SYNC_DEFAULT_INTERVAL_MIN
+} from './src/main/ticketScheduler'
 // 第 19 批：导出报表（docs/22）
 import {
   buildReportRows,
@@ -4157,6 +4172,53 @@ async function main(): Promise<void> {
     setAllowAssignEnabled(true)
     ok(allowAssignEnabled() === true, '开关可开（meta 落库）')
     setAllowAssignEnabled(false)
+
+    // ---- (2b) 第 26 批（docs/31）：定时自动同步 —— 默认开 / 间隔夹取 / 上次同步记账 / 排表停表 ----
+    ok(autoSyncEnabled() === true, '自动同步**默认开**（meta 未设即为开 —— docs/16 §8 #3 的默认）')
+    setAutoSyncEnabled(false)
+    ok(autoSyncEnabled() === false, '关掉后落库生效（meta = \'0\'）')
+    setAutoSyncEnabled(true)
+    ok(syncIntervalMin() === SYNC_DEFAULT_INTERVAL_MIN, `间隔默认 ${SYNC_DEFAULT_INTERVAL_MIN} 分钟`)
+    setSyncIntervalMin(5)
+    ok(syncIntervalMin() === 10, `低于下限夹到 10（写 5 → 读回 ${syncIntervalMin()}）`)
+    setSyncIntervalMin(99999)
+    ok(syncIntervalMin() === 1440, `高于上限夹到 1440（写 99999 → 读回 ${syncIntervalMin()}）`)
+    setSyncIntervalMin(60)
+    ok(syncIntervalMin() === 60, '范围内的值原样落库（60）')
+    // 归一函数本身（不碰库的纯函数，脏输入全靠它兜）
+    ok(clampIntervalMin(NaN) === SYNC_DEFAULT_INTERVAL_MIN, 'clampIntervalMin(NaN) → 默认值')
+    ok(clampIntervalMin('abc') === SYNC_DEFAULT_INTERVAL_MIN, 'clampIntervalMin("abc") → 默认值')
+    ok(clampIntervalMin(null) === SYNC_DEFAULT_INTERVAL_MIN, 'clampIntervalMin(null) → 默认值')
+    ok(clampIntervalMin(-3) === 10, 'clampIntervalMin(-3) → 下限 10')
+    ok(clampIntervalMin(1440.6) === 1440, 'clampIntervalMin(1440.6) → 取整后夹到 1440')
+    ok(clampIntervalMin('45') === 45, 'clampIntervalMin("45") → 45（字符串数字也认）')
+    // 「上次同步」记账（工单视图头部那块显示的就是它）
+    const ls0 = readLastSync()
+    ok(ls0.at === null && ls0.ok === null, '从没同步过 → at / ok 均为空（界面显示「尚未同步」）')
+    writeLastSync('2026-10-05T07:30:00.000Z', true, null)
+    ok(
+      readLastSync().at === '2026-10-05T07:30:00.000Z' && readLastSync().ok === true,
+      '同步成功 → 时间 + 成功标记落库'
+    )
+    writeLastSync('2026-10-05T08:00:00.000Z', false, '授权已过期')
+    ok(
+      readLastSync().ok === false && readLastSync().error === '授权已过期',
+      '同步失败 → 原因也落库（界面据此把「上次同步」变红，静默失败不等于瞒着用户）'
+    )
+    // 调度器：排表 / 停表只看定时器状态，不真等 15 秒
+    ok(schedulerState().scheduled === false, '调度器初始没排表（还没 start）')
+    const fakeJob = async (): Promise<{ ran: boolean; ok: boolean }> => ({ ran: true, ok: true })
+    startTicketScheduler({ readConfig: () => ({ enabled: false, intervalMin: 30 }), run: fakeJob })
+    ok(schedulerState().scheduled === false, '开关关着 → 不排表（start 也不硬排）')
+    startTicketScheduler({ readConfig: () => ({ enabled: true, intervalMin: 30 }), run: fakeJob })
+    ok(schedulerState().scheduled === true, '开关开着 → 排上表（15 秒首拉 + 之后按间隔）')
+    startTicketScheduler({ readConfig: () => ({ enabled: false, intervalMin: 30 }), run: fakeJob })
+    ok(schedulerState().scheduled === false, '改成关后重排 → 已有定时器被停掉（不是叠加一个）')
+    stopTicketScheduler()
+    ok(schedulerState().scheduled === false, 'stop 之后彻底不排表（退出 / 测试收尾用）')
+    // 复位成默认，别影响后面的断言
+    setAutoSyncEnabled(true)
+    setSyncIntervalMin(SYNC_DEFAULT_INTERVAL_MIN)
 
     // ---- (3) 指派本地即时生效 + pending + 留痕 + 通知 ----
     writeShouldOk = true

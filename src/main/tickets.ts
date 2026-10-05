@@ -19,6 +19,7 @@
 import { COPY, fmt } from '../shared/copy'
 import { getDb, getMeta, setMeta } from './db'
 import { createPack } from './workspace'
+import { clampIntervalMin } from './ticketScheduler'
 import { join } from 'path'
 import { mkdirSync, writeFileSync } from 'fs'
 import { ensureAnyThumb } from './thumbs'
@@ -98,7 +99,15 @@ export const META_KEYS = {
   /** 第 17 批：允许在本机指派设计师（'1'/'0'，默认关 —— 派单的人自己在工单设置里开） */
   allowAssign: 'ticket_allow_assign',
   /** 第 17 批：设计师列可用性（'0' = 同步时检测到列缺失/不是成员类型；未设 = 视为可用） */
-  designerOk: 'ticket_designer_ok'
+  designerOk: 'ticket_designer_ok',
+  /** 第 26 批（docs/31）：自动同步开关（'1'/'0'，**未设 = 开** —— 与 docs/16 §8 #3 的默认一致） */
+  autoSync: 'ticket_auto_sync',
+  /** 第 26 批：自动同步间隔（分钟；未设 = 30，读取时一律夹到 10~1440） */
+  syncIntervalMin: 'ticket_sync_interval_min',
+  /** 第 26 批：上一次同步的时间（ISO 字符串）/ 结果（'1'/'0'）/ 失败原因 */
+  lastSyncAt: 'ticket_last_sync_at',
+  lastSyncOk: 'ticket_last_sync_ok',
+  lastSyncErr: 'ticket_last_sync_err'
 } as const
 
 /** 设计师成员列的列名（meta 配置，默认「设计师」；改列名只改这一处，读写同源） */
@@ -109,6 +118,52 @@ export function designerColName(): string {
 /** 本机是否允许指派设计师（docs/19 §10 #3：开关即门槛，不做身份校验） */
 export function allowAssignEnabled(): boolean {
   return getMeta(META_KEYS.allowAssign) === '1'
+}
+
+// ---- 第 26 批（docs/31）：自动同步配置与「上次同步」状态 ----
+
+/**
+ * 自动同步开关。**未设 = 开**（docs/16 §8 #3 的默认：默认开、30 分钟、启动后 15 秒首拉）。
+ * 只有显式写过 '0' 才算关 —— 老用户升级上来没有这个键，应当直接开始自动同步。
+ */
+export function autoSyncEnabled(): boolean {
+  return getMeta(META_KEYS.autoSync) !== '0'
+}
+
+/** 自动同步间隔（分钟）。归一逻辑在 ticketScheduler.clampIntervalMin（读写同一口径） */
+export function syncIntervalMin(): number {
+  return clampIntervalMin(getMeta(META_KEYS.syncIntervalMin))
+}
+
+export function setAutoSyncEnabled(v: boolean): void {
+  setMeta(META_KEYS.autoSync, v ? '1' : '0')
+}
+
+export function setSyncIntervalMin(min: number): void {
+  setMeta(META_KEYS.syncIntervalMin, String(clampIntervalMin(min)))
+}
+
+export interface LastSyncState {
+  at: string | null
+  ok: boolean | null
+  error: string | null
+}
+
+/** 「上次同步」状态（工单视图头部显示用）。从没同步过时三项全空 */
+export function readLastSync(): LastSyncState {
+  const okRaw = getMeta(META_KEYS.lastSyncOk)
+  return {
+    at: getMeta(META_KEYS.lastSyncAt),
+    ok: okRaw === null ? null : okRaw === '1',
+    error: getMeta(META_KEYS.lastSyncErr)
+  }
+}
+
+/** 记一笔「刚才同步过」——自动同步成功/失败都记（界面要能一眼看出"数据新不新"） */
+export function writeLastSync(at: string, ok: boolean, error: string | null): void {
+  setMeta(META_KEYS.lastSyncAt, at)
+  setMeta(META_KEYS.lastSyncOk, ok ? '1' : '0')
+  setMeta(META_KEYS.lastSyncErr, error ?? '')
 }
 
 export function setAllowAssignEnabled(v: boolean): void {

@@ -39,6 +39,8 @@ export type {
   DeliveryRecord,
   TicketPurgePreview,
   TicketPurgeResult,
+  TicketAutoSyncState,
+  TicketSyncedEvent,
   WecomCliSource,
   WecomAuthState,
   WecomCliInfo,

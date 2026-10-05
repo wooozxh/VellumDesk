@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ScanProgress, PackExportInput } from '../shared/types'
+import type { ScanProgress, PackExportInput, TicketSyncedEvent } from '../shared/types'
 
 /**
  * 暴露给界面的接口。约定见方案 6.1：全部走 invoke（ipcMain.handle），
@@ -121,6 +121,19 @@ const api = {
     sheets: Array<{ title: string; type: 'print' | 'digital'; enabled: boolean }>
   }) => ipcRenderer.invoke('ticket:saveConfig', input),
   ticketSync: () => ipcRenderer.invoke('ticket:sync'),
+  // 第 26 批（docs/31）：自动同步 —— 读 / 改设置 + 后台跑完的推送
+  ticketAutoSyncGet: () => ipcRenderer.invoke('ticket:autoSyncGet'),
+  ticketAutoSyncSet: (input: { enabled?: boolean; intervalMin?: number }) =>
+    ipcRenderer.invoke('ticket:autoSyncSet', input),
+  /**
+   * 后台自动同步跑完的推送（主进程 `send`）。定时器不是由某次 IPC 触发的，
+   * 所以那边是广播。返回退订函数 —— 组件卸载时必须调用，否则订阅会越积越多。
+   */
+  onTicketSynced: (cb: (p: TicketSyncedEvent) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, p: TicketSyncedEvent): void => cb(p)
+    ipcRenderer.on('ticket:synced', handler)
+    return () => ipcRenderer.off('ticket:synced', handler)
+  },
   ticketList: (view?: 'all' | 'mine' | 'unassigned' | 'history' | 'reassigned' | 'pending' | 'abnormal') =>
     ipcRenderer.invoke('ticket:list', view),
   ticketDetail: (ticketNo: string) => ipcRenderer.invoke('ticket:detail', ticketNo),

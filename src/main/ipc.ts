@@ -1,5 +1,5 @@
 import { COPY, fmt } from '../shared/copy'
-import { ipcMain, shell, app, dialog } from 'electron'
+import { BrowserWindow, ipcMain, shell, app, dialog } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { openDb } from './db'
@@ -95,8 +95,16 @@ import {
   META_KEYS,
   readTicketConfig,
   writeTicketSheets,
+  // 第 26 批（docs/31）：自动同步配置 + 「上次同步」状态
+  autoSyncEnabled,
+  syncIntervalMin,
+  setAutoSyncEnabled,
+  setSyncIntervalMin,
+  readLastSync,
+  writeLastSync,
   type DesignerWriteAdapter,
   type SheetPayload,
+  type SyncResult,
   type TicketSheetConfig
 } from './tickets'
 import {
@@ -113,6 +121,7 @@ import {
   getCliInfo,
   readAuthStatus,
   startWecomAuth,
+  type CliFailKind,
   type WecomCliInfo
 } from './wecomCli'
 // 第 19 批：导出报表（docs/22）
@@ -132,7 +141,26 @@ import {
 } from './reportWecom'
 // 第 15 批：交付打包（M5，docs/18）
 import { executePackExport, listDeliveryRecords } from './exportPack'
+// 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
+import {
+  startTicketScheduler,
+  stopTicketScheduler,
+  SYNC_DEFAULT_INTERVAL_MIN,
+  type TicketSchedulerJobResult,
+  type TicketSchedulerOptions
+} from './ticketScheduler'
 import type { PackExportInput, PackExportResult } from '../shared/types'
+
+/**
+ * 一次工单同步的完整结果（手动点「同步」和后台定时跑**共用同一条链路**，docs/16 §3.3）。
+ * `ok` 在 SyncResult 里；这里补上失败分类和「这一轮到底跑没跑」。
+ */
+type TicketSyncOutcome = SyncResult & {
+  kind?: CliFailKind
+  error?: string
+  /** false = 这一轮没真跑（工单没配置好等）—— 自动同步据此**不记**「上次同步」 */
+  ran: boolean
+}
 
 /**
  * 主进程 / 界面的全部通信接口。
@@ -889,12 +917,18 @@ export function registerIpc(): void {
     }
   )
 
-  ipcMain.handle('ticket:sync', async () => {
+  /**
+   * 工单同步的实体 —— 手动「同步」按钮与后台定时自动同步**共用这一个函数**
+   * （docs/16 §3.3 原话：定时器"复用现有同步链路，一字不改"）。
+   * `ran` 只有调度器关心：没配置好时它是 false，那一轮就不记「上次同步」。
+   */
+  const doTicketSync = async (): Promise<TicketSyncOutcome> => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const cfg = readTicketConfig()
     const zero = {
       structureChanged: false,
+      missingSheets: [] as string[],
       inserted: 0,
       updated: 0,
       historyMarked: 0,
@@ -909,10 +943,16 @@ export function registerIpc(): void {
       warnings: [] as string[]
     }
     if (!cfg.docid || !cfg.identity)
-      return { ok: false, kind: 'unknown' as const, error: COPY.ticket.notConfigured, ...zero }
+      return {
+        ok: false,
+        kind: 'unknown' as const,
+        error: COPY.ticket.notConfigured,
+        ran: false,
+        ...zero
+      }
     const sheetsRes = await fetchSheets(cfg.docid)
     if (!sheetsRes.ok || !sheetsRes.data)
-      return { ok: false, kind: sheetsRes.kind, error: sheetsRes.error, ...zero }
+      return { ok: false, kind: sheetsRes.kind, error: sheetsRes.error, ran: true, ...zero }
     const check = detectStructure(cfg.sheets, sheetsRes.data.sheets)
     // 第 17 批（docs/19 §7）：同步时评估「设计师」成员列可用性（缺失/改名 → 指派入口置灰）
     evaluateDesignerCol(
@@ -923,7 +963,7 @@ export function registerIpc(): void {
     for (const r of check.resolved) {
       const pr = await fetchSheetRecords(cfg.docid, r.sheet_id, r.cfg.title, r.cfg.type)
       if (!pr.ok || !pr.data)
-        return { ok: false, kind: pr.kind, error: pr.error, ...zero }
+        return { ok: false, kind: pr.kind, error: pr.error, ran: true, ...zero }
       payloads.push(pr.data)
     }
     const result = applySync({
@@ -953,8 +993,82 @@ export function registerIpc(): void {
       )
       result.warnings.push(...retry.errors)
     }
-    return result
+    return { ran: true, ...result }
+  }
+
+  /** 手动同步（工单工具栏那个「同步」按钮）—— 与后台自动同步走同一个 doTicketSync */
+  ipcMain.handle('ticket:sync', () => doTicketSync())
+
+  /** 自动同步配置 + 「上次同步」状态（工单设置里读、工单视图头部显示） */
+  ipcMain.handle('ticket:autoSyncGet', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return {
+      enabled: autoSyncEnabled(),
+      intervalMin: syncIntervalMin(),
+      lastSync: readLastSync()
+    }
   })
+
+  /**
+   * 改自动同步设置 —— 改完**立即重排定时器**（不用重启软件）：关掉 = 停表、改间隔 = 按新间隔重排。
+   * 与「允许指派」同一个模式：改动即存，不走「保存」按钮。
+   */
+  ipcMain.handle('ticket:autoSyncSet', (_e, input: { enabled?: boolean; intervalMin?: number }) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    if (typeof input?.enabled === 'boolean') setAutoSyncEnabled(input.enabled)
+    if (typeof input?.intervalMin === 'number') setSyncIntervalMin(input.intervalMin)
+    startTicketScheduler(ticketSchedulerOptions())
+    return {
+      ok: true,
+      enabled: autoSyncEnabled(),
+      intervalMin: syncIntervalMin(),
+      lastSync: readLastSync()
+    }
+  })
+
+  /**
+   * 调度器的注入项（启动 / 改设置都用这一份，避免两处各写一遍跑偏）。
+   * 三层职责在这里会合：读配置（meta）→ 跑同步（doTicketSync）→ 记账 + 推送界面。
+   */
+  const ticketSchedulerOptions = (): TicketSchedulerOptions => ({
+    readConfig: () => {
+      try {
+        const root = getWorkspaceRoot(appData)
+        initWorkspace(root)
+        return { enabled: autoSyncEnabled(), intervalMin: syncIntervalMin() }
+      } catch {
+        // 工作区不可用（外接盘没插）→ 当作「关了」。第 22 批的规矩：
+        // 这种时候界面走空态、横幅说明原因，绝不让主进程崩。
+        return { enabled: false, intervalMin: SYNC_DEFAULT_INTERVAL_MIN }
+      }
+    },
+    run: async (): Promise<TicketSchedulerJobResult> => {
+      const r = await doTicketSync()
+      return { ran: r.ran, ok: r.ok, error: r.error }
+    },
+    onDone: (r) => {
+      const at = new Date().toISOString()
+      try {
+        writeLastSync(at, r.ok, r.error ?? null)
+      } catch {
+        // 记不上账不影响这一轮同步本身
+      }
+      // 推给所有窗口：工单视图收到就刷列表 + 更新「上次同步 HH:MM」。
+      // 定时器不是由某次 IPC 触发的（没有 e.sender 可用），所以用广播。
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.webContents.isDestroyed()) {
+          w.webContents.send('ticket:synced', { ok: r.ok, at, error: r.error ?? null })
+        }
+      }
+    }
+  })
+
+  // 第 26 批（docs/31）：起自动同步调度器（默认开、30 分钟、启动后 15 秒首拉；关着就只注册不排表）
+  startTicketScheduler(ticketSchedulerOptions())
+  // 退出前清掉定时器，不然 Electron 进程可能退不干净
+  app.on('will-quit', () => stopTicketScheduler())
 
   ipcMain.handle(
     'ticket:list',
