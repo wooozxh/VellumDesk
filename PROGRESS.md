@@ -1223,3 +1223,39 @@
   而 `ticket_auto_sync` / `interval` 两个键**都是未设状态** → 证明走的就是**默认值（开 + 30 分钟）**。
   工单数 261 未变、**没有误建任务**（表里最新数据仍是 10-04 15:24，上游那 1 小时延迟照旧，符合预期）。
 - **本批未打包、未 push**；下次发版按纯热修 → **1.8.3**。上线前提醒用户开代理。
+
+### 2026-10-05（第 45 次会话）—— 修 bug 会话④：「完成任务」回传全部成品缩略图（第 27 批，issue #2）
+
+- **用户报的 issue #2**：设计师点「完成任务」，成品图有 2 张，但回传到工单智能表的「缩略图」列只有 1 张。
+  用户自评「设计时没想好，不算 bug」——先诊断（只读排查）后施工。
+- **诊断结论：是「按文档实现」，不是漏做**：
+  - `tickets.ts` 的 `completeTicketTask` 取 `role=成品 ... ORDER BY id LIMIT 1`；
+    `docs/22-导出报表方案` §4 第 69 行原话就是「**最新版本的第一张成品素材**」，§2.1 又把该列定义为「**绩效缩略图**」
+    —— 代码与文档逐字一致，**单图是原始设计语义**。
+  - **实测该列类型**：工单队列「缩略图」= `field_type: image`（field_id `fQOXlx`）；企微 API 值是**数组**
+    `[{title,imageUrl}]` → **技术上能装多张**，原代码只是只放了 1 个元素。
+  - **改动会牵动报表导出**（这一列被 export 复用：`report.ts` 写图片列 + `reportWecom.rehostReportThumb` 重传，
+    都是单 URL 语义）—— 所以先跟用户说清波及面再动手。
+- **用户拍板两点**：① 改成多张，取**最新版本的全部成品**；② **报表导出也带多张**（两边一致）。
+- **改动（跨「完成任务 → 同步 → 报表导出」一条线）**：
+  - `tickets.ts`：`takeImageUrl` → `takeImageUrls`（取**全部**图片 URL，替换了原来的「取第一张」）；
+    新增 `joinThumbUrls`（0 张 = NULL、1 张 = 纯 URL、多张 = JSON 数组）与 `parseThumbUrls`（两种格式都能读，坏 JSON 不炸）；
+    `completeTicketTask` 改为取最新版本**全部**成品、逐张生成缩略图，返回 `thumbPaths: string[]` + `thumbFail`。
+  - `ipc.ts`：`ticket:completeByPack` **逐张上传**（单张失败继续下一张），写回图片列时放**多个** `{title,imageUrl}`；
+    本地 `thumb_url` 用 `joinThumbUrls` 即时更新；返回 `count` / `missing`。
+  - `report.ts`：`ReportRow.thumbUrl` → `thumbUrls: string[]`；`serializeRow` 一次写多张；
+    `exportReport` **逐张 rehost** 重传（单张失败只记 warning，不中断）。
+  - `PackDetailModal.tsx`：toast 改为如实报张数（`completeOkN`），有缺张时 `completePartial` 提示（红色），不闷掉。
+  - `copy.ts`：新增 2 条（`completeOkN` / `completePartial`）→ **已 publish 刷回在线表**
+    （Sheet1 698 行 / Sheet2 31 行；字典 727 条，审计未引用仍 21 条 —— 新增两条全接线）。
+  - `docs/22`：§1/§2.1/§4/§5/§6 同步为多图，并新增 **§12 第 27 批变更**（含改动对照表）；
+    `docs/25`：「完成任务」小节改为「全部成品图」+ 提示表加「部分成功」一行。
+- **兼容性（无需数据迁移）**：`tickets.thumb_url` 的「1 张 = 纯 URL」与老数据格式完全一致，
+  既有行原样可读；空值仍是 NULL（没引入空串）。
+- **不静默丢弃（铁律①）**：单张上传失败不中断其余，但**如实计数返回并在界面如实提示**「已写回 N 张，另有 M 张未能上传」。
+- **验收结果**：typecheck 0 错；重打三个 `out/test` bundle + `npx electron-vite build`；
+  accept **863 项全过**（854 → **+9**：多张取全部 / 缩略图文件都存在 / thumbFail=0 / `joinThumbUrls` 三态 /
+  `parseThumbUrls` 四种输入（null、空串、老单 URL、JSON 数组、坏 JSON）/ image 列多张 → thumb_url 多张 /
+  **报表多张逐张 rehost + 图片列写多张**）；**12 个界面场景全绿、控制台零报错**；
+  `unset ELECTRON_RUN_AS_NODE && NODE_OPTIONS= npm run dev` 启动冒烟正常出窗，无残留进程。
+- **下一步**：等用户测完本轮全部 bug 统一出包（纯热修 → **1.8.3**）；push 前提醒用户开代理。

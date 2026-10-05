@@ -586,6 +586,10 @@ export interface TicketCompleteResult {
   ok: boolean
   msg?: string
   ticketNo?: string
+  /** 第 27 批：本次成功写回的成品缩略图张数 */
+  count?: number
+  /** 第 27 批：有几张成品没能上传（缩略图生成失败或上传失败）—— 界面要如实提示 */
+  missing?: number
 }
 
 /** 报表配置状态（导出弹窗预填链接 / 模板子表名） */

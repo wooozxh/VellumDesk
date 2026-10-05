@@ -289,7 +289,18 @@ export function PackDetailModal({
                     setCompleteBusy(true)
                     void window.api
                       .ticketCompleteByPack(packId)
-                      .then((r) => toast(r.ok ? COPY.ticket.completeOk : (r.msg ?? COPY.common.failed), r.ok ? 'ok' : 'err'))
+                      .then((r) => {
+                        // 第 27 批（issue #2）：多张成品 —— 如实报张数；有缺张要显眼提示，不闷掉
+                        const msg = r.ok
+                          ? r.missing && r.missing > 0
+                            ? fmt(COPY.ticket.completePartial, { n: r.count ?? 0, miss: r.missing })
+                            : r.count
+                              ? fmt(COPY.ticket.completeOkN, { n: r.count })
+                              : COPY.ticket.completeOk
+                          : (r.msg ?? COPY.common.failed)
+                        const bad = !r.ok || (r.missing ?? 0) > 0
+                        toast(msg, bad ? 'err' : 'ok')
+                      })
                       .finally(() => setCompleteBusy(false))
                   }}
                 >

@@ -12,6 +12,8 @@
 import { getDb, getMeta, setMeta } from './db'
 import type { CliResult } from './ticketsWecom'
 import type { ReportField } from './reportWecom'
+// 第 27 批（issue #2）：本地 thumb_url 可能是多张（JSON 数组），读回用同一套解析
+import { parseThumbUrls } from './tickets'
 
 // ============================================================ 报表模板字段名（用户建好的模板，docs/22 §2.1）
 
@@ -62,8 +64,8 @@ export interface ReportRow {
   projectName: string | null
   applicantName: string | null
   designers: Array<{ userid: string; name: string }>
-  /** 工单队列「缩略图」image 列同步来的 URL（导出时需重新上传到报表空间） */
-  thumbUrl: string | null
+  /** 工单队列「缩略图」image 列同步来的 URL（第 27 批起支持多张，导出时逐张重新上传到报表空间） */
+  thumbUrls: string[]
   printQty: number | null
   printCost: number | null
   performanceCost: number | null
@@ -112,7 +114,7 @@ export function buildReportRows(start: string, end: string): ReportRow[] {
     projectName: (r.project_name as string) ?? null,
     applicantName: (r.applicant_name as string) ?? null,
     designers: designerMap.get(r.ticket_no as string) ?? [],
-    thumbUrl: (r.thumb_url as string) ?? null,
+    thumbUrls: parseThumbUrls(r.thumb_url as string),
     printQty: (r.print_qty as number) ?? null,
     printCost: (r.print_cost as number) ?? null,
     performanceCost: (r.performance_cost as number) ?? null,
@@ -189,7 +191,7 @@ function toDateTime(iso: string): string {
 function serializeRow(
   row: ReportRow,
   fieldMap: Map<string, ReportField>,
-  thumbUrl: string | null,
+  thumbUrls: string[],
   warnings: string[]
 ): Record<string, unknown> {
   const v: Record<string, unknown> = {}
@@ -227,9 +229,9 @@ function serializeRow(
     v[REPORT_FIELD.designers] = row.designers.map((d) => ({ userName: d.name }))
   }
 
-  // 缩略图（图片）：先 rehost 拿报表空间 URL
-  if (field(REPORT_FIELD.thumb) && thumbUrl) {
-    v[REPORT_FIELD.thumb] = [{ title: row.ticketNo, imageUrl: thumbUrl }]
+  // 缩略图（图片）：先 rehost 拿到报表空间 URL —— 第 27 批起可多张，一次性写入同一图片列
+  if (field(REPORT_FIELD.thumb) && thumbUrls.length > 0) {
+    v[REPORT_FIELD.thumb] = thumbUrls.map((u) => ({ title: row.ticketNo, imageUrl: u }))
   }
 
   // 印刷数量（数字）/ 印刷金额（货币）/ 绩效金额（货币）
@@ -279,16 +281,16 @@ export async function exportReport(
     return { ok: false, kind: add.kind ?? 'unknown', error: add.error, sheetTitle }
   }
 
-  // 逐条序列化 + 缩略图重新上传
+  // 逐条序列化 + 缩略图重新上传（第 27 批：一条可能有几张成品图，逐张重传、单张失败只记警告）
   const records: Array<{ values: Record<string, unknown> }> = []
   for (const row of rows) {
-    let thumbUrl: string | null = null
-    if (row.thumbUrl) {
-      const rh = await adapter.rehostThumb(row.thumbUrl, input.docid)
-      if (rh.ok && rh.data) thumbUrl = rh.data
+    const thumbUrls: string[] = []
+    for (const src of row.thumbUrls) {
+      const rh = await adapter.rehostThumb(src, input.docid)
+      if (rh.ok && rh.data) thumbUrls.push(rh.data)
       else warnings.push(`工单 ${row.ticketNo} 缩略图重新上传失败：${rh.error ?? ''}`)
     }
-    records.push({ values: serializeRow(row, fieldMap, thumbUrl, warnings) })
+    records.push({ values: serializeRow(row, fieldMap, thumbUrls, warnings) })
   }
 
   const wr = await adapter.addRecords(input.docid, sheetTitle, records)

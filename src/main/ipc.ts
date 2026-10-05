@@ -89,6 +89,9 @@ import {
   thumbColName,
   unassignedTicketCount,
   writeTicketMetrics,
+  // 第 27 批（issue #2）：任务包全部成品 → 多张缩略图（本地 thumb_url 存 JSON 数组）
+  joinThumbUrls,
+  parseThumbUrls,
   // 第 20 批（docs/24）：清理已禁用子表工单
   previewPurgeDisabledSheetTickets,
   purgeDisabledSheetTickets,
@@ -1223,8 +1226,9 @@ export function registerIpc(): void {
       mine: !!cfg.identity && t.designer_userid === cfg.identity.userid,
       packSummary,
       // 第 19 批：本地扩展字段 + 缩略图 URL
+      // 第 27 批：本地存的可能是多张（JSON 数组），这里取第一张给旧字段用（兼容既有调用方）
       metrics: readTicketMetrics(ticketNo),
-      thumbUrl: (t.thumb_url as string) ?? null
+      thumbUrl: parseThumbUrls(t.thumb_url as string)[0] ?? null
     }
   })
 
@@ -1418,6 +1422,9 @@ export function registerIpc(): void {
   /**
    * 任务包「完成任务」：生成缩略图 + 上传 + 写回工单队列「缩略图」列（docs/22 §4）。
    * 只负责缩略图，不改工单状态（§7 #6）。写回失败返回明确提示，不落 pending（人工可重试）。
+   *
+   * 第 27 批（issue #2）：最新版本的**全部成品**逐张上传、写回同一图片列（多图）。
+   * 单张上传失败不拖累其余（尽力而为），但要如实计数返回给界面 —— 不静默丢张。
    */
   ipcMain.handle('ticket:completeByPack', async (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
@@ -1425,26 +1432,51 @@ export function registerIpc(): void {
     const comp = await completeTicketTask(packId, root)
     if (!comp.ok) return comp
     const cfg = readTicketConfig()
-    if (!cfg.docid || !comp.recordId || !comp.sheetId || !comp.thumbPath) {
+    const paths = comp.thumbPaths ?? []
+    if (!cfg.docid || !comp.recordId || !comp.sheetId || paths.length === 0) {
       return { ok: false, msg: COPY.ticket.completeNoRecord }
     }
-    const up = await uploadReportImage(cfg.docid, comp.thumbPath)
-    if (!up.ok || !up.data) {
-      return { ok: false, msg: fmt(COPY.ticket.completeUploadFail, { msg: up.error ?? '' }) }
+    // 逐张上传（几张成品就传几张）；单张失败继续传下一张，最后如实汇报缺了几张
+    const urls: string[] = []
+    let uploadFail = 0
+    let lastErr = ''
+    for (const p of paths) {
+      const up = await uploadReportImage(cfg.docid, p)
+      if (up.ok && up.data) urls.push(up.data)
+      else {
+        uploadFail += 1
+        lastErr = up.error ?? ''
+      }
+    }
+    if (urls.length === 0) {
+      return { ok: false, msg: fmt(COPY.ticket.completeUploadFail, { msg: lastErr }) }
     }
     const wr = await updateRecords({
       docid: cfg.docid,
       sheet_id: comp.sheetId,
       records: [
-        { record_id: comp.recordId, values: { [thumbColName()]: [{ title: comp.ticketNo, imageUrl: up.data }] } }
+        {
+          record_id: comp.recordId,
+          values: {
+            [thumbColName()]: urls.map((u) => ({ title: comp.ticketNo, imageUrl: u }))
+          }
+        }
       ]
     })
     if (!wr.ok) {
       return { ok: false, msg: fmt(COPY.ticket.completeWriteFail, { msg: wr.error ?? '' }) }
     }
-    // 本地 thumb_url 即时更新（不等下轮同步）
-    getDb().prepare('UPDATE tickets SET thumb_url = ? WHERE ticket_no = ?').run(up.data, comp.ticketNo)
-    return { ok: true, ticketNo: comp.ticketNo }
+    // 本地 thumb_url 即时更新（不等下轮同步）—— 多张存 JSON 数组，单张就是纯 URL
+    getDb()
+      .prepare('UPDATE tickets SET thumb_url = ? WHERE ticket_no = ?')
+      .run(joinThumbUrls(urls), comp.ticketNo)
+    return {
+      ok: true,
+      ticketNo: comp.ticketNo,
+      count: urls.length,
+      // 缺的 = 缩略图没生成出来的 + 上传失败的（两类都要让用户看见）
+      missing: uploadFail + (comp.thumbFail ?? 0)
+    }
   })
 
   /** 报表配置状态（导出弹窗预填链接 / 模板子表名） */

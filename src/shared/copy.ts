@@ -913,6 +913,10 @@ export const COPY = {
     completeBtn: '完成任务',
     completeBtnTip: '生成成品缩略图并写回工单队列',
     completeOk: '已完成：缩略图已写回工单队列',
+    /** 第 27 批（issue #2）：多张成品时的成功提示（{n} = 成功写回的张数） */
+    completeOkN: '已完成：{n} 张成品缩略图已写回工单队列',
+    /** 第 27 批：有成品没能上传时的如实提示（{n} = 成功张数，{miss} = 缺的张数） */
+    completePartial: '已写回 {n} 张，另有 {miss} 张未能上传（可稍后重试）',
     completeNoTicket: '该任务未关联工单',
     completeNoAsset: '未找到成品图（请先在任务包里放一张成品图）',
     completeNoThumb: '缩略图生成失败',

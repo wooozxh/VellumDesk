@@ -258,3 +258,6 @@ M6 还剩的其他小项：
 | ⛔ **React 的 `onBlur` 实际监听的是冒泡的 `focusout`** | 场景壳里 `element.blur()` 在离屏窗口不产生该事件（改间隔的断言因此假失败）。要触发就派发 `new FocusEvent('focusout', { bubbles: true })`；真实用户点别处时浏览器自己会发，行为一致 |
 | ⛔ **场景布景里配了假 docid 的，必须同时关掉自动同步** | tickets 场景的 `s3_SHOTTEST` 是假的，若不写 `ticket_auto_sync=0`，软件启动 15 秒后会**真去跑 wecom-cli** 拉这张不存在的表（后台行为污染场景 + 白等一次进程 spawn）。第 26 批起凡新增「启动后自动跑」的后台行为，都要检查场景隔离 |
 | **工单自动同步的调参入口（第 26 批起）** | 默认**开**、间隔 **30 分钟**、启动后 **15 秒**首拉；范围 **10~1440** 分钟。权威在 `src/main/ticketScheduler.ts`（渲染层输入框的 min/max 只是提示）。meta：`ticket_auto_sync` / `ticket_sync_interval_min` / `ticket_last_sync_at|ok|err`。**上游那 1 小时是企微限制，软件侧改不了**（见 issue #1 分析） |
+| **「完成任务」回传的是「最新版本的全部成品」缩略图（第 27 批起，issue #2）** | 原为「第一张成品」（`docs/22` §4 原设计）。现逐张上传、写回同一 image 列（多个 `{title,imageUrl}`）。本地 `tickets.thumb_url`：0 张 = NULL、1 张 = 纯 URL（与老数据同格式）、多张 = JSON 数组 —— 读一律走 `parseThumbUrls` |
+| ⛔ **改「缩略图」相关的取数逻辑，必须连带看报表导出** | 工单队列那一列被 `report.ts` / `reportWecom.rehostReportThumb` 复用（导出时逐张重传）。只改「完成任务」不改报表 = 导出仍丢图 |
+| **企微智能表格 image 列可存多张** | 值是数组 `[{title,imageUrl}]`，写多个元素即多图（2026-10-05 实测列类型 `field_type: image`，无张数上限字段）。「完成任务」「报表导出」都按这个口径写 |

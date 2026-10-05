@@ -312,23 +312,56 @@ export function takeLink(v: unknown): string | null {
 }
 
 /**
- * 图片单元格 → 图片 URL（第 19 批 docs/22 §4：工单队列「缩略图」image 列）。
- * image 列存 CellImageValue 数组 [{id, title, imageUrl}]，取第一个的 imageUrl。
- * 只收 http/https 的图片资源地址；空数组 / 无图 → null。
+ * 图片单元格 → 图片 URL 列表（第 19 批 docs/22 §4：工单队列「缩略图」image 列）。
+ * image 列存 CellImageValue 数组 [{id, title, imageUrl}]，**全部取出**（第 27 批起支持多张：
+ * 一个任务包有几张成品就回传几张，不再只取第一张）。
+ * 只收 http/https 的图片资源地址；空数组 / 无图 → 空数组。
  */
-function takeImageUrl(v: unknown): string | null {
-  if (Array.isArray(v)) {
-    if (v.length === 0) return null
-    const first = v[0]
-    if (first && typeof first === 'object') {
-      const url = (first as Record<string, unknown>).imageUrl
-      if (typeof url === 'string' && /^https?:\/\//i.test(url)) return url
-      return null
+function takeImageUrls(v: unknown): string[] {
+  const out: string[] = []
+  const walk = (x: unknown): void => {
+    if (Array.isArray(x)) {
+      for (const item of x) walk(item)
+      return
     }
-    return takeImageUrl(first)
+    if (x && typeof x === 'object') {
+      const url = (x as Record<string, unknown>).imageUrl
+      if (typeof url === 'string' && /^https?:\/\//i.test(url)) out.push(url)
+      return
+    }
+    if (typeof x === 'string' && /^https?:\/\//i.test(x)) out.push(x)
   }
-  if (typeof v === 'string') return /^https?:\/\//i.test(v) ? v : null
-  return null
+  walk(v)
+  return out
+}
+
+/**
+ * 本地 `tickets.thumb_url` 的存储格式（第 27 批起支持多张）：
+ * - 0 张 → null（**与老数据一致**：没图就是 NULL，不是空串）
+ * - 1 张 → 就是那个 URL 本身（**与老数据格式完全一致**，不动既有行）
+ * - 多张 → JSON 数组字符串
+ */
+export function joinThumbUrls(urls: string[]): string | null {
+  if (urls.length === 0) return null
+  if (urls.length === 1) return urls[0]
+  return JSON.stringify(urls)
+}
+
+/** 读回本地 `thumb_url` → URL 列表（兼容「单 URL 字符串」与「JSON 数组」两种历史格式） */
+export function parseThumbUrls(raw: string | null | undefined): string[] {
+  const s = (raw ?? '').trim()
+  if (!s) return []
+  if (s.startsWith('[')) {
+    try {
+      const arr: unknown = JSON.parse(s)
+      if (Array.isArray(arr)) {
+        return arr.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      }
+    } catch {
+      // 不是合法 JSON 就按「单个 URL」处理（不能让脏数据把整行读崩）
+    }
+  }
+  return [s]
 }
 
 /** 人员单元格 → userid + 姓名（成员类型列存 {userId, userName}） */function takeUser(v: unknown): { userid: string | null; name: string | null } {
@@ -425,7 +458,7 @@ function extractRow(rec: TicketRawRecord): {
       project_name: takeText(v[COL.project]),
       reviewer_names: takeUserNames(v[COL.reviewer]),
       material_category: takeText(v[COL.matCat]),
-      thumb_url: takeImageUrl(v[COL.thumb])
+      thumb_url: joinThumbUrls(takeImageUrls(v[COL.thumb]))
     }
   }
 }
@@ -1226,13 +1259,18 @@ export interface CompleteTaskResult {
   ticketNo?: string
   recordId?: string | null
   sheetId?: string
-  /** 本地缩略图绝对路径（供 media upload 上传） */
-  thumbPath?: string
+  /** 本地缩略图绝对路径（供 media upload 上传）—— **最新版本的全部成品**，逐张上传 */
+  thumbPaths?: string[]
+  /** 有成品但缩略图生成失败的张数（不该静默：界面要能提示"2 张只传成功 1 张"） */
+  thumbFail?: number
 }
 
 /**
- * 任务包「完成任务」：找该任务包关联的工单 → 最新版本第一张成品素材 → 生成缩略图。
+ * 任务包「完成任务」：找该任务包关联的工单 → **最新版本的全部成品素材** → 逐张生成缩略图。
  * 只负责缩略图生成（不改工单状态，docs/22 §7 #6）。上传写回由 IPC 层调 wecom-cli 完成。
+ *
+ * 第 27 批（issue #2）：原来只取「第一张成品」，改成一版里的成品**全部回传**
+ * （一个任务包交付 2 张成品就该写回 2 张，不再丢）。
  */
 export async function completeTicketTask(
   packId: number,
@@ -1244,44 +1282,63 @@ export async function completeTicketTask(
     .get(packId) as { ticket_no: string; record_id: string | null; sheet_id: string } | undefined
   if (!t) return { ok: false, msg: COPY.ticket.completeNoTicket }
 
-  // 最新版本（当前稿，否则最大 seq）的第一张「成品」素材
+  const pick = (sql: string, ...args: unknown[]): Array<{
+    abs_path: string
+    size: number
+    ext: string
+    modified_at: string
+  }> =>
+    db.prepare(sql).all(...args) as Array<{
+      abs_path: string
+      size: number
+      ext: string
+      modified_at: string
+    }>
+
+  // 最新版本（当前稿，否则最大 seq）的**全部**成品素材
   const ver = db
     .prepare('SELECT id FROM pack_versions WHERE pack_id = ? ORDER BY is_current DESC, seq DESC LIMIT 1')
     .get(packId) as { id: number } | undefined
-  let asset = ver
-    ? (db
-        .prepare(
-          `SELECT abs_path, size, ext, modified_at FROM assets
-            WHERE pack_id = ? AND role = '成品' AND version_id = ? ORDER BY id LIMIT 1`
-        )
-        .get(packId, ver.id) as { abs_path: string; size: number; ext: string; modified_at: string } | undefined)
-    : undefined
-  // 该版本没成品 / 老包没分版本 → 退到「包内所有成品素材第一张」
-  if (!asset) {
-    asset = db
-      .prepare(
+  let assets = ver
+    ? pick(
         `SELECT abs_path, size, ext, modified_at FROM assets
-          WHERE pack_id = ? AND role = '成品' ORDER BY id LIMIT 1`
+          WHERE pack_id = ? AND role = '成品' AND version_id = ? ORDER BY id`,
+        packId,
+        ver.id
       )
-      .get(packId) as { abs_path: string; size: number; ext: string; modified_at: string } | undefined
+    : []
+  // 该版本没成品 / 老包没分版本 → 退到「包内所有成品素材」
+  if (assets.length === 0) {
+    assets = pick(
+      `SELECT abs_path, size, ext, modified_at FROM assets
+        WHERE pack_id = ? AND role = '成品' ORDER BY id`,
+      packId
+    )
   }
-  if (!asset) return { ok: false, msg: COPY.ticket.completeNoAsset }
+  if (assets.length === 0) return { ok: false, msg: COPY.ticket.completeNoAsset }
 
-  const rel = await ensureAnyThumb(
-    workspaceRoot,
-    asset.abs_path,
-    asset.size,
-    asset.ext,
-    new Date(asset.modified_at).getTime()
-  )
-  if (!rel) return { ok: false, msg: COPY.ticket.completeNoThumb }
+  const thumbPaths: string[] = []
+  let thumbFail = 0
+  for (const a of assets) {
+    const rel = await ensureAnyThumb(
+      workspaceRoot,
+      a.abs_path,
+      a.size,
+      a.ext,
+      new Date(a.modified_at).getTime()
+    )
+    if (rel) thumbPaths.push(join(workspaceRoot, rel))
+    else thumbFail += 1
+  }
+  if (thumbPaths.length === 0) return { ok: false, msg: COPY.ticket.completeNoThumb }
 
   return {
     ok: true,
     ticketNo: t.ticket_no,
     recordId: t.record_id,
     sheetId: t.sheet_id,
-    thumbPath: join(workspaceRoot, rel)
+    thumbPaths,
+    thumbFail
   }
 }
 

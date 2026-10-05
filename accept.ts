@@ -104,6 +104,9 @@ import {
   readTicketMetrics,
   thumbColName,
   writeTicketMetrics,
+  // 第 27 批（issue #2）：任务包全部成品 → 多张缩略图
+  joinThumbUrls,
+  parseThumbUrls,
   // 第 20 批：清理已禁用子表工单（docs/24）
   previewPurgeDisabledSheetTickets,
   purgeDisabledSheetTickets,
@@ -4612,14 +4615,21 @@ async function main(): Promise<void> {
     put('R1', {
       设计师: [{ userId: 'uOTHER', userName: '别的同事' }],
       完成时间: [{ text: '2026-10-05' }],
-      缩略图: [{ id: 'img1', title: '图', imageUrl: 'https://wqpic.example/thumb1.jpg' }]
+      缩略图: [
+        { id: 'img1', title: '图', imageUrl: 'https://wqpic.example/thumb1.jpg' },
+        { id: 'img2', title: '图', imageUrl: 'https://wqpic.example/thumb2.jpg' }
+      ]
     })
     put('R2', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }], 完成时间: [{ text: '2026-10-15' }] })
     put('R3', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }], 完成时间: [{ text: '2026-09-20' }] })
     put('R4', { 设计师: [{ userId: 'uOTHER', userName: '别的同事' }] })
     syncAll()
     const tR1 = getDb().prepare('SELECT thumb_url FROM tickets WHERE ticket_no = ?').get('R1') as { thumb_url: string | null }
-    ok(tR1.thumb_url === 'https://wqpic.example/thumb1.jpg', 'image 列 URL → thumb_url')
+    const tR1urls = parseThumbUrls(tR1.thumb_url)
+    ok(
+      tR1urls.length === 2 && tR1urls[0] === 'https://wqpic.example/thumb1.jpg' && tR1urls[1] === 'https://wqpic.example/thumb2.jpg',
+      `【第 27 批】image 列 2 张图 → thumb_url 存多张（实际 ${tR1urls.length} 张）`
+    )
     const tR2 = getDb().prepare('SELECT thumb_url FROM tickets WHERE ticket_no = ?').get('R2') as { thumb_url: string | null }
     ok(tR2.thumb_url === null, '无图 → thumb_url null')
 
@@ -4643,22 +4653,38 @@ async function main(): Promise<void> {
     const rowR1 = rows.find((r) => r.ticketNo === 'R1')
     ok(rowR1?.printCost === 500 && rowR1?.performanceCost === 100, '报表行 JOIN 本地扩展字段')
 
-    // ---- (4) 完成任务：找成品图 + 生成缩略图 ----
+    // ---- (4) 完成任务：找成品图 + 生成缩略图（第 27 批：最新版本「全部」成品，不只第一张）----
     const projId = (getDb().prepare('SELECT id FROM projects WHERE name = ?').get('工单测试项目') as { id: number }).id
     const pack = createPack({ name: '完成任务测试包', projectId: projId, workspaceRoot: bWs })
     const v1 = getDb().prepare('SELECT folder_name FROM pack_versions WHERE pack_id = ? ORDER BY seq LIMIT 1').get(pack.id) as { folder_name: string }
     const doneDir = join(pack.folder_path, v1.folder_name, '01-成品')
     mkdirSync(doneDir, { recursive: true })
-    makePng(join(doneDir, '完成图.png'), 200, 150, [200, 80, 40])
+    makePng(join(doneDir, '完成图1.png'), 200, 150, [200, 80, 40])
+    makePng(join(doneDir, '完成图2.png'), 180, 160, [40, 120, 200])
     scanAll(bWs)
     getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack.id, 'R1')
     const comp = await completeTicketTask(pack.id, bWs)
-    ok(comp.ok && comp.ticketNo === 'R1' && !!comp.thumbPath, '完成任务：找成品图 + 生成缩略图')
-    ok(!!comp.thumbPath && existsSync(comp.thumbPath), `缩略图文件已生成（${comp.thumbPath ?? '—'}）`)
+    ok(comp.ok && comp.ticketNo === 'R1', '完成任务：找成品图 + 生成缩略图')
+    const compPaths = comp.thumbPaths ?? []
+    ok(compPaths.length === 2, `【第 27 批】最新版本 2 张成品 → 2 张缩略图（实际 ${compPaths.length} 张）`)
+    ok(
+      compPaths.length > 0 && compPaths.every((p) => existsSync(p)),
+      `缩略图文件都已生成（${compPaths.map((p) => basename(p)).join(', ')}）`
+    )
+    ok((comp.thumbFail ?? 0) === 0, '缩略图生成零失败（thumbFail = 0）')
     const pack2 = createPack({ name: '空包', projectId: projId, workspaceRoot: bWs })
     getDb().prepare('UPDATE tickets SET pack_id = ? WHERE ticket_no = ?').run(pack2.id, 'R2')
     const comp2 = await completeTicketTask(pack2.id, bWs)
     ok(!comp2.ok, '无成品图 → 完成任务被拒')
+
+    // ---- (4b) 第 27 批：thumb_url 多图存取（JSON 数组）与向后兼容 ----
+    ok(joinThumbUrls([]) === null, '【第 27 批】0 张 → null（与老数据一致）')
+    ok(joinThumbUrls(['u1']) === 'u1', '【第 27 批】1 张 → 纯 URL（与老数据格式一致）')
+    ok(joinThumbUrls(['u1', 'u2']) === '["u1","u2"]', '【第 27 批】2 张 → JSON 数组字符串')
+    ok(parseThumbUrls(null).length === 0 && parseThumbUrls('').length === 0, '【第 27 批】null / 空串 → 空数组')
+    ok(parseThumbUrls('u1').join() === 'u1', '【第 27 批】老数据（单个 URL 字符串）可读')
+    ok(parseThumbUrls('["u1","u2"]').join() === 'u1,u2', '【第 27 批】JSON 数组可读')
+    ok(parseThumbUrls('坏数据[').join() === '坏数据[', '【第 27 批】坏 JSON 不炸，按单值兜底')
 
     // ---- (5) 导出：mock 适配器（真企微不进自动测试）----
     const tplFields: ReportField[] = [
@@ -4686,7 +4712,9 @@ async function main(): Promise<void> {
       },
       rehostThumb: async (sourceUrl) => {
         rehosted.push(sourceUrl)
-        return { ok: true, data: 'https://report-space/thumb.jpg' }
+        // 第 27 批：按源图区分重传结果，验证多张是否都正确逐张重传
+        const name = sourceUrl.split('/').pop() ?? 'thumb.jpg'
+        return { ok: true, data: `https://report-space/${name}` }
       },
       addRecords: async (_docid, _sheetTitle, records) => {
         addedRecords = records
@@ -4699,7 +4727,10 @@ async function main(): Promise<void> {
     )
     ok(er.ok && er.count === 2 && er.sheetTitle === '2026-10-01~2026-10-31', `导出成功（2 条，子表名 = 起止日期，实际 ${er.count}/${er.sheetTitle}）`)
     ok(addedSheets.length === 1 && addedSheets[0].fields.length === 12, '建子表复制 12 字段结构')
-    ok(rehosted.length === 1 && rehosted[0] === 'https://wqpic.example/thumb1.jpg', '有缩略图的单重新上传（1 张）')
+    ok(
+      rehosted.length === 2 && rehosted[0] === 'https://wqpic.example/thumb1.jpg' && rehosted[1] === 'https://wqpic.example/thumb2.jpg',
+      `【第 27 批】有缩略图的单逐张重新上传（2 张，实际 ${rehosted.length} 张）`
+    )
     ok(addedRecords.length === 2, '写 2 条记录')
     const rec1 = addedRecords.find((r) => r.values[REPORT_FIELD.no] === 'R1')
     const rec2 = addedRecords.find((r) => r.values[REPORT_FIELD.no] === 'R2')
@@ -4709,7 +4740,12 @@ async function main(): Promise<void> {
     const dsVal = rec1?.values[REPORT_FIELD.designers] as Array<{ userName: string }> | undefined
     ok(dsVal?.length === 1 && dsVal?.[0]?.userName === '别的同事', '设计师成员列写 [{userName}]')
     const thumbVal = rec1?.values[REPORT_FIELD.thumb] as Array<{ imageUrl: string }> | undefined
-    ok(thumbVal?.[0]?.imageUrl === 'https://report-space/thumb.jpg', '缩略图写报表空间 URL')
+    ok(
+      thumbVal?.length === 2 &&
+        thumbVal?.[0]?.imageUrl === 'https://report-space/thumb1.jpg' &&
+        thumbVal?.[1]?.imageUrl === 'https://report-space/thumb2.jpg',
+      `【第 27 批】缩略图列写多张报表空间 URL（实际 ${thumbVal?.length ?? 0} 张）`
+    )
     ok(rec1?.values[REPORT_FIELD.printCost] === 500, '印刷金额写货币数值')
     ok(rec2?.values[REPORT_FIELD.performanceCost] === 200, '绩效金额写数值（R2）')
     ok(rec2?.values[REPORT_FIELD.thumb] === undefined, '无缩略图的单不写图片字段')
