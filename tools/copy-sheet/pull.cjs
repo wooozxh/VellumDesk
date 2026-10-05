@@ -31,21 +31,34 @@ function call(tool, args, timeoutMs = 120000) {
   })
 }
 
-async function readSheet(sheetId, totalRows, cols = 7) {
+async function readSheet(sheetId, cols = 7) {
+  // 行数**不能写死**（原来写死 484 / 30）：字典会随批次增长，publish 会把表扩容
+  // （2026-10-05 刷表后 Sheet1 已到 689 行），写死上限就只读回前 484 行 ——
+  // 用户改了末尾那些文案，AI 拉不回来 = 静默漏改。改成从表元信息取真实行数。
+  const info = await call('get_sheet_info', { file_id: FILE_ID })
+  const meta = (info.sheets || []).find((s) => s.sheet_id === sheetId)
+  const totalRows = Math.max(1, Number(meta && meta.row_count) || 1)
   const grid = []
   for (let r = 0; r < totalRows; r++) grid.push(new Array(cols).fill(''))
   const CHUNK = 60
   for (let start = 0; start < totalRows; start += CHUNK) {
     const end = Math.min(start + CHUNK - 1, totalRows - 1)
-    const res = await call('get_cell_data', {
+    const range = {
       file_id: FILE_ID,
       sheet_id: sheetId,
       start_row: start,
       start_col: 0,
       end_row: end,
       end_col: cols - 1
-    })
-    const cells = res.cells || []
+    }
+    let cells = (await call('get_cell_data', range)).cells || []
+    // 偶发坑（2026-10-05 实测）：某一块会**静默返回空 cells**（同一块单独重读就有内容），
+    // 表现为「表里明明有内容，读回来整段空白」。静默漏读 = 用户改的文案落不了地，
+    // 所以表头之后（start > 0）的块读空时重试一次。
+    if (cells.length === 0 && start > 0) {
+      await new Promise((r) => setTimeout(r, 400))
+      cells = (await call('get_cell_data', range)).cells || []
+    }
     for (const c of cells) {
       if (c.row == null || c.col == null) continue
       if (c.row >= totalRows || c.col >= cols) continue
@@ -63,8 +76,8 @@ async function readSheet(sheetId, totalRows, cols = 7) {
 }
 
 ;(async () => {
-  const s1 = await readSheet('BB08J2', 484, 7)
-  const s2 = await readSheet('c3qmog', 30, 7)
+  const s1 = await readSheet('BB08J2', 7)
+  const s2 = await readSheet('c3qmog', 7)
   const out = { file_id: FILE_ID, sheet1: s1, sheet2: s2 }
   fs.writeFileSync(path.join(DIR, '_sheet_read.json'), JSON.stringify(out, null, 1), 'utf-8')
 

@@ -1082,3 +1082,35 @@
   脚本要点：启动前必须 `env.pop("ELECTRON_RUN_AS_NODE")`、`env.pop("NODE_OPTIONS")`，否则 electron 当纯 node 跑。
 - **本批未做**：文案 publish（本机没 mcporter）——待接上腾讯文档后刷表，含第 23 批新增文案与第 24 批的 4 个孤儿键
   （`newPack.categoryHint/channelHint`、`editPack.categoryHint/channelHint`，界面已不再引用，可删行）。
+
+### 2026-10-05（第 39 次会话）—— 清理旧分支 + 文案 publish 刷在线表（顺修 pull 两处隐患）
+
+- **用户指令**：删掉旧分支；问「文案 publish 能不能做、需不需要他帮忙」。
+- **分支清理**：先验证 `main..TM` 与 `main..feature/incr` **均为空**（无 main 未包含的提交），
+  `git branch -d TM feature/incr` 成功（分别 was `6dba4a1` / `64ffc9e`）+ `git remote prune origin`。
+  现在**本地与远程都只剩 `main`（= `f3dbf60`）**，干净。
+- **重要更正**：**本机 mcporter 完全可用**（不再需要「找一台有 mcporter 的机器」）。
+  `node <…>/node_modules/mcporter/dist/cli.js list` → 0.8.1，4 个 server 全健康：
+  `sheet-mcp`(63 tools) / `slide-mcp`(90) / `doc-mcp`(73) / `tencent-docs`(225)。
+- **文案 publish（已完成）**：
+  - **前置检查（防丢数据）**：先 `pull.cjs` 读回在线表 → Sheet1 填了「改成」列的 **0 条**、Sheet2 也 0 条
+    → 没有用户未落地的输入，刷表**不会覆盖任何人工填写**，可以放心执行。
+  - `export.cjs`：`copy.ts` → **Sheet1 688 条 / Sheet2 30 条**（当时表里只有 483 / 29 条 —— 这张表自
+    第 30 次会话（1.8.0 出包）后就没刷过，欠了 200 多条）。
+  - `push.cjs`：写入 **689 行（含表头）+ 31 行**，并清空「改成 / 备注」列；全部成功。
+  - **铁证（不只信脚本自报）**：`get_sheet_info` → Sheet1 `BB08J2` `row_count` **= 689**；
+    抽查表尾 683~688 行 = `wecom.timeout`…`wecom.needAuthHint` ✓、中段 238~246 行 = `delProj.*` ✓。
+  - 表链接不变：https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD （下次接着改）
+- **顺修 `tools/copy-sheet/pull.cjs` 两处隐患（本次 publish 直接暴露的，不是「顺手优化」）**：
+  - ① **行数写死**（原来固定读 `BB08J2` 484 行 / `c3qmog` 30 行）：表被 publish 扩容到 689 行后，
+    pull 仍只读前 484 行 —— 用户改了**末尾 200 多条**文案，AI 根本拉不回来（静默漏改）。
+    改为从 `get_sheet_info.row_count` 取真实行数（行数以 `get_sheet_info` 为准，写死的 484 是旧快照）。
+  - ② **分块读取偶发整块返回空**：实测一次读回出现 240~539 共 300 行空白（同一块单独重读就有内容）→
+    表头之后的块读空时**重试一次**。
+  - 验证：修完复跑 `pull.cjs` → **数据行 688、非空段 0~688、空行 0** ✓。
+- **审计现状**：`audit-unused.cjs` → 字典 **718 条**（= 688 + 30）、已引用 697、**未引用 21**。
+  其中 **4 条是本批（第 23/24 批）造成的孤儿键**：`newPack.categoryHint` / `newPack.channelHint` /
+  `editPack.categoryHint` / `editPack.channelHint`（界面已不再引用；删不删待用户拍板 —— 删了要重刷表并清表尾残留行）。
+  其余 17 条为既有（`exportPack.*` 5 条、`ticket.*` 4 条、`wecom.*` 若干等），非本次引入。
+- **本批改动**：`tools/copy-sheet/pull.cjs`（两处修复）、`PROGRESS.md`、`NEXT.md`；
+  `package.json` / `copy.ts` **未动**（文案内容一条没改，只刷表）。
