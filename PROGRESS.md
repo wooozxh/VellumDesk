@@ -10,7 +10,11 @@
 - 完成度：环境 100%；第 1 批 100%；项目管理增强 100%；第 2 批 4/4；第 3 批 100%；第 4 批 100%；第 5 批 100%；第 6 批 100%；第 7~10 批各 100%；**第 11 批（文案字典 + 术语统一）100%**；**第 12 批（软件改名「营销中心-素材库」）100%**；**第 13 批（工单模块）100%**；**第 14 批（上线前优化与 UI 打磨）100%**；**第 15 批（热修 GPU / 向导装 / asar 瘦身）100%**；**第 16 批（M5 交付打包）100%**；**第 17 批（设计师指派）100%（自动验收全过，待真表人工验收）**；**第 18 批（多设计师指派）代码完工、自动验收全过（待真表人工验收）**；**第 19 批（导出报表）代码完工、自动验收全过（待真表人工验收）**；**第 20 批（清理已禁用子表工单）代码完工、自动验收全过（待真机人工验收）**；**第 21 批（wecom-cli 内置 + 授权引导 + 界面微调）代码完工、自动验收全过、已出包 1.8.0（待真机装机验收）**；MVP 整体约 99%
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
-## 分支现状（2026-09-30 晚核对）
+- **分支与版本现状（2026-10-05 第 38 次会话复核）**：**远程只剩 `main`**（`origin/HEAD → origin/main`）；
+  本地 `main` = `origin/main` = `908949e`；本地还残留 `TM`、`feature/incr` 两个旧分支（上游已 `gone`，可删）。
+  当前版本 **1.8.2**，最新包 `D://_accept_ws//rel_out//v1.8.2//VellumDesk-1.8.2-Setup.exe`（183.5 MB）；
+  最新验收基线 **accept 834 项全过 + 11 个界面场景全绿**。
+## 分支现状（2026-09-30 晚核对 —— 历史快照，仅供追溯）
 
 | 分支 | 指向提交 | 内容 | 状态 |
 |---|---|---|---|
@@ -1056,3 +1060,25 @@
   四个键在代码里已无人引用（孤儿）。按「文案只走 copy-sheet 流程」的规矩没手改 `copy.ts`，
   等接上腾讯文档后在表上删这 4 行 → pull → diff → apply --write → 验收 → publish。
 - **本批未打包、未 push**（等本轮 bug 全部修完统一出 1.8.2；push 前提醒用户开代理）。
+
+### 2026-10-05（第 38 次会话）—— 收尾：3 个提交 push GitHub + 出包 1.8.2 + 包内核对 + 裸启动冒烟
+
+- **用户指令**：本轮修 bug 到此为止 → commit → push GitHub → 出包（1.8.2，纯热修）。
+- **push（无需代理，一次成功）**：`git push origin main` → `28bf50a..908949e`，三个提交全部上远程：
+  `8ab74c4`（企微二维码破图）/ `cf7da9f`（任务标签筛选打通 + 使用场景 + 建任务下拉）/ `908949e`（UI 微调）。
+- **版本号**：`package.json` 1.8.1 → **1.8.2**（纯热修）；顺手把 `package-lock.json` 里遗留的版本号
+  从 `1.4.0` 对齐到 `1.8.2`（历史漂移，两处 version 字段，与本次发版同一件事）。
+- **出包 1.8.2（两步法，实测）**：
+  - ① `NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 npm run build`（typecheck 0 错 + 三份产物重打）
+  - ② `npx electron-builder --win --config.directories.output=D:/_accept_ws/rel_out/v1.8.2`
+    （项目外**全新空目录**、两个镜像都设：`ELECTRON_MIRROR` + `ELECTRON_BUILDER_BINARIES_MIRROR`）
+  - 产物：**`VellumDesk-1.8.2-Setup.exe`（192,424,383 字节 = 183.5 MB）**，退出码 0；日志存 `_junk/pack182.log`
+- **包内核对（铁证，补第 35 次会话的欠账）**：解 NSIS 的 `$PLUGINSDIR/app-64.7z` 再列目录 →
+  `resources\wecom-cli\wecom-cli.exe` **10,091,560 字节 ✓**、`resources\ffmpeg\ffmpeg.exe` 133,708,800 ✓、
+  `ffprobe.exe` 133,496,832 ✓、`VellumDesk.exe` 211,016,192 ✓。
+  **1.8.1 那种「包内缺 exe」的情况这次不存在**。核对完的临时解包（约 180MB）已用 Python 清掉。
+- **裸启动冒烟**：重建 `D://_accept_ws//rel_out//bare_start_smoke.py`（第 34 次那个已被清掉），
+  `python bare_start_smoke.py 1.8.2` → **7.6s 出窗、窗口标题「Vellum工作台」** ✓（进程已自动关闭，无残留）。
+  脚本要点：启动前必须 `env.pop("ELECTRON_RUN_AS_NODE")`、`env.pop("NODE_OPTIONS")`，否则 electron 当纯 node 跑。
+- **本批未做**：文案 publish（本机没 mcporter）——待接上腾讯文档后刷表，含第 23 批新增文案与第 24 批的 4 个孤儿键
+  （`newPack.categoryHint/channelHint`、`editPack.categoryHint/channelHint`，界面已不再引用，可删行）。
