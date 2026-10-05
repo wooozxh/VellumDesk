@@ -53,6 +53,13 @@
   /* ---- 键盘焦点环（2px 蓝 + 2px 间隙，Adobe 的标志性细节）---- */
   --focus: 0 0 0 2px var(--bg-soft), 0 0 0 4px var(--accent-hover);
   --focus-in: 0 0 0 2px var(--accent-hover);
+
+  /* ---- 下拉菜单的自绘箭头（第 24 批）----
+     原生 <select> 的箭头由系统绘制，固定贴在最右边（离边框约 4px），位置调不了 ——
+     在胶囊形控件里显得太靠右。改为自绘 chevron（形状与 Icon 的 caretDown 一致），
+     位置由下面的 background-position 统一控制（右移内收 12px）。
+     颜色写死在 SVG 里（背景图拿不到 currentColor），取 --text-2 #b3b3b3。 */
+  --sel-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1.2 1.4 5 5.2l3.8-3.8' stroke='%23b3b3b3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 *,
@@ -101,10 +108,22 @@ textarea {
  * 第 21 批（用户实测：指派设计师的下拉是白底，跟深色界面割裂）：
  * 原生 <select> 展开后的**弹出列表**由系统绘制，改 background 管不到它 ——
  * 只有 color-scheme 能让 Chromium 把整个控件（含弹出层）按深色主题画。
- * 只加这一处，闭合态仍各自沿用下方各自的样式。
+ *
+ * 第 24 批（用户实测：箭头太靠右）：原生箭头同样是系统画的、贴最右边调不动，
+ * 所以这里统一 `appearance: none` 换成自绘箭头（`--sel-arrow`），位置右移内收 12px。
+ * ⚠️ 改这一处会牵动全站每一个 <select>：各处自己的 select 规则里
+ *   ① `background` 简写会把这张背景图冲掉 → 必须写 `background-color`；
+ *   ② 还得各自留够右侧内边距给箭头让位（见下方各处的 `padding-right`）。
+ *    新增下拉样式时这两条都要照做，否则箭头会消失或压住文字。
  */
 select {
   color-scheme: dark;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--sel-arrow);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
 }
 
 /* ---------------- 应用骨架 ---------------- */
@@ -935,6 +954,18 @@ body:has(.side-resizer.dragging) {
   margin-bottom: 15px;
 }
 
+/* 第 24 批（用户反馈）：物料类别 / 使用场景两个下拉左右并排，别竖着占两行。
+   两个 .field 各占一半宽（min-width:0 让长选项名能收窄，不把弹窗撑宽）。 */
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.field-row > .field {
+  flex: 1;
+  min-width: 0;
+}
+
 .field label {
   display: block;
   font-size: 12px;
@@ -946,7 +977,8 @@ body:has(.side-resizer.dragging) {
 .field select {
   width: 100%;
   padding: 8px 14px;
-  background: var(--bg-mute);
+  /* 第 24 批：改 background-color（原为 background 简写）—— 简写会把全局那张箭头背景图冲掉 */
+  background-color: var(--bg-mute);
   border: 1px solid var(--line-soft);
   border-radius: var(--r-pill);
   color: var(--text);
@@ -954,6 +986,11 @@ body:has(.side-resizer.dragging) {
   transition:
     border-color 0.15s,
     background 0.15s;
+}
+
+/* 第 24 批：给自绘箭头让位（箭头占右侧 12~22px），长文字不压箭头 */
+.field select {
+  padding-right: 32px;
 }
 
 .field input[type='text']:hover,
@@ -964,7 +1001,7 @@ body:has(.side-resizer.dragging) {
 .field input[type='text']:focus,
 .field select:focus {
   border-color: var(--accent);
-  background: var(--bg-soft);
+  background-color: var(--bg-soft);
 }
 
 .field .hint {
@@ -1213,8 +1250,9 @@ body:has(.side-resizer.dragging) {
 }
 
 .claimbar select {
-  padding: 5px 9px;
-  background: var(--bg-mute);
+  /* 第 24 批：右边多留 26px 给自绘箭头（原 9px 时箭头会压到文字） */
+  padding: 5px 26px 5px 9px;
+  background-color: var(--bg-mute);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   color: var(--text);
@@ -2581,9 +2619,10 @@ svg {
 .tk-assign-pick select {
   max-width: 240px;
   /* 第 21 批：原来只限了宽度，背景/文字色全空 → 落到浏览器默认的浅色控件（白底黑字）。
-     与 .claimbar select 对齐，闭合态也用深色面板色。 */
-  padding: 5px 9px;
-  background: var(--bg-mute);
+     与 .claimbar select 对齐，闭合态也用深色面板色。
+     第 24 批：右边多留 26px 给自绘箭头（background 简写改 background-color，别冲掉箭头图）。 */
+  padding: 5px 26px 5px 9px;
+  background-color: var(--bg-mute);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   color: var(--text);
@@ -2908,10 +2947,11 @@ svg {
   border-radius: 6px;
   background: var(--bg-mute);
 }
-/* 第 21 批：子表类型下拉（印刷/电子）此前完全没样式 —— 与指派下拉同一处白底问题 */
+/* 第 21 批：子表类型下拉（印刷/电子）此前完全没样式 —— 与指派下拉同一处白底问题
+   第 24 批：右边多留 26px 给自绘箭头 */
 .tk-sheetrow select {
-  padding: 4px 9px;
-  background: var(--bg-mute);
+  padding: 4px 26px 4px 9px;
+  background-color: var(--bg-mute);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   color: var(--text);
@@ -3056,10 +3096,11 @@ svg {
 }
 .ep-radio select {
   margin-left: 6px;
-  padding: 3px 8px;
+  /* 第 24 批：右边多留 26px 给自绘箭头 */
+  padding: 3px 26px 3px 8px;
   border-radius: var(--r-pill);
   border: 1px solid var(--line);
-  background: var(--bg-mute);
+  background-color: var(--bg-mute);
   color: var(--text);
   font-size: 12px;
 }

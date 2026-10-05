@@ -1036,3 +1036,23 @@
   category 新增 5 条第 23 批断言）。
 - **下一步**：等用户测完本轮全部 bug 统一出包 **1.8.2**（出包必核对包内 `resources/wecom-cli/wecom-cli.exe`）；
   push GitHub 前提醒用户开代理。
+
+### 2026-10-05（第 37 次会话）—— UI 微调（第 24 批）：任务面板两个下拉并排 + 去掉说明文字 + 全站下拉箭头内收
+
+- **用户提的三点**：① 新建任务 / 任务信息编辑面板里「物料类别」「使用场景」两个下拉改左右并排；
+  ② 去掉这两个下拉下面的说明文字；③ 所有下拉右侧的向下箭头太靠右，往左收一收。
+- **箭头为什么贴最右**：原生 `<select>` 的箭头由系统（Chromium）绘制，位置固定在右边框内约 4px，
+  `padding-right` 也推不动 —— 只能 `appearance:none` 换自绘箭头。
+- **改动**：
+  - `main.css`：`:root` 新增 `--sel-arrow`（自绘 chevron 的 data URI，颜色取 --text-2）；
+    全局 `select` 加 `appearance:none` + 背景图 + `background-position: right 12px center` + `background-size: 10px 6px`；
+    新增 `.field-row` 两列并排容器；5 处 select 规则（`.field` / `.claimbar` / `.tk-assign-pick` / `.tk-sheetrow` /
+    `.ep-radio`）的 `background` 简写改 `background-color` 并各自留够右侧内边距（防冲掉箭头图 / 箭头压字）。
+  - `NewPackModal.tsx` / `EditPackModal.tsx`：物料类别 + 使用场景包进 `.field-row`，删掉两个 hint 行。
+- **验收结果**：typecheck 0 错；`npx electron-vite build` 重打渲染层；**accept 834 项全过**（与第 23 批持平，只增不减）；
+  **11 个界面场景全绿、控制台零报错**；**截图实测**：新任务面板与编辑任务面板两个下拉确已并排、说明文字已消失，
+  自绘箭头距右边框约 13px（原生约 4px，是「往左收」的效果）；工单指派下拉（`.tk-assign-pick`）同样生效。
+- **文案遗留（待刷表）**：`newPack.categoryHint` / `newPack.channelHint` / `editPack.categoryHint` / `editPack.channelHint`
+  四个键在代码里已无人引用（孤儿）。按「文案只走 copy-sheet 流程」的规矩没手改 `copy.ts`，
+  等接上腾讯文档后在表上删这 4 行 → pull → diff → apply --write → 验收 → publish。
+- **本批未打包、未 push**（等本轮 bug 全部修完统一出 1.8.2；push 前提醒用户开代理）。

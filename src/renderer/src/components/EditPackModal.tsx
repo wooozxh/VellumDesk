@@ -138,29 +138,30 @@ export function EditPackModal({
             )}
           </div>
 
-          <div className="field">
-            <label>{COPY.dim.category}</label>
-            {/* 第 23 批（docs/29）：平铺 chips 改成下拉 —— 标签越加越多时弹窗不会被撑臃肿 */}
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {categoryList.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <div className="hint">{COPY.editPack.categoryHint}</div>
-          </div>
+          {/* 第 24 批（用户反馈）：物料类别 / 使用场景两个下拉左右并排，下面的说明文字去掉 */}
+          <div className="field-row">
+            <div className="field">
+              <label>{COPY.dim.category}</label>
+              {/* 第 23 批（docs/29）：平铺 chips 改成下拉 —— 标签越加越多时弹窗不会被撑臃肿 */}
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                {categoryList.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="field">
-            <label>{COPY.dim.channel}</label>
-            <select value={channel} onChange={(e) => setChannel(e.target.value)}>
-              {channelList.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <div className="hint">{COPY.editPack.channelHint}</div>
+            <div className="field">
+              <label>{COPY.dim.channel}</label>
+              <select value={channel} onChange={(e) => setChannel(e.target.value)}>
+                {channelList.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div

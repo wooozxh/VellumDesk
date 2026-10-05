@@ -242,3 +242,7 @@ M6 还剩的其他小项：
 | ⛔ **点左侧标签会自动切到文件视图** | 第 4/7 批遗留（「标签只筛文件」年代）。第 23 批已改「留在当前视图，只有工单视图点标签才切任务视图」。以后再动标签筛选语义，先看 `App.tsx` 里 `tagChanged` 那个 effect |
 | **建包 / 编辑任务的类别与场景是下拉（第 23 批起）** | 场景壳读类别清单要用 `readNewPackSelect()`（读对应 field 的 `select option`），别再用 `.chips .chip`；lifecycle 的编辑弹窗断言已是「4 块 / 3 下拉」 |
 | **左侧标签数字 = 任务数 + 文件数（第 23 批起）** | 任务分类存 `packs.category`/`channel`（名字，不是外键），跟素材标签 `asset_tags` 是两套。改计数口径时两边都要过一遍；tagcount 场景断言已改成动态口径 |
+| ⛔ **全站 `<select>` 的箭头是自绘的（第 24 批起）** | 全局 `select{appearance:none}` + `--sel-arrow` 背景图 + `background-position: right 12px center`。给下拉写样式必须：① 背景用 `background-color`（用 `background` 简写会冲掉箭头图）；② 右边留 ≥26px 内边距给箭头（`.field select` 是 32px）。否则箭头消失或压住文字 |
+| **建包 / 编辑任务的「物料类别 + 使用场景」是左右并排（`.field-row`，第 24 批起）** | 两个下拉下面的说明文字已被删掉；场景壳按 label 找 `.field` 的写法仍有效（`.field` 还在，只是包进了 `.field-row`） |
+| ⛔ **从 WorkBuddy 的 shell 里跑 `npm run dev` 会报 `TypeError: Cannot read properties of undefined (reading 'isPackaged')`** | 本 shell 环境自带 `ELECTRON_RUN_AS_NODE=1`，electron 会被当纯 node 跑（界面场景壳 `run-verify4.cjs` 里早有 `delete env.ELECTRON_RUN_AS_NODE` 处理）。手动冒烟必须 `unset ELECTRON_RUN_AS_NODE && NODE_OPTIONS= npm run dev`，否则窗口出不来——是环境问题，不是代码回归（2026-10-05 第 24 批实测） |
+| ⛔ **后台跑 dev / 场景后，electron 子进程不随 shell 退出（Windows）** | `npm run dev` 的 shell 被 kill 后 `electron.exe` 还活着（占着 5173 端口 → 下次 dev 落到 5174）。收尾要 `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` 查 PID 再 `Stop-Process -Id <PID> -Force`；**别用 taskkill 按名字通杀 electron.exe**（WorkBuddy 自己也跑在 electron 上） |
