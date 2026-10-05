@@ -1114,3 +1114,24 @@
   其余 17 条为既有（`exportPack.*` 5 条、`ticket.*` 4 条、`wecom.*` 若干等），非本次引入。
 - **本批改动**：`tools/copy-sheet/pull.cjs`（两处修复）、`PROGRESS.md`、`NEXT.md`；
   `package.json` / `copy.ts` **未动**（文案内容一条没改，只刷表）。
+
+### 2026-10-05（第 40 次会话）—— 开 GitHub Release 渠道：发布 v1.8.2 安装包（对外首次可下载）
+
+- **用户指令**：把 1.8.2 发成 Release；并确认「软件已经是公开软件」，仓库描述他后续自己调（即**接受仓库 PUBLIC**）。
+- **发布前现状**：`wooozxh/VellumDesk` = **PUBLIC**；Releases **为空**、tag 只有 `v1.1.0`（1.8.x 从没打过 tag）。
+- **发布命令**：
+  `gh release create v1.8.2 "D:/_accept_ws/rel_out/v1.8.2/VellumDesk-1.8.2-Setup.exe" \
+   --title "Vellum工作台 v1.8.2" --notes-file _junk/release_notes_182.md --target main`（退出码 0）
+- **结果**（不只信脚本自报，逐项核过）：
+  - Release：https://github.com/wooozxh/VellumDesk/releases/tag/v1.8.2 （`isDraft=false`）
+  - tag `v1.8.2` → 提交 **`69afe0b`**（= main HEAD；本地与远程 tag 都已同步）
+  - 附件：`VellumDesk-1.8.2-Setup.exe` **192,424,383 字节**（与出包产物逐字节同大小）、
+    `sha256:360215fff9faa48111b52f49217d2de496b61a87db1eacfac2ea70ec4f1a80fe`、`state=uploaded`
+  - **下载直链自检**：`curl -sIL` → 302 → `release-assets.githubusercontent.com` → **200 OK** +
+    `Content-Length: 192424383` + `Content-Disposition: attachment; filename=VellumDesk-1.8.2-Setup.exe` ✓
+    → 同事拿链接即可下载：`https://github.com/wooozxh/VellumDesk/releases/download/v1.8.2/VellumDesk-1.8.2-Setup.exe`
+- **决策：不补发 1.8.0 / 1.8.1** —— ① 1.8.1 的包本身是坏的（`resources/wecom-cli/wecom-cli.exe` 漏带，装上连扫码区都不出现）；
+  ② 1.8.0 产物已不在本机（`rel_out` 只剩 `v1.3.2` / `v1.4.0` / `v1.8.1-vellum` / `v1.8.2`）。让同事直接从 1.8.2 装。
+- Release 说明文案：`_junk/release_notes_182.md`（含修复项、新功能、安装三步、未签名的提示）。
+- **对外的含义（记一笔）**：仓库 PUBLIC + Release 已发布 = **安装包对外公开可下载**，这是用户明确接受的；
+  以后凡是发 Release，默认就是「对外发布」，发之前先确认。
