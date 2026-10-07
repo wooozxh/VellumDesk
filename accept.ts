@@ -80,7 +80,7 @@ import {
   FIRST_VERSION_FOLDER
 } from './src/main/workspace'
 // 第 15 批：交付打包（M5，docs/18）
-import { buildPackExportPlan, executePackExport, listDeliveryRecords } from './src/main/exportPack'
+import { buildPackExportPlan, executePackExport, listDeliveryRecords, previewPackExport } from './src/main/exportPack'
 import {
   applySync,
   detectStructure,
@@ -4055,6 +4055,77 @@ async function main(): Promise<void> {
   })
   ok(pe5.ok && !!pe5.outputPath && existsSync(pe5.outputPath), '手填星号 zip 名打包成功（星号已清洗）')
   ok(!pe5.outputPath!.includes('*'), '实际落盘 zip 路径不含星号')
+
+  // (7) 第 32 批：尺寸只进成品 / 工程，素材不带尺寸
+  const planSize = await buildPackExportPlan({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品', '素材', '工程'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-size-role',
+    wrapFolder: false,
+    size: '1920x1080',
+    keepOriginalName: true
+  })
+  const szDone = planSize.entries.find((e) => e.role === '成品')?.innerPath ?? ''
+  const szMat = planSize.entries.find((e) => e.role === '素材')?.innerPath ?? ''
+  const szProj = planSize.entries.find((e) => e.role === '工程')?.innerPath ?? ''
+  ok(szDone.includes('1920x1080'), '成品文件名带尺寸')
+  ok(szProj.includes('1920x1080'), '工程文件名带尺寸')
+  ok(!szMat.includes('1920x1080'), '素材文件名不带尺寸')
+
+  // (8) 第 32 批：{项目名} 与 {任务名} 各自正确（此前两者都错映射成任务名）
+  const planTpl = await buildPackExportPlan({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-tpl',
+    wrapFolder: false,
+    size: '1920x1080',
+    keepOriginalName: true,
+    customNameTemplate: '{项目名}-{任务名}-{尺寸}-{原文件名}.{扩展名}'
+  })
+  ok(
+    planTpl.entries[0].innerPath.includes(`${p15Proj.name}-交付打包测试-1920x1080-海报终稿.png`),
+    '{项目名}替换为真项目名、{任务名}替换为任务名'
+  )
+
+  // (9) 第 32 批：素材模板里 {尺寸} 为空时不留双连字符
+  const planTplMat = await buildPackExportPlan({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['素材'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: 'test-tpl-mat',
+    wrapFolder: false,
+    size: '1920x1080',
+    keepOriginalName: true,
+    customNameTemplate: '{任务名}-{尺寸}-{原文件名}.{扩展名}'
+  })
+  ok(
+    planTplMat.entries[0].innerPath === '素材/交付打包测试-底图.jpg',
+    '素材文件模板里尺寸为空时干净去段（无「--」）'
+  )
+
+  // (10) 第 32 批：previewPackExport 返回包内路径供界面预览
+  const pv = await previewPackExport({
+    packId: p15Pack.id,
+    versionMode: 'current',
+    roles: ['成品', '素材', '工程'],
+    excludedAssetIds: [],
+    outputDir: outDir,
+    zipName: '',
+    wrapFolder: true,
+    size: '1920x1080',
+    keepOriginalName: true
+  })
+  ok(pv.ok && pv.innerPaths.length === 3, '预览返回 3 个包内路径')
+  ok(pv.zipName.endsWith('.zip'), '预览返回含 .zip 的压缩包名')
+  ok(pv.innerPaths.some((p) => p.includes('成品/')), '预览包含成品分组路径')
 
   closeDb()
   hardRm(p15Root)

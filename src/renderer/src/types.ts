@@ -36,6 +36,7 @@ export type {
   ScanProgress,
   PackExportInput,
   PackExportResult,
+  PackExportPreview,
   DeliveryRecord,
   TicketPurgePreview,
   TicketPurgeResult,

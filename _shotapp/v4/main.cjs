@@ -3045,6 +3045,12 @@ app.whenReady().then(async () => {
       `(() => { const m = document.querySelector('.pack-export-modal'); return m ? ((m.querySelector('h3') || {}).innerText || '').trim() : '' })()`
     )
     ok(modalTitle.includes(plain(COPY.exportPack.title).replace('{name}', '').trim()), '导出弹窗标题正确（' + modalTitle + '）')
+    await wait(600) // 等文件结构预览（防抖 300ms）回来再截图（第 32 批）
+    await shot('shot-b32-export-modal.png')
+    // 滚到 content 底部：占位符按钮、输出位置、文件结构预览都在下半段（第 32 批）
+    await js(`(() => { const c = document.querySelector('.pack-export-modal .content'); if (c) c.scrollTop = c.scrollHeight; return 'ok' })()`)
+    await wait(300)
+    await shot('shot-b32-export-preview.png')
 
     // (4) 默认输出位置就是任务文件夹
     const outputPath = await js(

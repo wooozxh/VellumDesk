@@ -3266,11 +3266,98 @@ svg {
   color: var(--text-2);
   font-size: 12px;
 }
+
+/* ================================================================
+   第 32 批：打包交付界面重排 —— 尺寸短控件 / 提示文字 / 文件结构预览 / 按钮
+   ================================================================ */
+.ep-section > input[type='text'] {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.ep-section > input[type='text']:focus {
+  border-color: var(--accent);
+}
+.ep-size {
+  flex: none !important;
+  width: 180px;
+}
+.ep-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: -2px;
+}
+.ep-preview {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+  padding: 8px 10px;
+}
+.ep-preview-zip {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.ep-preview-tree {
+  margin: 0;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+  white-space: pre;
+  overflow-x: auto;
+}
+.ep-preview .ep-summary {
+  background: transparent;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  padding: 8px 0 0;
+  margin-top: 8px;
+}
 .pack-export-modal .foot {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 10px;
   margin-top: 14px;
+}
+.pack-export-modal .foot .btn {
+  padding: 4px 14px;
+  font-size: 12.5px;
+}
+
+/* 第 32 批：自定义模板占位符按钮（点击插入光标位置） */
+.ep-tpl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ep-tpl-chip {
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+.ep-tpl-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.ep-tpl-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ================================================================

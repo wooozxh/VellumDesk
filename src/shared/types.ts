@@ -340,6 +340,18 @@ export interface PackExportResult {
   error?: string
 }
 
+/** 第 32 批：打包预览（不碰磁盘），界面「文件结构预览」实时刷新用 */
+export interface PackExportPreview {
+  ok: boolean
+  /** 最终压缩包文件名（含 .zip，已过非法字符清洗） */
+  zipName: string
+  /** 每个文件的包内相对路径（用 / 分隔），前端渲染成字符树 */
+  innerPaths: string[]
+  fileCount: number
+  totalSize: number
+  error?: string
+}
+
 export interface DeliveryRecord {
   id: number
   pack_id: number
@@ -908,6 +920,8 @@ export interface Api {
   // ---------------- 第 15 批：交付打包（M5） ----------------
   /** 执行打包，生成 zip 并写交付记录 */
   packExport: (input: PackExportInput) => Promise<PackExportResult>
+  /** 第 32 批：打包预览（不碰磁盘），返回包内文件结构供界面确认 */
+  packExportPreview: (input: PackExportInput) => Promise<PackExportPreview>
   /** 读取某任务的交付记录 */
   packDeliveryRecords: (packId: number) => Promise<DeliveryRecord[]>
   /** 弹系统选目录对话框，用于选择打包输出位置 */

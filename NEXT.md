@@ -6,68 +6,81 @@
 
 ---
 
-## ⚠️ 先看：现在有六个分支（2026-10-04 核对，第 22 批出包后）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-07 从 GitHub 拉取最新后核对）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| `main` | 第 1~22 批全部 + 全站改名（docs/28） | 2026-10-05 起为**唯一分支**：`feature/wecom-bundle`（第 21~22 批 = 1.8.1）已 ff 合并进来；`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` 均合并后删除 | 最新包 **`VellumDesk-1.8.1-Setup.exe`**（`D:\_accept_ws\rel_out\v1.8.1-vellum`，新名新图标）；**待装机验收** |
+| **`main`**（唯一） | `2036978`（= `origin/main`） | 第 1~27 批全部功能 + 全站改名（docs/28）；版本 **1.8.2** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
 
 要点：
 
-- **2026-10-05 全站改名 + 分支整理（docs/28）**：软件名 **Vellum工作台**（界面）/ **VellumDesk**（exe、安装包 `VellumDesk-<版本>-Setup.exe`、仓库）；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。GitHub 仓库由 `media-lib_zxh` 改名 **`VellumDesk`**（旧链接自动重定向）。历史功能分支全部合入 `main` 后删除，此后新分支按 `feature/小写短横线` 命名、合入即删。
-- **新功能先出方案再动代码**（方案文档 `docs/NN`）。
-- 历史分支脉络（第 11~22 批谁从谁分出）见 git log 与 `PROGRESS.md`；`TM` 从 `feature/incr` 分出（`64ffc9e`，带文案字典与当时那次改名）。
-- **GitHub 远程**：`origin` = `https://github.com/wooozxh/VellumDesk.git`，只有 `main` 一个分支。
-- **稳定点备份（项目外，2026-09-30 已做）**：
-  - `D:\_accept_ws\backup\proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可完整恢复）
-  - `D:\_accept_ws\backup\proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg，排除 node_modules / out / release）
-  - `D:\_accept_ws\backup\素材管家-1.1.0-安装包.exe`（179.5 MB）
-- **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 是热修包；1.3.2 = 第 13~16 批；
-  **1.4.0 = 第 17 批设计师指派**（`D:\_accept_ws\rel_out\v1.4.0\营销中心-素材库-1.4.0-安装包.exe`，已发同事）；
-  **1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里，从未出包**（第 18 / 19 / 20 批）——
-  **1.8.0 = 第 18~21 批的全部功能（一次性打出来）**；
-  **1.8.1 = 1.8.0 + 第 22 批（默认视图改「工单队列」+ 工单加载容错）**，`package.json` 已改成 1.8.1，
-  最新包 `D:\_accept_ws\rel_out\v1.8.1-vellum\VellumDesk-1.8.1-Setup.exe`（**新名新图标**，包内含 wecom-cli；改名前的中文旧包仍在 `rel_out\v1.8.1`）。
+- **仓库**：`origin` = `https://github.com/wooozxh/VellumDesk.git`（**PUBLIC**），只有 `main` 一个分支。
+  历史功能分支（`TM` / `feature/incr` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）均已合入 `main` 后删除。
+- **新分支约定**：`feature/小写短横线`，合入即删。
+- **软件名（docs/28 全站改名）**：界面 **Vellum工作台**；exe / 安装包 / 仓库 **VellumDesk**；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。
+- **发版渠道**：GitHub Release 已开（`v1.8.2` 已发布）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
+- **稳定点备份（项目外，2026-09-30 已做）**：`D:\_accept_ws\backup\` 下
+  - `proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可恢复）
+  - `proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg）
+  - `素材管家-1.1.0-安装包.exe`（179.5 MB）
+- **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 热修；1.3.2 = 第 13~16 批；
+  **1.4.0 = 第 17 批**；**1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里、从未出包**（第 18/19/20 批）；
+  **1.8.0 = 第 18~21 批一次性打出**；1.8.1 = +第 22 批（**坏包，包内漏带 wecom-cli.exe，别用**）；
+  **1.8.2 = 最新已发**（第 23~27 批热修全含，`D:\_accept_ws\rel_out\v1.8.2\VellumDesk-1.8.2-Setup.exe`）；
+  **下一批从 1.8.3 起**。
 
 ---
 
-## 一、标准启动词 —— 新一批开发（TM 分支，直接复制下面整段）
+## 一、标准启动词 —— 新一批开发（`main` 分支，直接复制下面整段）
 
 ```
-开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」；
+开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
-请在 TM 分支上开工（先 git branch -vv 确认当前在 TM，不是 main）。
 
-先读这六份，读完再动手（只读，不改文件）：
+本机现状（2026-10-07 从 GitHub 拉取最新后核对，开工前请再跑一次 git status / git log 确认）：
+- 分支只有 main（= origin/main = 2036978，含第 1~27 批 + 全站改名 docs/28）。直接在 main 上开工；
+  新功能开 feature/小写短横线，合入即删。
+- 版本 1.8.2；验收基线 accept 863 项（只增不减）；界面场景 12 个。
+- 下一个迁移号 18（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
+  15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel）。
+- 下一批版本号从 1.8.3 起（1.8.2 已发 GitHub Release）。
+
+先读这七份，读完再动手（只读，不改文件）：
 1. D:\proj_media\PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
-2. D:\proj_media\PROGRESS.md  —— 进度台账（开头有「分支现状」表，最后一次会话在文末）
+2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 45 次）
 3. D:\proj_media\DECISIONS.md —— 历史决策，不要推翻已验证的结论
 4. D:\proj_media\NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
-5. D:\proj_media\docs\19-设计师指派方案.md —— 最近完工的第 17 批（设计师指派，自动验收全过待真表人工验收；前置读 docs/15 工单一期）
-6. D:\proj_media\README.md    —— 验收三件套与界面场景命令
+5. D:\proj_media\README.md    —— 验收三件套与界面场景命令
+6. D:\proj_media\docs\28-全站改名方案.md —— 最近一次大改动（软件 / 仓库 / 目录全改名）
+7. D:\proj_media\docs\31-工单定时自动同步方案.md + D:\proj_media\docs\29-任务标签筛选与使用场景方案.md
+   —— 最近两个功能批（第 26 / 23 批）
 
-读完先向我复述两件事，等我确认后再继续：
-① 三个分支各是什么状态、当前断言数（715 项）、第 13 批工单模块 + 第 17 批设计师指派各交付了什么
-② NEXT.md 第四节的候选清单 + 你建议的下一批和理由，等我拍板
+读完先向我复述三件事，等我确认后再继续：
+① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.2 · 863 项 + 12 场景）
+② 未完成的待办（见本文件第四节：1.8.3 未出包、文案在线表待刷、第 17~20 批待真表人工验收）
+③ 你建议的下一批方向 + 理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
-- 工单二期余项：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**，方案 `docs/16` §4 + 执行记录 `docs/26`）
-- M6-06 版本对比：图片并排 + 视频双窗同步播放
-- M8-02 重复文件检测：内容指纹找库里重复素材
-- 报表导出：工单/任务/物料维度导 Excel
-- 1.3.0 装机反馈收尾（同事装完报的问题）/ 代码签名
+- 工单二期余项：印刷状态写回企微表（写回管路 / CLI 内置 / 通知链路都已就绪，只剩这一项）
+- 审核平台（大模块，方案 docs/21 已存档，卡点＝公司微盘使用规范待与同事对齐）
+- 连接 WorkBuddy 审稿（docs/23 已存档待细化，倾向「本地目录 + 自研审稿 Skill + automation」最轻闭环）
+- M6-06 版本对比（图片并排 + 视频双窗同步播放）/ M8-02 重复文件检测 / 报表口径完善
+- 出 1.8.3 包 + 文案在线表刷新 + 第 17~20 批真表人工验收收尾
 - 或者我临时想到的新需求（我会直接说）
 
 铁律（PROJECT.md 有完整版）：
-- 新功能先出方案写成 docs/16-*.md 给我确认，确认后才动代码（这步只读不写）
+- 新功能先出方案写成 docs/NN-*.md 给我确认，确认后才动代码（这步只读不写）
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 800 项，只许增不许减）；界面改动再跑
-  NODE_OPTIONS= node _shotapp/run-verify4.cjs banner|version|wslist|threelevel|lifecycle|missing|tagcount|category|versions|tickets|export
+  NODE_OPTIONS= node out/test/accept.cjs（当前 863 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node _shotapp/run-verify4.cjs
+  banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
 - **跑测试/场景前必须清空 `NODE_OPTIONS=`**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，导致第 4/5 批假失败）；
   跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
+- 出包 / 发版拆两步（`npm run build` → `npx electron-builder --win --config.directories.output=<项目外全新空目录>`）；
+  出包前必查 `resources/ffmpeg/*.exe` 与 `resources/wecom-cli/wecom-cli.exe` 存在（两者都 gitignore 不入库，已经丢过两次）
 
 先别写代码。读完档案把候选建议给我，等我拍板这一批做什么。
 ```

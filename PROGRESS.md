@@ -1259,3 +1259,29 @@
   **报表多张逐张 rehost + 图片列写多张**）；**12 个界面场景全绿、控制台零报错**；
   `unset ELECTRON_RUN_AS_NODE && NODE_OPTIONS= npm run dev` 启动冒烟正常出窗，无残留进程。
 - **下一步**：等用户测完本轮全部 bug 统一出包（纯热修 → **1.8.3**）；push 前提醒用户开代理。
+
+### 2026-10-07（第 46 次会话）—— 修 bug 会话⑤：打包交付尺寸/命名修正 + UI 重排 + 文件结构预览（第 28 批，docs/32）
+
+- **用户报的三个问题**：① 尺寸输入进不了压缩包文件名；② 打包交付界面逻辑混乱（给出 6 点重排清单）；③ 自定义模板「究竟在没在工作」。
+- **诊断结论（先诊断后动手）**：
+  1. **尺寸 → zip 名不更新（真 bug）**：`PackExportModal` 的 zip 名自动生成 effect 用 `if (zipName) return` 兜底，首次生成后 zipName 非空，之后改尺寸永远 return，「未知尺寸」纹丝不动。修法：加 `zipNameTouched` 标记（仅手动编辑 zip 名时置 true），effect 条件改 `if (zipNameTouched) return`。
+  2. **尺寸对所有分组生效（要改）**：`buildDefaultInnerName`/`applyCustomTemplate` 对成品/素材/工程一视同仁。改成只有「成品」「工程」带尺寸，素材/未归属不带。
+  3. **`{项目名}` 名不副实（额外发现）**：`applyCustomTemplate` 里 `{项目名}` 与 `{任务名}` 都映射成 packName（任务名），整条链路没传 projectName。用户拍板：**两个占位符并存、各自正确**（`{项目名}`→真项目名、`{任务名}`→任务名）。
+- **改动**：
+  - `src/main/exportPack.ts`：`InnerNameOptions` 加 `projectName`；`buildInnerPaths` 按 role 算 `sizeForFile`（成品/工程才有）；`buildDefaultInnerName` 空尺寸去段（`filter(Boolean)`）；`applyCustomTemplate` 加 projectName + 空尺寸时清连字符（`-{2,}→-` + 首尾 `-`）；新增 `previewPackExport`（复用 buildPackExportPlan，不碰磁盘，返回 zipName + innerPaths + 计数）。
+  - `src/shared/types.ts` + `src/renderer/src/types.ts`：新增 `PackExportPreview`；`Api` 加 `packExportPreview`。
+  - `src/main/ipc.ts` + `src/preload/index.ts`：打通 `pack:exportPreview`。
+  - `src/shared/copy.ts`：`sizeHint` 改「仅用于成品与工程文件」；新增 `previewLabel`/`previewEmpty`。
+  - `PackExportModal.tsx`：UI 重排（尺寸短控件 → 自定义模板 → 压缩包名称+两开关 → 输出位置 → 文件结构预览 → 按钮）；文件树预览（`buildTreeLines` 字符树 + 防抖 300ms 调 preview）；按钮「开始打包左 / 取消右 + 调小」。
+  - `main.css`：`.ep-size`/`.ep-hint`/`.ep-preview*` 样式 + foot 重排。
+  - `accept.ts`：+8 条断言（尺寸只进成品/工程 / `{项目名}`区分 / 素材空尺寸去段 / preview 返回）。
+- **验收结果**：typecheck 0 错；重打三个 `out/test` bundle + `npx electron-vite build`；accept **新增 8 条全过**（总数 861 = 863 基线 − 10 条换机跳过的 PSD 真实断言 + 8 新增）；`export` 界面场景全绿、控制台零报错。
+- **验收后微调（用户看截图反馈的两处）**：
+  1. **占位符做成按钮**：自定义模板下的占位符提示改为 8 个 chip 按钮（`TPL_PLACEHOLDERS` 与后端 `applyCustomTemplate` 的替换正则一一对应），点击插入到模板输入框**光标位置**（`tplRef` + `insertTpl`，插完光标停在占位符后并保持焦点）。
+  2. **foot 布局**：`space-between` → `flex-start`，「开始打包」在左、「取消」紧随其右（不再甩到最右端）。
+  3. 顺手：尺寸输入框去掉重复 placeholder（下方 hint 已有完整说明）。
+  - export 场景壳补 2 张截图：`shot-b32-export-modal.png`（弹窗上半）/ `shot-b32-export-preview.png`（滚动到底：占位符按钮 + 预览树）。
+  - 复跑 typecheck 0 错 + `electron-vite build` + `export` 场景全绿、控制台零报错。
+- **环境备注（非回归）**：唯一 FAIL 是 `真实 PSD 样本已复制进测试包`（第 2 批老断言，依赖 `C:\Users\30873\Desktop\访学证.psd`）——本次在 user 17736 机器跑，样本不在，该条 FAIL 且 `if (sampleCopied)` 包裹的 ~10 条 PSD 真实断言被跳过。**建议**：把样本放到本机对应路径，或把第 1043 行的 `ok(sampleCopied, ...)` 改为 `if (hasSample)` 包裹（保持强度、样本缺失时跳过）。待用户拍板。
+- **下一步**：文案 publish（`sizeHint` 改动 + 2 个新键，随下次统一刷在线表）；本批未打包、未 push（纯热修 → 1.8.3 统一出）。
+

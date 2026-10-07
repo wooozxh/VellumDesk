@@ -1,5 +1,5 @@
 import { COPY, fmt } from '../shared/copy'
-import type { AssetItem, DeliveryRecord, PackExportInput, PackExportResult, PackVersion } from '../shared/types'
+import type { AssetItem, DeliveryRecord, PackExportInput, PackExportPreview, PackExportResult, PackVersion } from '../shared/types'
 import { getDb, type DeliveryRecordRow } from './db'
 import { getPackDetail, UNASSIGNED_ROLE } from './workspace'
 import { readImageMeta, readPsdMeta, readVideoMeta, isImage, isPsd, isVideo } from './thumbs'
@@ -223,6 +223,7 @@ export async function buildPackExportPlan(input: PackExportInput): Promise<Expor
   const wrapFolderName = zipName
   const innerEntries = buildInnerPaths(entries, {
     packName: pack.name,
+    projectName,
     sizeText,
     dateText,
     mode: input.versionMode,
@@ -257,6 +258,8 @@ export async function buildPackExportPlan(input: PackExportInput): Promise<Expor
 
 interface InnerNameOptions {
   packName: string
+  /** 项目名（第 32 批：`{项目名}` 占位符专用，与任务名分开） */
+  projectName: string | null
   sizeText: string
   dateText: string
   mode: PackExportInput['versionMode']
@@ -288,10 +291,13 @@ function buildInnerPaths(entries: ExportFileEntry[], opts: InnerNameOptions): Ex
 
     // 文件名
     let fileName: string
+    // 第 32 批：尺寸只适用于成品 / 工程（素材、未归属不拼尺寸）
+    const sizeForFile = e.role === '成品' || e.role === '工程' ? opts.sizeText : ''
     if (opts.customTemplate) {
       fileName = applyCustomTemplate(opts.customTemplate, {
+        projectName: opts.projectName ?? '',
         packName: opts.packName,
-        size: opts.sizeText,
+        size: sizeForFile,
         version: versionSeq !== null ? `V${versionSeq}` : '',
         stem: fileStem(basename(e.absPath)),
         date: opts.dateText,
@@ -301,7 +307,7 @@ function buildInnerPaths(entries: ExportFileEntry[], opts: InnerNameOptions): Ex
     } else {
       fileName = buildDefaultInnerName(e, {
         packName: opts.packName,
-        size: opts.sizeText,
+        size: sizeForFile,
         version: versionSeq !== null ? `V${versionSeq}` : '',
         date: opts.dateText,
         seq: roleSeq,
@@ -349,7 +355,7 @@ function buildDefaultInnerName(
     keepOriginalName: boolean
   }
 ): string {
-  const parts = [opts.packName, opts.size]
+  const parts = [opts.packName, opts.size].filter(Boolean)
   if (opts.version) parts.push(opts.version)
   if (opts.keepOriginalName) {
     parts.push(fileStem(basename(entry.absPath)))
@@ -363,10 +369,20 @@ function buildDefaultInnerName(
 
 function applyCustomTemplate(
   tpl: string,
-  vars: { packName: string; size: string; version: string; stem: string; date: string; seq: number; ext: string }
+  vars: {
+    projectName: string
+    packName: string
+    size: string
+    version: string
+    stem: string
+    date: string
+    seq: number
+    ext: string
+  }
 ): string {
   let out = tpl
-  out = out.replace(/\{项目名\}/g, vars.packName)
+  // 第 32 批：{项目名} 与 {任务名} 分开 —— 前者是真项目名，后者是任务名（此前两者都错映射成任务名）
+  out = out.replace(/\{项目名\}/g, vars.projectName)
   out = out.replace(/\{任务名\}/g, vars.packName)
   out = out.replace(/\{尺寸\}/g, vars.size)
   out = out.replace(/\{版本\}/g, vars.version)
@@ -374,7 +390,35 @@ function applyCustomTemplate(
   out = out.replace(/\{打包日期\}/g, vars.date)
   out = out.replace(/\{序号\}/g, String(vars.seq).padStart(2, '0'))
   out = out.replace(/\{扩展名\}/g, vars.ext)
+  // 第 32 批：素材文件不适用尺寸，{尺寸} 替换为空后可能残留「--」或首尾「-」，统一清掉
+  out = out.replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '')
   return out
+}
+
+/**
+ * 第 32 批：打包预览（不碰磁盘，只出计划），供界面「文件结构预览」实时刷新。
+ * 复用 buildPackExportPlan —— 预览看到的 = 最终落盘的包内结构。
+ */
+export async function previewPackExport(input: PackExportInput): Promise<PackExportPreview> {
+  try {
+    const plan = await buildPackExportPlan(input)
+    return {
+      ok: true,
+      zipName: basename(plan.outputPath),
+      innerPaths: plan.entries.map((e) => e.innerPath),
+      fileCount: plan.entries.length,
+      totalSize: plan.totalSize
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      zipName: '',
+      innerPaths: [],
+      fileCount: 0,
+      totalSize: 0,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
 }
 
 /**

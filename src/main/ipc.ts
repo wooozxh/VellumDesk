@@ -143,7 +143,7 @@ import {
   uploadReportImage
 } from './reportWecom'
 // 第 15 批：交付打包（M5，docs/18）
-import { executePackExport, listDeliveryRecords } from './exportPack'
+import { executePackExport, listDeliveryRecords, previewPackExport } from './exportPack'
 // 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
 import {
   startTicketScheduler,
@@ -152,7 +152,7 @@ import {
   type TicketSchedulerJobResult,
   type TicketSchedulerOptions
 } from './ticketScheduler'
-import type { PackExportInput, PackExportResult } from '../shared/types'
+import type { PackExportInput, PackExportPreview, PackExportResult } from '../shared/types'
 
 /**
  * 一次工单同步的完整结果（手动点「同步」和后台定时跑**共用同一条链路**，docs/16 §3.3）。
@@ -1523,6 +1523,16 @@ export function registerIpc(): void {
       return await executePackExport(input)
     } catch (e) {
       return { ok: false, error: (e as Error).message } as PackExportResult
+    }
+  })
+
+  ipcMain.handle('pack:exportPreview', async (_e, input: PackExportInput) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    try {
+      return await previewPackExport(input)
+    } catch (e) {
+      return { ok: false, zipName: '', innerPaths: [], fileCount: 0, totalSize: 0, error: (e as Error).message } as PackExportPreview
     }
   })
 

@@ -180,6 +180,7 @@ const api = {
 
   // 第 15 批：交付打包（M5，docs/18）
   packExport: (input: PackExportInput) => ipcRenderer.invoke('pack:export', input),
+  packExportPreview: (input: PackExportInput) => ipcRenderer.invoke('pack:exportPreview', input),
   packDeliveryRecords: (packId: number) => ipcRenderer.invoke('pack:deliveryRecords', packId),
   pickOutputDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:pickOutputDir', defaultPath)
 }

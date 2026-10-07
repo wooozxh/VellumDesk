@@ -1,8 +1,8 @@
 import { COPY, fmt } from '../../../shared/copy'
 import { Icon } from './Icon'
 import { Rich } from './Rich'
-import { useEffect, useMemo, useState } from 'react'
-import type { AssetItem, PackDetail, PackExportInput } from '../types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { AssetItem, PackDetail, PackExportInput, PackExportPreview } from '../types'
 import { fmtSize } from './FileRow'
 
 const ROLE_ORDER = ['成品', '素材', '工程', '未归属'] as const
@@ -12,6 +12,43 @@ interface PackExportModalProps {
   onClose: () => void
   toast: (text: string, kind?: 'ok' | 'err' | 'info') => void
 }
+
+/** 把一组包内相对路径渲染成字符树（每行一个节点，带 ├─/└─/│ 前缀） */
+function buildTreeLines(innerPaths: string[]): string[] {
+  type TreeMap = Map<string, TreeMap>
+  const root: TreeMap = new Map()
+  for (const p of innerPaths) {
+    const segs = p.split('/').filter(Boolean)
+    let cur = root
+    for (const s of segs) {
+      if (!cur.has(s)) cur.set(s, new Map())
+      cur = cur.get(s)!
+    }
+  }
+  const lines: string[] = []
+  const walk = (node: TreeMap, prefix: string): void => {
+    const entries = [...node.entries()]
+    entries.forEach(([name, child], idx) => {
+      const last = idx === entries.length - 1
+      lines.push(prefix + (last ? '└─ ' : '├─ ') + name)
+      if (child.size > 0) walk(child, prefix + (last ? '   ' : '│  '))
+    })
+  }
+  walk(root, '')
+  return lines
+}
+
+/** 自定义模板可用占位符 —— 与后端 applyCustomTemplate 的替换正则一一对应（src/main/exportPack.ts） */
+const TPL_PLACEHOLDERS = [
+  '{项目名}',
+  '{任务名}',
+  '{尺寸}',
+  '{版本}',
+  '{原文件名}',
+  '{打包日期}',
+  '{序号}',
+  '{扩展名}'
+] as const
 
 export function PackExportModal({ detail, onClose, toast }: PackExportModalProps): React.JSX.Element {
   const pack = detail.pack
@@ -41,8 +78,17 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
   const [customTemplate, setCustomTemplate] = useState('')
   const [wrapFolder, setWrapFolder] = useState(true)
 
+  // 第 32 批：用户是否手动编辑过 zip 名。手动改过就锁定，不再随尺寸自动刷新。
+  const [zipNameTouched, setZipNameTouched] = useState(false)
+
+  // 第 32 批：文件结构预览结果（防抖刷新）
+  const [preview, setPreview] = useState<PackExportPreview | null>(null)
+
   // 状态
   const [busy, setBusy] = useState(false)
+
+  // 自定义模板输入框引用（占位符按钮插到光标位置用，第 32 批）
+  const tplRef = useRef<HTMLInputElement>(null)
 
   // 首次打开：尝试自动读尺寸
   useEffect(() => {
@@ -103,9 +149,9 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
     [selectedEntries]
   )
 
-  // 默认 zip 名（用户没改时按规则生成）
+  // 默认 zip 名（用户没手改过时按规则生成；手改过就锁定）
   useEffect(() => {
-    if (zipName) return
+    if (zipNameTouched) return
     const parts: string[] = []
     if (pack.projectName) parts.push(pack.projectName)
     parts.push(pack.name)
@@ -139,26 +185,68 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
     if (r.ok && r.dir) setOutputDir(r.dir)
   }
 
+  // 第 32 批：把占位符插到模板输入框的光标位置（插完光标停在占位符后面，保持焦点）
+  const insertTpl = (text: string): void => {
+    const el = tplRef.current
+    if (!el) {
+      setCustomTemplate(customTemplate + text)
+      return
+    }
+    const start = el.selectionStart ?? customTemplate.length
+    const end = el.selectionEnd ?? customTemplate.length
+    setCustomTemplate(customTemplate.slice(0, start) + text + customTemplate.slice(end))
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + text.length, start + text.length)
+    })
+  }
+
+  // 组装打包输入（执行与预览共用，保证「预览看到的 = 最终落盘的」）
+  const buildInput = (): PackExportInput => ({
+    packId: pack.id,
+    versionMode,
+    specificVersionId,
+    roles: ROLE_ORDER.filter((r) => roleSel[r]),
+    excludedAssetIds: Array.from(excludedIds),
+    outputDir,
+    zipName,
+    wrapFolder,
+    size,
+    keepOriginalName,
+    customNameTemplate: customTemplate.trim()
+  })
+
+  // 第 32 批：文件结构预览 —— 随改动防抖刷新
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (previewTimer.current) clearTimeout(previewTimer.current)
+    previewTimer.current = setTimeout(async () => {
+      const r = await window.api.packExportPreview(buildInput())
+      setPreview(r)
+    }, 300)
+    return () => {
+      if (previewTimer.current) clearTimeout(previewTimer.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    versionMode,
+    specificVersionId,
+    roleSel,
+    excludedIds,
+    size,
+    customTemplate,
+    zipName,
+    wrapFolder,
+    keepOriginalName
+  ])
+
   const doExport = async (): Promise<void> => {
     if (selectedEntries.length === 0) {
       toast(COPY.exportPack.noSelection, 'err')
       return
     }
     setBusy(true)
-    const input: PackExportInput = {
-      packId: pack.id,
-      versionMode,
-      specificVersionId,
-      roles: ROLE_ORDER.filter((r) => roleSel[r]),
-      excludedAssetIds: Array.from(excludedIds),
-      outputDir,
-      zipName,
-      wrapFolder,
-      size,
-      keepOriginalName,
-      customNameTemplate: customTemplate.trim()
-    }
-    const res = await window.api.packExport(input)
+    const res = await window.api.packExport(buildInput())
     setBusy(false)
     if (res.ok && res.outputPath) {
       toast(fmt(COPY.exportPack.done, { path: res.outputPath }), 'ok')
@@ -167,6 +255,8 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
       toast(COPY.exportPack.failed + (res.error ?? ''), 'err')
     }
   }
+
+  const treeLines = useMemo(() => (preview ? buildTreeLines(preview.innerPaths) : []), [preview])
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -318,7 +408,80 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
             </div>
           </section>
 
-          {/* 输出设置 */}
+          {/* 第 32 批：尺寸（短控件，只进成品/工程） */}
+          <section className="ep-section">
+            <label>{COPY.exportPack.sizeLabel}</label>
+            <input
+              type="text"
+              className="ep-size"
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+              disabled={busy}
+            />
+            <div className="ep-hint">{COPY.exportPack.sizeHint}</div>
+          </section>
+
+          {/* 自定义文件名模板（第 32 批：占位符做成按钮，点击插入光标位置） */}
+          <section className="ep-section">
+            <label>{COPY.exportPack.customNameLabel}</label>
+            <input
+              ref={tplRef}
+              type="text"
+              value={customTemplate}
+              onChange={(e) => setCustomTemplate(e.target.value)}
+              placeholder={COPY.exportPack.customNameHint}
+              disabled={busy}
+            />
+            <div className="ep-tpl-chips">
+              {TPL_PLACEHOLDERS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="ep-tpl-chip"
+                  onClick={() => insertTpl(p)}
+                  disabled={busy}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* 压缩包名称 + 两个开关 */}
+          <section className="ep-section">
+            <label>{COPY.exportPack.zipNameLabel}</label>
+            <input
+              type="text"
+              value={zipName}
+              onChange={(e) => {
+                setZipNameTouched(true)
+                setZipName(e.target.value)
+              }}
+              disabled={busy}
+            />
+            <div className="ep-checks">
+              <label className="ep-check">
+                <input
+                  type="checkbox"
+                  checked={keepOriginalName}
+                  onChange={(e) => setKeepOriginalName(e.target.checked)}
+                  disabled={busy}
+                />
+                {COPY.exportPack.keepOriginalName}
+              </label>
+              <label className="ep-check">
+                <input
+                  type="checkbox"
+                  checked={wrapFolder}
+                  onChange={(e) => setWrapFolder(e.target.checked)}
+                  disabled={busy}
+                />
+                {COPY.exportPack.wrapFolderLabel}
+              </label>
+            </div>
+          </section>
+
+          {/* 输出位置 */}
           <section className="ep-section ep-output">
             <label>{COPY.exportPack.outputDirLabel}</label>
             <div className="ep-row">
@@ -327,77 +490,44 @@ export function PackExportModal({ detail, onClose, toast }: PackExportModalProps
                 {COPY.exportPack.outputDirPick}
               </button>
             </div>
-
-            <label>{COPY.exportPack.zipNameLabel}</label>
-            <input
-              type="text"
-              value={zipName}
-              onChange={(e) => setZipName(e.target.value)}
-              disabled={busy}
-            />
-
-            <label>{COPY.exportPack.sizeLabel}</label>
-            <input
-              type="text"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              placeholder={COPY.exportPack.sizeHint}
-              disabled={busy}
-            />
-
-            <label className="ep-check">
-              <input
-                type="checkbox"
-                checked={keepOriginalName}
-                onChange={(e) => setKeepOriginalName(e.target.checked)}
-                disabled={busy}
-              />
-              {COPY.exportPack.keepOriginalName}
-            </label>
-
-            <label>{COPY.exportPack.customNameLabel}</label>
-            <input
-              type="text"
-              value={customTemplate}
-              onChange={(e) => setCustomTemplate(e.target.value)}
-              placeholder={COPY.exportPack.customNameHint}
-              disabled={busy}
-            />
-
-            <label className="ep-check">
-              <input
-                type="checkbox"
-                checked={wrapFolder}
-                onChange={(e) => setWrapFolder(e.target.checked)}
-                disabled={busy}
-              />
-              {COPY.exportPack.wrapFolderLabel}
-            </label>
           </section>
 
-          {/* 底部摘要 */}
-          <div className="ep-summary">
-            <Rich
-              tpl={COPY.exportPack.summary}
-              v={{
-                n: selectedEntries.length,
-                size: fmtSize(totalSize),
-                path: outputDir
-              }}
-            />
-          </div>
+          {/* 文件结构预览（第 32 批新增） */}
+          <section className="ep-section">
+            <label>{COPY.exportPack.previewLabel}</label>
+            <div className="ep-preview">
+              {preview && preview.ok && treeLines.length > 0 ? (
+                <>
+                  <div className="ep-preview-zip">{preview.zipName}</div>
+                  <pre className="ep-preview-tree">{treeLines.join('\n')}</pre>
+                </>
+              ) : (
+                <div className="ep-empty">{COPY.exportPack.previewEmpty}</div>
+              )}
+              <div className="ep-summary">
+                <Rich
+                  tpl={COPY.exportPack.summary}
+                  v={{
+                    n: selectedEntries.length,
+                    size: fmtSize(totalSize),
+                    path: outputDir
+                  }}
+                />
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="foot">
-          <button className="btn" onClick={onClose} disabled={busy}>
-            {COPY.common.cancel}
-          </button>
           <button
             className="btn primary"
             onClick={doExport}
             disabled={busy || selectedEntries.length === 0}
           >
             {busy ? COPY.exportPack.packing : COPY.exportPack.start}
+          </button>
+          <button className="btn" onClick={onClose} disabled={busy}>
+            {COPY.common.cancel}
           </button>
         </div>
       </div>
