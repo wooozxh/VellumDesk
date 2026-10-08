@@ -3209,6 +3209,42 @@ export function unignoreMissingAssets(ids: number[]): { ok: boolean; changed: nu
   return { ok: true, changed: info.changes }
 }
 
+/**
+ * 第 51 批（docs/36）：**彻底清掉「已忽略」的记录** —— 只删数据库行，磁盘零改动。
+ *
+ * 为什么需要它：第 47 批的「忽略」是个**单向门** —— 忽略了就没法把记录从库里去掉。
+ * 被删文件的记录会一直留着，并且**占着版本卡片的位置**（版本卡片按 `version_id IS NULL`
+ * 统计，不看文件还在不在），界面上就表现为一张去不掉的「未分版本 · 1 个文件」幽灵卡片。
+ * 用户实测踩到，本批补这个出口。
+ *
+ * ⚠️ **双重门槛，缺一不可**：
+ *   · `missing_at IS NOT NULL`         —— 扫描已确认**文件不在磁盘上**
+ *   · `missing_ignored_at IS NOT NULL` —— 用户已明确说过「不打算找回了」
+ * 由此得到两个保证：
+ *   ① **不可能误删用户文件** —— 文件本就不在盘上，这里不碰磁盘一个字节；
+ *   ② **不是不可逆的数据丢失** —— 文件以后若重新出现（用户放回去 / 从别处拷回），
+ *      下一轮扫描会**重新建记录**。即：清掉 = 丢弃一条失效索引，事实来源（磁盘）没动。
+ *
+ * **刻意不给「待处理的丢失」开这个口**：那些行还能「重新定位」，用户也没说放弃。
+ * 宁可少给一个按钮，也不越界替用户丢东西（「软件永不悄悄扔东西」铁律）。
+ *
+ * `asset_tags` 有 `ON DELETE CASCADE`，标签关联跟着自动清（不需要手动删）。
+ * **不删缩略图缓存**（`_thumbs/*.webp`）—— 与既有「删包」路径（也只删库记录）保持一致，
+ * 不为本批单独引入文件删除动作。
+ */
+export function purgeIgnoredAssets(ids: number[]): { ok: boolean; changed: number } {
+  if (!ids.length) return { ok: true, changed: 0 }
+  const db = getDb()
+  const ph = ids.map(() => '?').join(',')
+  const info = db
+    .prepare(
+      `DELETE FROM assets
+        WHERE id IN (${ph}) AND missing_at IS NOT NULL AND missing_ignored_at IS NOT NULL`
+    )
+    .run(...ids)
+  return { ok: true, changed: info.changes }
+}
+
 // ================================================================ 第 5 批 E-01：工作区管理与迁移
 // 对应方案：docs/07-工作区管理方案.md
 

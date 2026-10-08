@@ -38,6 +38,8 @@ import {
   countIgnoredMissing,
   ignoreMissingAssets,
   unignoreMissingAssets,
+  /** 第 51 批（docs/36）：清掉已忽略的记录 */
+  purgeIgnoredAssets,
   relocateAsset,
   suggestRelocateBatch,
   applyRelocateBatch,
@@ -806,6 +808,16 @@ export function registerIpc(): void {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unignoreMissingAssets(ids ?? [])
+  })
+
+  /**
+   * 第 51 批（docs/36）：清掉「已忽略」的记录（只删库记录，磁盘零改动）。
+   * 严格限定「文件已不在 + 用户已忽略」的双重门槛，见 `purgeIgnoredAssets` 注释。
+   */
+  ipcMain.handle('asset:purgeIgnored', (_e, ids: number[]) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return purgeIgnoredAssets(ids ?? [])
   })
 
   // ---------- 第 3 批：标签体系（M2） ----------

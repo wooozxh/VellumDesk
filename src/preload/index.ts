@@ -51,6 +51,8 @@ const api = {
   // 第 47 批：假丢失治理（docs/33）
   ignoreMissingAssets: (ids: number[]) => ipcRenderer.invoke('asset:ignoreMissing', ids),
   unignoreMissingAssets: (ids: number[]) => ipcRenderer.invoke('asset:unignoreMissing', ids),
+  /** 第 51 批（docs/36）：清掉「已忽略」的记录（只删库记录，磁盘零改动） */
+  purgeIgnoredAssets: (ids: number[]) => ipcRenderer.invoke('asset:purgeIgnored', ids),
 
   // 第 9 批：版本管理（M6，docs/11）
   listVersions: (packId: number) => ipcRenderer.invoke('version:list', packId),

@@ -2098,6 +2098,16 @@ body:has(.side-resizer.dragging) {
   color: var(--accent);
 }
 
+/* 第 51 批（docs/36）：行尾「清掉记录」按钮 —— 破坏性，用危险色；悬停再提亮一档。
+   它旁边就是「撤销忽略」，两个出口并排，颜色要能一眼分开（撤销=蓝、清掉=红）。 */
+.icon-btn.purge {
+  color: var(--danger);
+}
+.icon-btn.purge:hover {
+  color: var(--danger);
+  filter: brightness(1.25);
+}
+
 /* 左栏「已忽略」入口：与「文件已丢失」同一格，但灰一档 */
 .miss-entry.ignored {
   color: var(--text-2);

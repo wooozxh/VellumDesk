@@ -1743,6 +1743,11 @@ app.whenReady().then(async () => {
     await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(600)
 
+    // 第 51 批：「清掉记录」走 window.confirm 二次确认 —— 真窗口里那是个**阻塞式**对话框，
+    // 验证壳里必须直接放行，否则点下去整个场景卡死（第 51 批施工时踩到，白等一轮超时）。
+    // 与 lifecycle / tagcount 两处同一做法。
+    await js(`window.confirm = () => true; 'patched'`)
+
     // (1) 左栏出现「⚠️ 文件已丢失 2」
     const entry = await js(
       `(() => {
@@ -2043,6 +2048,134 @@ app.whenReady().then(async () => {
        })()`
     )
     await wait(400)
+
+    // (11) 第 51 批（docs/36）：清掉记录出口
+    //   前置：第 (9) 步把「海报终稿.png」撤销了忽略 → 它现在是"待处理丢失"
+    //   ① 双重门槛的界面侧：待处理的行**不该**有「清掉记录」
+    //   ② 重新忽略 → 已忽略列表里**该有**（与「撤销忽略」并排）
+    //   ③ 点它 → 二次确认 → 从列表与库里一起消失
+    //
+    // ⚠️ 不能用 pickSideItem 切「全部文件」：clickByText 是**精确**匹配
+    //    （innerText.trim() === text），而那一行的 innerText 还带计数（"全部文件\n3"）→ 永远 no-el。
+    //    另外行尾的按钮不止两个：还有「打开所在文件夹」，所以只断言"该有的在 / 不该有的不在"，
+    //    不写死按钮个数（个数会随 UI 微调而变，写死是脆弱断言）。
+    const toAllFiles = await js(
+      `(() => {
+         const e = [...document.querySelectorAll('.side .item')].find(x => (x.innerText || '').includes(${JSON.stringify(COPY.side.allFiles)}))
+         if (!e) return 'no-el'
+         e.click(); return 'ok'
+       })()`
+    )
+    ok(toAllFiles === 'ok', `切到「${COPY.side.allFiles}」并复位筛选（${toAllFiles}）`)
+    await wait(900)
+
+    // 按钮的 title 是「提示句」不是「按钮字」，取冒号前那截来匹配
+    const PURGE_TITLE = COPY.file.purgeTip.split('：')[0]
+    const IGNORE_TITLE = COPY.file.ignoreTip.split('：')[0]
+    const UNIGNORE_TITLE = COPY.file.unignoreTip.split('：')[0]
+
+    const actTitles = async () =>
+      js(
+        `(() => {
+           const r = [...document.querySelectorAll('.main-scroll .file-row')]
+             .find(x => (x.innerText || '').includes('海报终稿'))
+           if (!r) return null
+           return [...r.querySelectorAll('.act .icon-btn')].map(b => (b.getAttribute('title') || ''))
+         })()`
+      )
+
+    // ① 待处理丢失：有「重新定位 + 忽略」，**没有**「清掉记录」
+    const actsPending = await actTitles()
+    ok(Array.isArray(actsPending), `【布景】找到「海报终稿」那一行（${JSON.stringify(actsPending)}）`)
+    ok(
+      Array.isArray(actsPending) && actsPending.some((t) => t.startsWith('重新定位')),
+      '待处理丢失行有「重新定位」'
+    )
+    ok(
+      Array.isArray(actsPending) && actsPending.some((t) => t.startsWith(IGNORE_TITLE)),
+      `待处理丢失行有「${IGNORE_TITLE}」`
+    )
+    ok(
+      Array.isArray(actsPending) && !actsPending.some((t) => t.startsWith(PURGE_TITLE)),
+      `【核心·双重门槛】待处理的丢失**不给**「${PURGE_TITLE}」（它还能重新定位，用户也没说放弃）`
+    )
+
+    // ② 忽略掉它 → 出口应变成「撤销忽略 + 清掉记录」
+    const reIgnore = await js(
+      `(() => {
+         const r = [...document.querySelectorAll('.main-scroll .file-row')]
+           .find(x => (x.innerText || '').includes('海报终稿'))
+         if (!r) return 'no-row'
+         const b = [...r.querySelectorAll('.act .icon-btn')]
+           .find(x => (x.getAttribute('title') || '').startsWith(${JSON.stringify(IGNORE_TITLE)}))
+         if (!b) return 'no-btn'
+         b.click(); return 'ok'
+       })()`
+    )
+    ok(reIgnore === 'ok', `重新点「${IGNORE_TITLE}」（${reIgnore}）`)
+    await wait(1600)
+
+    // 进左栏「已忽略」入口再看
+    await js(
+      `(() => {
+         const e = [...document.querySelectorAll('.side .item')].find(x => x.innerText.includes(${JSON.stringify(COPY.side.ignored)}))
+         if (e) e.click(); return 'ok'
+       })()`
+    )
+    await wait(900)
+    const actsIgnored = await actTitles()
+    ok(Array.isArray(actsIgnored), `【布景】已忽略列表里找到那一行（${JSON.stringify(actsIgnored)}）`)
+    ok(
+      Array.isArray(actsIgnored) && actsIgnored.some((t) => t.startsWith(UNIGNORE_TITLE)),
+      `其一是「${UNIGNORE_TITLE}」（第 47 批原有出口，没被挤掉）`
+    )
+    ok(
+      Array.isArray(actsIgnored) && actsIgnored.some((t) => t.startsWith(PURGE_TITLE)),
+      `【核心】其二是「${PURGE_TITLE}」（第 51 批新增出口）`
+    )
+    await shot('shot-b51-1-ignored-two-exits.png')
+
+    // ③ 点「清掉记录」→ 二次确认（场景里 window.confirm 已被 patch 成恒 true）
+    //    先记下 id：清掉后就查不到了，级联断言要用
+    const t1Id = q9('SELECT id FROM assets WHERE file_name = ?', '海报终稿.png').id
+    const purgeClick = await js(
+      `(() => {
+         const r = [...document.querySelectorAll('.main-scroll .file-row')]
+           .find(x => (x.innerText || '').includes('海报终稿'))
+         if (!r) return 'no-row'
+         const b = [...r.querySelectorAll('.act .icon-btn')]
+           .find(x => (x.getAttribute('title') || '').startsWith(${JSON.stringify(PURGE_TITLE)}))
+         if (!b) return 'no-btn'
+         b.click(); return 'ok'
+       })()`
+    )
+    ok(purgeClick === 'ok', `点「${PURGE_TITLE}」（${purgeClick}）`)
+    await wait(1800)
+
+    ok(
+      q9('SELECT COUNT(*) AS c FROM assets WHERE file_name = ?', '海报终稿.png').c === 0,
+      '【核心】记录已从库里清掉'
+    )
+    ok(
+      q9('SELECT COUNT(*) AS c FROM asset_tags WHERE asset_id = ?', t1Id).c === 0,
+      '【级联】它的标签关联一并清掉'
+    )
+    // 已忽略入口：计数归 0 时该入口**整个隐藏**（App.tsx 的 `ignoredMissing > 0` 条件）
+    const afterPurge = await js(
+      `(() => {
+         const e = [...document.querySelectorAll('.side .item')].find(x => x.innerText.includes(${JSON.stringify(COPY.side.ignored)}))
+         return e ? e.innerText.trim() : null
+       })()`
+    )
+    ok(
+      afterPurge === null,
+      `【核心】清完后左栏「已忽略」入口整个消失（计数 0 → 入口隐藏；实际 ${JSON.stringify(afterPurge)}）`
+    )
+    const rowGone = await js(
+      `[...document.querySelectorAll('.main-scroll .file-row')].filter(x => (x.innerText || '').includes('海报终稿')).length`
+    )
+    ok(rowGone === 0, `【核心】列表里那条也没了（残留 ${rowGone} 条）`)
+    await shot('shot-b51-2-purged.png')
   } else if (SCEN === 'versions') {
     // ============================================================
     // 第 9 批 M6：版本管理（建稿 / 自动认 / 绑定 / 设为当前 / 解绑）

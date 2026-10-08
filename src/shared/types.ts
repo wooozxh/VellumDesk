@@ -789,6 +789,11 @@ export interface Api {
   ignoreMissingAssets: (ids: number[]) => Promise<{ ok: boolean; changed: number }>
   /** 撤销忽略 → 这条记录回到「丢失待处理」 */
   unignoreMissingAssets: (ids: number[]) => Promise<{ ok: boolean; changed: number }>
+  /**
+   * 第 51 批（docs/36）：清掉「已忽略」的记录 —— 只删数据库行，磁盘零改动。
+   * 只对「文件已不在（`missing_at` 非空）+ 已忽略（`missing_ignored_at` 非空）」的行生效。
+   */
+  purgeIgnoredAssets: (ids: number[]) => Promise<{ ok: boolean; changed: number }>
 
   // ---------------- 第 9 批：版本管理（M6） ----------------
   /** 某包的全部稿（含文件数 / 占用 / 文件夹是否还在） */

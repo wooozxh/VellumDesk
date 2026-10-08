@@ -79,7 +79,8 @@ export function FileRow({
   onDropTag,
   onRelocate,
   onIgnore,
-  onUnignore
+  onUnignore,
+  onPurge
 }: {
   item: AssetItem
   selected: boolean
@@ -95,6 +96,8 @@ export function FileRow({
   onIgnore?: () => void
   /** 第 47 批：撤销忽略 → 回到「丢失待处理」 */
   onUnignore?: () => void
+  /** 第 51 批（docs/36）：清掉这条已忽略记录（只删库记录，不删文件） */
+  onPurge?: () => void
 }): React.JSX.Element {
   // 第 47 批（docs/33）：三种态要分开 ——
   //   rawMissing：文件不在磁盘上（含已忽略的）—— 压暗与角标都看它
@@ -191,10 +194,17 @@ export function FileRow({
       {item.role && <span className={`role ${item.role}`}>{item.role}</span>}
       <div className="act">
         {ignored ? (
-          /* 第 47 批：已忽略的行只给一个出口 —— 撤销忽略（回到"待处理"） */
-          <button className="icon-btn undo" title={COPY.file.unignoreTip} onClick={onUnignore}>
-            <Icon name="undo" size={14} />
-          </button>
+          /* 第 47 批：已忽略的行给两个出口 —— 撤销忽略（回到"待处理"）
+             第 51 批（docs/36）：+ 清掉记录（第 47 批的「忽略」原本是单向门，
+             忽略了就没法把记录从库里去掉，会一直占着版本卡片的位置） */
+          <>
+            <button className="icon-btn undo" title={COPY.file.unignoreTip} onClick={onUnignore}>
+              <Icon name="undo" size={14} />
+            </button>
+            <button className="icon-btn purge" title={COPY.file.purgeTip} onClick={onPurge}>
+              <Icon name="trash" size={14} />
+            </button>
+          </>
         ) : missing ? (
           <>
             <button

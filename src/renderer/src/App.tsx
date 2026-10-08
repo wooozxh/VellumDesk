@@ -422,6 +422,30 @@ export default function App(): React.JSX.Element {
     await reloadAll()
   }
 
+  /**
+   * 第 51 批（docs/36）：清掉已忽略的记录。
+   *
+   * ⚠️ 破坏性操作（记录删了就没了）→ **先弹二次确认**，文案里明写
+   * 「只删记录、不删文件」+「文件放回来会重新入库」（第 47 批的忽略是个单向门，
+   * 这里的出口不能让用户以为会丢文件）。与「移除工作区」同一套 window.confirm 做法。
+   */
+  const doPurge = async (ids: number[]): Promise<void> => {
+    if (!ids.length) return
+    const yes = window.confirm(
+      fmt(COPY.file.purgeConfirmA, { n: ids.length }) +
+        COPY.file.purgeConfirmB.replace(/\*\*/g, '')
+    )
+    if (!yes) return
+    const r = await window.api.purgeIgnoredAssets(ids)
+    if (!r.ok) {
+      toast(COPY.common.failed, 'err')
+      return
+    }
+    toast(fmt(COPY.file.purgeDone, { n: r.changed }), 'ok')
+    setSelected(new Set())
+    await reloadAll()
+  }
+
   // ---------------- 工作区不可用时的两个出口 ----------------
 
   /** 重试：丢掉缓存重新探测一次（插上移动硬盘后用） */
@@ -944,6 +968,16 @@ export default function App(): React.JSX.Element {
       shownAssets.filter(
         (a) => selected.has(a.id) && a.missing_at !== null && a.missing_ignored_at === null
       ).length,
+    [shownAssets, selected]
+  )
+
+  /**
+   * 第 51 批（docs/36）：勾选中的**已忽略**条数（决定「清掉记录 (n)」出现与否）。
+   * 与 pickedMissingCount 互补 —— 两个出口对应两种态，互斥。
+   */
+  const pickedIgnoredCount = useMemo(
+    () =>
+      shownAssets.filter((a) => selected.has(a.id) && a.missing_ignored_at !== null).length,
     [shownAssets, selected]
   )
 
@@ -1575,6 +1609,18 @@ export default function App(): React.JSX.Element {
                         {pickedMissingCount})
                       </button>
                     )}
+                    {/* 第 51 批（docs/36）：勾了「已忽略」的行才出现 —— 清掉记录（只删记录，不删文件） */}
+                    {pickedIgnoredCount > 0 && (
+                      <button
+                        className="btn"
+                        style={{ padding: '2px 10px' }}
+                        onClick={() => void doPurge([...selected])}
+                        title={COPY.file.purgeTipBatch}
+                      >
+                        <Icon name="trash" size={12} />  {COPY.file.purgeBtn} (
+                        {pickedIgnoredCount})
+                      </button>
+                    )}
                     {/* 第 8 批：一批文件被整体挪走时的批量找回入口 */}
                     {stats.missing > 0 && (
                       <button
@@ -1610,6 +1656,7 @@ export default function App(): React.JSX.Element {
                     onRelocate={() => void doRelocate(a.id)}
                     onIgnore={() => void doIgnore([a.id])}
                     onUnignore={() => void doUnignore([a.id])}
+                    onPurge={() => void doPurge([a.id])}
                   />
                 ))}
               </>

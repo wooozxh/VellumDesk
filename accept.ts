@@ -84,6 +84,8 @@ import {
   assetTotals,
   ignoreMissingAssets,
   unignoreMissingAssets,
+  /** 第 51 批（docs/36）：清掉已忽略的记录 */
+  purgeIgnoredAssets,
   isTempFile
 } from './src/main/workspace'
 // 第 15 批：交付打包（M5，docs/18）
@@ -5697,6 +5699,112 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(w50Root)
+  }
+
+  // ============ 第 51 批：「清掉记录」出口（docs/36） ============
+  log('\n[45] 第 51 批：清掉已忽略记录 —— 只删库记录 · 双重门槛 · 磁盘零改动（docs/36）')
+  {
+    const w51Root = join('D://_accept_ws', `wstest51_${RUN_ID}`)
+    const w51Ws = join(w51Root, 'ws')
+    hardRm(w51Root)
+    mkdirSync(w51Ws, { recursive: true })
+    closeDb()
+    openDb(w51Ws)
+    initWorkspace(w51Ws)
+
+    const w51Row = (
+      name: string
+    ): { id: number; missing_at: string | null; missing_ignored_at: string | null } | undefined =>
+      getDb()
+        .prepare('SELECT id, missing_at, missing_ignored_at FROM assets WHERE file_name = ?')
+        .get(name) as
+        | { id: number; missing_at: string | null; missing_ignored_at: string | null }
+        | undefined
+
+    const w51Pack = mkPack({ name: '清理任务', projectId: null, workspaceRoot: w51Ws })
+    const fA = join(w51Pack.folder_path, '01-成品', '甲.png')
+    const fB = join(w51Pack.folder_path, '02-素材', '乙.psd')
+    const fC = join(w51Pack.folder_path, '03-工程', '丙.ai')
+    writeFileSync(fA, 'AAAA', 'utf-8')
+    writeFileSync(fB, 'BBBB', 'utf-8')
+    writeFileSync(fC, 'CCCC', 'utf-8')
+    scanAll(w51Ws)
+    const w51Total = (): number =>
+      (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c
+    ok(w51Total() === 3, '【布景】登记 3 个文件')
+
+    // 删掉两个：甲 = 待处理的丢失（**不给清**），乙 = 丢失后忽略（**可以清**）
+    hardRm(fA)
+    hardRm(fB)
+    scanAll(w51Ws)
+    const idA = w51Row('甲.png')!.id
+    const idB = w51Row('乙.psd')!.id
+    const tagId = createTag({ dimension: 'category', name: '清理标签' }).tag!.id
+    applyTags({ assetIds: [idB], tagIds: [tagId] })
+    ignoreMissingAssets([idB])
+    ok(w51Row('乙.psd')!.missing_ignored_at !== null, '【布景】乙已忽略')
+    ok(w51Row('甲.png')!.missing_ignored_at === null, '【布景】甲仍是"待处理"（没忽略）')
+
+    // 记录原文件所在目录的内容，用来证明磁盘零改动
+    const dirA = join(w51Pack.folder_path, '01-成品')
+    const dirB = join(w51Pack.folder_path, '02-素材')
+    const snap = (): string =>
+      [readdirSync(dirA).sort().join(','), readdirSync(dirB).sort().join(',')].join('|')
+    const diskBefore = snap()
+    ok(
+      diskBefore === '|',
+      `【布景】两个目录现在都是空的（甲/乙已被删）：${JSON.stringify(diskBefore)}`
+    )
+
+    // ---- (1) 【核心】双重门槛：待处理的丢失（未忽略）清不掉 ----
+    const pA = purgeIgnoredAssets([idA])
+    ok(pA.ok && pA.changed === 0, `【核心】未忽略的丢失**清不掉**（changed=${pA.changed}）`)
+    ok(!!w51Row('甲.png'), '【核心】甲那条记录还在（没被越界删掉）')
+
+    // ---- (2) 已忽略的能清掉 ----
+    const pB = purgeIgnoredAssets([idB])
+    ok(pB.ok && pB.changed === 1, `已忽略的能清掉（changed=${pB.changed}）`)
+    ok(w51Row('乙.psd') === undefined, '【核心】乙的记录确实从库里消失了')
+    ok(w51Total() === 2, `总数 3 → 2（实际 ${w51Total()}）`)
+
+    // ---- (3) 标签级联清掉（asset_tags 有 ON DELETE CASCADE）----
+    const orphan = (
+      getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags WHERE asset_id = ?').get(idB) as {
+        c: number
+      }
+    ).c
+    ok(orphan === 0, '【级联】记录没了，它的标签关联也一并清掉（外键级联生效）')
+
+    // ---- (4) 【铁律】磁盘零改动 ----
+    ok(snap() === diskBefore, '【铁律】磁盘一个字节没动（清理前后目录内容都是空的）')
+    ok(!existsSync(fB), '【铁律】原文件路径依然不存在（软件没"顺手"重建或删除任何东西）')
+    ok(existsSync(fC), '【铁律】同包的活文件照旧在（丙.ai 没被牵连）')
+
+    // ---- (5) 【核心】这不是数据丢失：文件放回来 → 扫描重新入库 ----
+    writeFileSync(fB, 'BBBB-回来了', 'utf-8')
+    scanAll(w51Ws)
+    const back = w51Row('乙.psd')
+    ok(!!back, '【核心】文件放回原路径 → 扫描**重新建记录**（证明"清掉 ≠ 数据丢失"）')
+    ok(back !== undefined && back.missing_at === null, '重新入库的记录是干净的（不是丢失态）')
+    ok(back !== undefined && back.id !== idB, '是一个新 id（旧记录确实被清掉了）')
+
+    // ---- (6) 幂等 + 边界：再清一次 / 空数组 / 不存在的 id ----
+    ok(purgeIgnoredAssets([idB]).changed === 0, '对已清掉的 id 再清一次 → changed = 0（幂等）')
+    ok(purgeIgnoredAssets([]).changed === 0, '空数组 → changed = 0，不报错')
+    ok(purgeIgnoredAssets([999999]).changed === 0, '不存在的 id → changed = 0，不报错')
+
+    // ---- (7) 混合批量：一批里既有能清的也有不能清的，只清该清的 ----
+    hardRm(fC)
+    scanAll(w51Ws)
+    const idC = w51Row('丙.ai')!.id
+    ignoreMissingAssets([idC])
+    const mixed = purgeIgnoredAssets([idA, idC]) // 甲=未忽略（不该清）, 丙=已忽略（该清）
+    ok(mixed.changed === 1, `混合批量只清该清的（期望 1，实际 ${mixed.changed}）`)
+    ok(!!w51Row('甲.png'), '甲（未忽略）仍在')
+    ok(w51Row('丙.ai') === undefined, '丙（已忽略）已清掉')
+
+    closeDb()
+    hardRm(w51Root)
   }
 
 // ============ 汇总 ============
