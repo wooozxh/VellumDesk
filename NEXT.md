@@ -6,11 +6,11 @@
 
 ---
 
-## ⚠️ 先看：只剩 `main` 一个分支（2026-10-07 从 GitHub 拉取最新后核对）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 从 GitHub 拉取最新后核对）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| **`main`**（唯一） | `2036978`（= `origin/main`） | 第 1~27 批全部功能 + 全站改名（docs/28）；版本 **1.8.2** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
+| **`main`**（唯一） | `ebb7c0d`（= `origin/main`） | 第 1~28 批全部功能 + 全站改名（docs/28）；版本 **1.8.3**（已发 GitHub Release） | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
 
 要点：
 
@@ -18,7 +18,7 @@
   历史功能分支（`TM` / `feature/incr` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）均已合入 `main` 后删除。
 - **新分支约定**：`feature/小写短横线`，合入即删。
 - **软件名（docs/28 全站改名）**：界面 **Vellum工作台**；exe / 安装包 / 仓库 **VellumDesk**；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。
-- **发版渠道**：GitHub Release 已开（`v1.8.2` 已发布）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
+- **发版渠道**：GitHub Release 已开（`v1.8.2` / `v1.8.3` 都已发布）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
 - **稳定点备份（项目外，2026-09-30 已做）**：`D:\_accept_ws\backup\` 下
   - `proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可恢复）
   - `proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg）
@@ -26,8 +26,11 @@
 - **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 热修；1.3.2 = 第 13~16 批；
   **1.4.0 = 第 17 批**；**1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里、从未出包**（第 18/19/20 批）；
   **1.8.0 = 第 18~21 批一次性打出**；1.8.1 = +第 22 批（**坏包，包内漏带 wecom-cli.exe，别用**）；
-  **1.8.2 = 最新已发**（第 23~27 批热修全含，`D:\_accept_ws\rel_out\v1.8.2\VellumDesk-1.8.2-Setup.exe`）；
-  **下一批从 1.8.3 起**。
+  **1.8.2 = 第 23~27 批热修**（`D:\_accept_ws\rel_out\v1.8.2\`）；
+  **1.8.3 = 第 28 批 + 新 LOGO 图标（ico 7 尺寸 + 512 png）—— 最新已发**
+  （GitHub Release `v1.8.3`，2026-10-08 00:44 发布，附 `VellumDesk-1.8.3-Setup.exe`；
+  **本机 `rel_out` 里没有它，那次出包在另一台机器上做的**）；
+  **下一批从 1.8.4 起**。
 
 ---
 
@@ -37,35 +40,37 @@
 开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
-本机现状（2026-10-07 从 GitHub 拉取最新后核对，开工前请再跑一次 git status / git log 确认）：
-- 分支只有 main（= origin/main = 2036978，含第 1~27 批 + 全站改名 docs/28）。直接在 main 上开工；
+本机现状（2026-10-08 从 GitHub 拉取最新后核对，开工前请再跑一次 git status / git log 确认）：
+- 分支只有 main（= origin/main = ebb7c0d，含第 1~28 批 + 全站改名 docs/28）。直接在 main 上开工；
   新功能开 feature/小写短横线，合入即删。
-- 版本 1.8.2；验收基线 accept 863 项（只增不减）；界面场景 12 个。
+- 版本 1.8.3（已发 GitHub Release）；验收基线 accept **871 项**（2026-10-08 本机实测全过，只增不减）；
+  界面场景 12 个（banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned）。
 - 下一个迁移号 18（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
   15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel）。
-- 下一批版本号从 1.8.3 起（1.8.2 已发 GitHub Release）。
+- 下一批版本号从 1.8.4 起（1.8.3 已发 GitHub Release）。
 
 先读这七份，读完再动手（只读，不改文件）：
 1. D:\proj_media\PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
-2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 45 次）
+2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 46 次）
 3. D:\proj_media\DECISIONS.md —— 历史决策，不要推翻已验证的结论
 4. D:\proj_media\NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
 5. D:\proj_media\README.md    —— 验收三件套与界面场景命令
-6. D:\proj_media\docs\28-全站改名方案.md —— 最近一次大改动（软件 / 仓库 / 目录全改名）
-7. D:\proj_media\docs\31-工单定时自动同步方案.md + D:\proj_media\docs\29-任务标签筛选与使用场景方案.md
-   —— 最近两个功能批（第 26 / 23 批）
+6. D:\proj_media\docs\28-全站改名方案.md —— 全站改名（软件 / 仓库 / 目录 / 图标）
+7. D:\proj_media\docs\32-打包交付尺寸与命名修正.md + D:\proj_media\docs\31-工单定时自动同步方案.md
+   —— 最近两个功能批（第 28 / 26 批）
 
 读完先向我复述三件事，等我确认后再继续：
-① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.2 · 863 项 + 12 场景）
-② 未完成的待办（见本文件第四节：1.8.3 未出包、文案在线表待刷、第 17~20 批待真表人工验收）
+① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.3 · **871 项** + 12 场景）
+② 未完成的待办（见本文件第四节：文案在线表待刷〔第 28 批 3 条〕、真表人工验收收尾、
+  换机跑时 PSD 样本断言缺失待拍板 —— 见 PROGRESS 第 46 次会话「环境备注」）
 ③ 你建议的下一批方向 + 理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
-- 工单二期余项：印刷状态写回企微表（写回管路 / CLI 内置 / 通知链路都已就绪，只剩这一项）
+- 工单二期最后一项：印刷状态写回企微表（写回管路 / CLI 内置 / 通知链路 / 定时同步都已就绪，只剩这一项）
 - 审核平台（大模块，方案 docs/21 已存档，卡点＝公司微盘使用规范待与同事对齐）
 - 连接 WorkBuddy 审稿（docs/23 已存档待细化，倾向「本地目录 + 自研审稿 Skill + automation」最轻闭环）
 - M6-06 版本对比（图片并排 + 视频双窗同步播放）/ M8-02 重复文件检测 / 报表口径完善
-- 出 1.8.3 包 + 文案在线表刷新 + 第 17~20 批真表人工验收收尾
+- 文案在线表刷新（第 28 批 3 条待刷）+ 第 17~20 批真表人工验收收尾
 - 或者我临时想到的新需求（我会直接说）
 
 铁律（PROJECT.md 有完整版）：
@@ -73,7 +78,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 863 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node out/test/accept.cjs（当前 871 项，只许增不许减）；界面改动再跑
   NODE_OPTIONS= node _shotapp/run-verify4.cjs
   banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
