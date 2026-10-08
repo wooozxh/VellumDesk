@@ -1785,7 +1785,7 @@ app.whenReady().then(async () => {
     // 此时还剩 1 条待处理的丢失（海报终稿.png，文件确实不在）
     // ============================================================
 
-    // (7) 行尾「忽略」→ 从丢失列表消失、进左栏「已忽略」
+    // (7) 行尾「忽略」→ 从丢失列表消失、进左栏「已忽略」；左栏「文件已丢失」入口照旧在
     await pickSideItem(COPY.top.viewPacks, '.tabs button')
     await wait(600)
     await js(
@@ -1813,15 +1813,17 @@ app.whenReady().then(async () => {
          const ign = items.find(x => x.innerText.includes(${JSON.stringify(COPY.side.ignored)}))
          return {
            miss: miss ? ((miss.querySelector('.n') || {}).innerText || '').trim() : null,
+           missText: miss ? miss.innerText.replace(/\\s+/g, ' ').trim() : null,
            ign: ign ? ((ign.querySelector('.n') || {}).innerText || '').trim() : null,
            rows: document.querySelectorAll('.main-scroll .file-row').length
          }
        })()`
     )
     ok(
-      afterIgnore.miss === null && afterIgnore.ign === '1',
-      `忽略后：丢失入口消失（${afterIgnore.miss}）、「已忽略」入口 = ${afterIgnore.ign}`
+      afterIgnore.miss === '0' && (afterIgnore.missText || '').startsWith(COPY.side.missing),
+      `忽略后：左栏「文件已丢失」入口照旧在、文字不变（"${afterIgnore.missText}"，计数 ${afterIgnore.miss}）`
     )
+    ok(afterIgnore.ign === '1', `「已忽略」是独立入口，没顶替「文件已丢失」（= ${afterIgnore.ign}）`)
     ok(afterIgnore.rows === 0, '当前"只看丢失"的列表里已经没有它了（空态）')
     ok(q9('SELECT COUNT(*) AS c FROM assets').c === 3, '【铁律①】记录还是 3 条（忽略不删记录）')
     ok(

@@ -1201,8 +1201,10 @@ export default function App(): React.JSX.Element {
             </span>
             <span className="n">{stats.unassigned}</span>
           </button>
-          {/* 第 8 批：文件已丢失（M8-03）—— 记录不删，只是原文件找不到了，可重新定位 */}
-          {stats.missing > 0 && (
+          {/* 第 8 批：文件已丢失（M8-03）—— 记录不删，只是原文件找不到了，可重新定位
+              第 47 批修正：这里是「丢失」的总入口，已忽略只是它的子集 —— 只要库里还有
+              丢失记录（哪怕全被忽略了），入口就一直在，文字固定不变，计数只跟真丢失数走 */}
+          {(stats.missing > 0 || stats.ignoredMissing > 0) && (
             <button
               className={`item miss-entry${view === 'files' && missingOnly ? ' on' : ''}`}
               onClick={() => {
