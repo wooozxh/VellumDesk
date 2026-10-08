@@ -10,7 +10,7 @@
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| **`main`**（唯一） | 第 47 批提交（= `origin/main`，见 PROGRESS 第 47 次会话） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；版本 **1.8.3**（已发 GitHub Release） | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
+| **`main`**（唯一） | `b469e5b`（= `origin/main`） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；版本 **1.9.0** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
 
 要点：
 
@@ -30,7 +30,8 @@
   **1.8.3 = 第 28 批 + 新 LOGO 图标（ico 7 尺寸 + 512 png）—— 最新已发**
   （GitHub Release `v1.8.3`，2026-10-08 00:44 发布，附 `VellumDesk-1.8.3-Setup.exe`；
   **本机 `rel_out` 里没有它，那次出包在另一台机器上做的**）；
-  **第 47 批（假丢失治理）= 1.9.0（带新功能）—— 代码已完工、未出包；下一批从 1.9.1 起**。
+  **1.9.0 = 第 47 批（假丢失治理）—— 最新已出包**（`D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`，
+  192.1 MB，2026-10-08；**未发 GitHub Release**，本地包而已）；**下一批从 1.9.1 起**。
 
 ---
 
@@ -43,7 +44,8 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 本机现状（2026-10-08 第 47 批施工后核对，开工前请再跑一次 git status / git log 确认）：
 - 分支只有 main（= origin/main，含第 1~28 批 + 第 47 批 + 全站改名 docs/28）。直接在 main 上开工；
   新功能开 feature/小写短横线，合入即删。
-- 版本 1.8.3（已发 GitHub Release；**第 47 批代码已落地、待出包 1.9.0**）；
+- 版本 **1.9.0**（代码版本；第 47 批已出本地包 `D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`，
+  192.1 MB；**GitHub Release 仍停在 v1.8.3** —— 发 Release = 对外发布，要发先问用户）；
   验收基线 accept **931 项**（2026-10-08 本机实测全过，只增不减）；
   界面场景 12 个（banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned）。
 - 下一个迁移号 18（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /

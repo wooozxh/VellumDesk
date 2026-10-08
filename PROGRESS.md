@@ -1308,6 +1308,11 @@
   **12 个界面场景全绿、控制台零报错**（missing 场景新增 17 条：忽略 / 已忽略入口与计数一致 / 灰色角标 / 撤销 / 编辑任务弹窗的开关；lifecycle 场景「可改几块」断言 4 → 5 块）。新增截图 `shot-b47-1-ignored.png` / `shot-b47-2-ignored-list.png` / `shot-b47-3-scan-temp.png`。
 - **文案**：`copy.ts` 新增 15 条（file 4 / stat 4 / side 2 / empty 1 / editPack 2 + `saveHintCategory` 改写），`publish.cjs` 已刷在线表（Sheet1 713 行 / Sheet2 31 行）。
 - **施工中自己踩的坑**：① `IconName` 是显式联合类型，新图标要**同时**加进 `IconName` 与 `ICONS`，只加后者必报 TS2353；② `UpdatePackPatch` 在 `shared/types.ts` 与 `workspace.ts` 各有一份，**两处都要加字段**；③ 包视图第一张卡片是「未归属」虚拟卡（没有编辑按钮），场景里找编辑入口要按"有 `.pact` 的那张"找；④ lifecycle 场景把"编辑弹窗有 4 块"写死了，加块后要同步改。
-- **下一步**：commit + push origin main；出包 1.9.0（两步法）；真机人工验收（扫描不再收临时文件 → 勾选后收进来 → 忽略后左栏与任务面板的假警报消失 → 已忽略可恢复 → 文件放回来自动恢复）。
+- **已提交并推送**：`b469e5b` → `origin/main`（`6a1e158..b469e5b`，首次 push 即成功）。
+- **已出包 1.9.0**（两步法）：`D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`（192.1 MB）；
+  win-unpacked 主程序 bare-start 冒烟通过（三进程稳定存活 22 秒无崩溃、干净退出）；
+  随包资源核对过（`resources/wecom-cli/wecom-cli.exe` + `resources/ffmpeg/*.exe` 都在）。
+  ⚠ GitHub Release 仍停在 **v1.8.3**，1.9.0 只出了本地包（发 Release = 对外发布，等用户示意）。
+- **下一步**：真机人工验收（扫描不再收临时文件 → 勾选后收进来 → 忽略后左栏与任务面板的假警报消失 → 已忽略可恢复 → 文件放回来自动恢复）。
 
 
