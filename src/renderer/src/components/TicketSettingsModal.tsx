@@ -51,6 +51,8 @@ export function TicketSettingsModal({
   const [err, setErr] = useState<string | null>(null)
   /** 第 17 批：允许在本机指派设计师（初始值来自 status；改动即存，不走「保存」按钮） */
   const [allowAssign, setAllowAssign] = useState(initial?.allowAssign ?? false)
+  /**第 50 批（docs/35）：「缩略图」image 列可用吗（来自 status；false = 缺失 / 改名 / 类型不对） */
+  const [thumbColOk, setThumbColOk] = useState(initial?.thumbColOk ?? true)
   /** 第 20 批：清理预览（已关闭子表里有多少条可清 / 多少条因有任务包跳过） */
   const [purge, setPurge] = useState<TicketPurgePreview | null>(null)
   const [purgeBusy, setPurgeBusy] = useState(false)
@@ -124,6 +126,25 @@ export function TicketSettingsModal({
       }
     }
   }
+
+  // 第 50 批（docs/35）：拉一次最新的「缩略图」列可用性。
+  // `initial` 是弹窗打开那一刻的快照 —— 用户可能刚在另一个窗口同步过，
+  // 预检结果是同步时写进meta 的，所以这里重读一次 status（同purge 预览的路数）。
+  useEffect(() => {
+    if (!initial) return
+    let alive = true
+    void (async () => {
+      try {
+        const s = await window.api.ticketStatus()
+        if (alive && s) setThumbColOk(s.thumbColOk !== false)
+      } catch {
+        // 读不到就沿用 initial 的值（默认当可用 = 不设防，与主进程同一口径）
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [initial])
 
   // 打开弹窗时拉一次预览（只有已配置过才有意义）
   useEffect(() => {
@@ -325,6 +346,14 @@ export function TicketSettingsModal({
               <em>（{COPY.ticket.allowAssignHint}）</em>
             </span>
           </label>
+
+          {/* 第 50 批（docs/35）：「缩略图」image 列的可用性预检 ——
+与上面「设计师」列同一套路子（那边是同步时检测、点指派时才拦）。
+这里**常驻显示一行**：列缺失 / 被改名 / 类型不对时，同步过一次之后就能在这里看到，
+不用等点「完成任务」白跑一趟上传回来才报错。只在已配置工单表时出现。 */}
+          {initial && !thumbColOk && (
+            <div className="tk-warn">{COPY.ticket.thumbColBad}</div>
+          )}
 
           {/* 第 26 批（docs/31）：自动同步 —— 与「允许指派」同一个「改动即存」模式。
               只在已配置工单表时出现：没配表时它根本不会跑，摆出来只会让人以为坏了。 */}

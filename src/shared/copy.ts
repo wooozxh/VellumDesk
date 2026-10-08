@@ -930,6 +930,9 @@ export const COPY = {
     assignRowGoneHint: '该单已不在表中，无法指派',
     /** 设计师列缺失/不是成员类型 */
     assignColBad: '表格里的「设计师」列不可用（缺失或被改名），请检查表格',
+    // 第 50 批（docs/35）：「缩略图」image 列的同类提示（上一行是设计师列的）
+    thumbColBad:
+      '表格里的「缩略图」列不可用（缺失、被改名，或不是图片类型）——请先在工单队列里检查这一列。',
     /** 引擎兜底：工单不存在 */
     assignTicketMissing: '工单不存在（可能已被清理，刷新工单列表看看）',
     /** 引擎兜底：record_id / sheet_id 缺失 */

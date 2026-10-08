@@ -85,6 +85,10 @@ import {
   detectStructure,
   designerColName,
   evaluateDesignerCol,
+  /** 第 50 批（docs/35）：「缩略图」image 列可用性预检 */
+  evaluateThumbCol,
+  /** 同上：读可配列名 + 可用性标记 */
+  thumbColUsable,
   executeAssignDesigners,
   listDesignerCandidates,
   readTicketMetrics,
@@ -887,6 +891,8 @@ export function registerIpc(): void {
       allowAssign: allowAssignEnabled(),
       // 第 17 批：待指派存量（顶栏徽标口径 = 「未指派」筛选口径）
       unassignedCount: unassignedTicketCount(),
+      // 第 50 批（docs/35）：「缩略图」image 列可用吗（未同步过 = 不设防，前端当可用）
+      thumbColOk: thumbColUsable(),
       // 第 17 批：表格链接（详情弹窗「在表格中打开」逃生口）
       tableUrl: cfg.docid ? `https://doc.weixin.qq.com/smartsheet/${cfg.docid}` : null
     }
@@ -988,6 +994,11 @@ export function registerIpc(): void {
     const check = detectStructure(cfg.sheets, sheetsRes.data.sheets)
     // 第 17 批（docs/19 §7）：同步时评估「设计师」成员列可用性（缺失/改名 → 指派入口置灰）
     evaluateDesignerCol(
+      check.resolved.map((r) => ({ sheet_id: r.sheet_id, title: r.cfg.title })),
+      sheetsRes.data.fieldsBySheet
+    )
+    // 第 50 批（docs/35）：同步时评估「缩略图」image 列（缺失 / 类型不对 → 完成任务前就提示）
+    evaluateThumbCol(
       check.resolved.map((r) => ({ sheet_id: r.sheet_id, title: r.cfg.title })),
       sheetsRes.data.fieldsBySheet
     )
@@ -1458,6 +1469,12 @@ export function registerIpc(): void {
   ipcMain.handle('ticket:completeByPack', async (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
+    // 第 50 批（docs/35）：**先判列可用，再干活** —— 列缺失 / 类型不对时直接回绝，
+    // 别让用户白跑一趟「生成缩略图 → 逐张上传」，最后写回那一步才报错。
+    // 与设计师指派的 `assignColBad` 同一套路子；未同步过（拿不到 fields）时不设防，照常走。
+    if (!thumbColUsable()) {
+      return { ok: false, msg: COPY.ticket.thumbColBad }
+    }
     const comp = await completeTicketTask(packId, root)
     if (!comp.ok) return comp
     const cfg = readTicketConfig()

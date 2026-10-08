@@ -110,6 +110,9 @@ import {
   completeTicketTask,
   readTicketMetrics,
   thumbColName,
+  // 第 50 批（docs/35）：「缩略图」列可用性预检 + 可配列名
+  evaluateThumbCol,
+  thumbColUsable,
   writeTicketMetrics,
   // 第 27 批（issue #2）：任务包全部成品 → 多张缩略图
   joinThumbUrls,
@@ -5574,6 +5577,126 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(g2Root)
+  }
+
+  // ============ 第 50 批：「缩略图」image 列可用性预检（docs/35） ============
+  log('\n[44] 第 50 批：缩略图列预检 + 列名可配（补第 19 批写回前的缺口）')
+  {
+    // 上一个块把库关了（各自的临时工作区用完即关）—— 本块自己开一个
+    const w50Root = join('D:\\_accept_ws', `wstest50_${RUN_ID}`)
+    const w50Ws = join(w50Root, 'ws')
+    hardRm(w50Root)
+    mkdirSync(w50Ws, { recursive: true })
+    closeDb()
+    openDb(w50Ws)
+    initWorkspace(w50Ws)
+    // 字段清单取自**真表实探**（2026-10-08）：电子物料 / 印刷物料两张生产子表都确有
+    // 「缩略图」image 列 —— 用它当"正常"的样本，改一处就能造出各类异常。
+    const realFields = (col: string, type: string) => [
+      { field_title: '审批单编号', field_type: 'text' },
+      { field_title: '当前审批状态', field_type: 'single_select' },
+      { field_title: '业务归属', field_type: 'select' },
+      { field_title: '设计师', field_type: 'user' },
+      { field_title: '物料名称', field_type: 'text' },
+      { field_title: '完成时间', field_type: 'date_time' },
+      { field_title: col, field_type: type }
+    ]
+    const sheets = [
+      { sheet_id: 'tlzJfN', title: '电子物料' },
+      { sheet_id: 'tlD2Vr', title: '印刷物料' }
+    ]
+
+    // ---- (1) 默认：列名走常量、默认可用（未同步过 = 不设防）----
+    ok(thumbColName() === '缩略图', `缩略图列名默认 = ${thumbColName()}（与真表表头一致）`)
+    ok(thumbColUsable() === true, '未检测过时默认可用（不设防，与设计师列同一口径）')
+
+    // ---- (2) 真表结构 → 判定可用 ----
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'image')
+    })
+    ok(thumbColUsable() === true, 'evaluateThumbCol：两个子表都有 image 列 → 可用')
+
+    // ---- (3) 列缺失 → 不可用 ----
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'image').filter((f) => f.field_title !== '缩略图')
+    })
+    ok(
+      thumbColUsable() === false,
+      'evaluateThumbCol：有一个子表缺该列 → 不可用（不能只看第一张表就放行）'
+    )
+
+    // ---- (4) 类型不对 → 不可用（本批比设计师列多判的一项）----
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'image')
+    })
+    ok(thumbColUsable() === true, '复位为可用')
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'text') // ← 建成了文本列
+    })
+    ok(
+      thumbColUsable() === false,
+      'evaluateThumbCol：列在但**类型不是 image**（建成 text）→ 不可用（否则写回必被服务端拒）'
+    )
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'url')
+    })
+    ok(thumbColUsable() === false, '同上：建成 url 列 → 也不可用')
+
+    // ---- (5) 列名可配：改名后能认出来（同步与写回同源）----
+    setMeta(META_KEYS.thumbCol, '物料缩略图')
+    ok(
+      thumbColName() === '物料缩略图',
+      `缩略图列名走 meta 配置：${thumbColName()}（此前是写死常量，改名就只剩现场报错）`
+    )
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('物料缩略图', 'image'),
+      tlD2Vr: realFields('物料缩略图', 'image')
+    })
+    ok(
+      thumbColUsable() === true,
+      '【核心】列改名后（且 meta 已配成新名）→ 判定可用，不用非得叫「缩略图」'
+    )
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'image')
+    })
+    ok(
+      thumbColUsable() === false,
+      '【反向断言】meta 配了新名、但表里还是老列名 → 不可用（不会"配置了就不管"）'
+    )
+    setMeta(META_KEYS.thumbCol, '')
+    ok(thumbColName() === '缩略图', '列名 meta 清空 → 回落默认「缩略图」')
+
+    // ---- (6) fields 拿不到时不设防（CLI 版本差异，宁可放过也不误伤）----
+    evaluateThumbCol(sheets, {
+      tlzJfN: realFields('缩略图', 'image'),
+      tlD2Vr: realFields('缩略图', 'image')
+    })
+    evaluateThumbCol(sheets, undefined)
+    ok(
+      thumbColUsable() === true,
+      'fieldsBySheet 为 undefined → **不写标记、保持可用**（拿不到数据不等于列有问题）'
+    )
+
+    // ---- (7) 一个子表都没查到 → 同样不写标记（"没数据"≠"列坏了"）----
+    setMeta(META_KEYS.thumbOk, '1')
+    evaluateThumbCol([{ sheet_id: 'nope', title: '查不到的表' }], { someOther: [] })
+    ok(
+      getMeta(META_KEYS.thumbOk) === '1',
+      '查不到任何启用子表的字段 → 不覆盖已有标记（不拿"没数据"当"列有问题"）'
+    )
+
+    // ---- (8) 复位：让后续断言处在"可用"状态 ----
+    setMeta(META_KEYS.thumbOk, '1')
+    ok(thumbColUsable() === true, '复位为可用')
+
+    closeDb()
+    hardRm(w50Root)
   }
 
 // ============ 汇总 ============

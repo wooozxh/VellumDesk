@@ -521,6 +521,12 @@ export interface TicketStatus {
   allowAssign: boolean
   /** 第 17 批：未指派存量数（顶栏徽标，口径 = 「未指派」筛选） */
   unassignedCount: number
+  /**
+   * 第 50 批（docs/35）：工单队列「缩略图」image 列可用吗
+   * （false = 缺失 / 被改名 / 类型不对；未同步过时为 true = 不设防）。
+   * 界面据此在「完成任务」按钮旁提前提示，别让用户白跑一趟上传。
+   */
+  thumbColOk: boolean
   /** 第 17 批：表格链接（详情弹窗「在表格中打开」逃生口） */
   tableUrl: string | null
 }

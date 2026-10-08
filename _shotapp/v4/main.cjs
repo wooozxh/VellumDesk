@@ -603,6 +603,12 @@ app.whenReady().then(async () => {
     )
     setM.run('ticket_identity', JSON.stringify({ userid: 'uME', name: '测试设计师' }))
     setM.run('ticket_first_sync_done', '1')
+    // 第 50 批（docs/35）：模拟「同步时判定缩略图列不可用」。**必须在布景期写** ——
+    // 软件开库之后再改 meta，主进程那份连接看不到（实测：写进去了、status 仍返回旧值）。
+    // 设 SHOT_THUMB_COL_BAD=1 跑本场景即可验「设置弹窗里出现警示行」那一支。
+    if (process.env.SHOT_THUMB_COL_BAD === '1') {
+      setM.run('ticket_thumb_ok', '0')
+    }
     // 第 26 批（docs/31）：**显式关掉自动同步**。上面配的是假 docid，若不关掉，软件启动
     // 15 秒后会真去跑 wecom-cli 拉这张不存在的表 —— 后台行为污染场景、还白等一次进程 spawn。
     // 自动同步的判定 / 记账逻辑由 accept 断言覆盖，界面场景只验形态与读写闭环。
@@ -3122,6 +3128,58 @@ app.whenReady().then(async () => {
     await wait(700)
     const swAfter = await js(`(() => { const c = document.querySelector('.tk-allowassign input'); return c ? c.checked : null })()`)
     ok(swAfter === true, '开关点开即存（meta 落库）')
+
+    // (9a) 第 50 批（docs/35）：「缩略图」列可用性。
+    // 两支互补，由环境变量 SHOT_THUMB_COL_BAD 选：
+    //   默认（列可用）→ 断言**不出现**警示行（别没事也报警，狼来了就没人管了）
+    //   =1（列不可用）→ 见下面 (9a-2)，断言出现且文案点明是哪一列
+    // ⚠️ 布景是假 docid、从未同步成功过 → 平时 meta 无标记 = 不设防 = 当可用
+    //    （与主进程「fields 拿不到就不设防」的口径一致）
+    const thumbWarnAbsent = await js(
+      `(() => {
+         const m = [...document.querySelectorAll('.modal')].find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)}))
+         if (!m) return 'no-modal'
+         return [...m.querySelectorAll('.tk-warn')].some(x => (x.innerText||'').includes(${JSON.stringify(COPY.ticket.thumbColBad)}))
+       })()`
+    )
+    // 「不出现」这一支只在默认（列可用）模式下断言 —— 不可用分支下它**必然**出现，
+    //硬跑就是一条自相矛盾的假失败。这里是**跳过**，不是把断言改成永远通过。
+    if (process.env.SHOT_THUMB_COL_BAD !== '1') {
+      ok(
+        thumbWarnAbsent === false,
+        `列可用时不显示「缩略图列不可用」警示（实际：${thumbWarnAbsent}）`
+      )
+    }
+
+    // (9a-2) 列不可用时**常驻显示**一行警示（不必等点「完成任务」才报错）
+    // ⚠️ 标记由**布景期**按环境变量 SHOT_THUMB_COL_BAD 写入（见 setup 里的 setM.run）——
+    //    **不能在软件已开库之后改 meta**：主进程那份连接看不到（2026-10-08 实测：
+    //    写进去了、status 仍返回旧值 → 一度误判成"代码没生效"，白查一轮）。
+    if (process.env.SHOT_THUMB_COL_BAD === '1') {
+      await js(`(() => { const b = document.querySelector('.modal .close'); if (b) b.click(); return 'ok' })()`)
+      await wait(500)
+      await js(
+        `(() => { const b = [...document.querySelectorAll('.tk-toolbar .btn')].find(x => (x.getAttribute('title')||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)})); if (b) b.click(); return 'ok' })()`
+      )
+      await wait(900)
+      const thumbWarn = await js(
+        `(() => {
+           const m = [...document.querySelectorAll('.modal')].find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.ticket.settingsTitle)}))
+           if (!m) return null
+           const w = [...m.querySelectorAll('.tk-warn')].find(x => (x.innerText||'').includes(${JSON.stringify(COPY.ticket.thumbColBad)}))
+           return w ? { text: w.innerText.trim() } : null
+         })()`
+      )
+      ok(
+        !!thumbWarn,
+        `【核心】列不可用时设置弹窗里出现警示行：${thumbWarn ? thumbWarn.text : '（没出现）'}`
+      )
+      ok(
+        !!thumbWarn && thumbWarn.text.includes('缩略图'),
+        '警示文案点明是「缩略图」这一列（别让人不知道该去看哪一列）'
+      )
+      await shot('shot-b50-1-thumbcol-warn.png')
+    }
 
     // (9b) 第 20 批（docs/24）：设置弹窗底部「危险操作 · 清理已禁用子表工单」
     // ⚠️ 只验形态，不真点清理 —— 真删工单不进自动测试（引擎行为由 accept 断言盖住）

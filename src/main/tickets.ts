@@ -100,6 +100,14 @@ export const META_KEYS = {
   allowAssign: 'ticket_allow_assign',
   /** 第 17 批：设计师列可用性（'0' = 同步时检测到列缺失/不是成员类型；未设 = 视为可用） */
   designerOk: 'ticket_designer_ok',
+  /**
+   * 第 50 批（docs/35）：「缩略图」image 列的列名（meta 配置，默认「缩略图」；改列名只改这一处，读写同源）。
+   * 此前是 `COL.thumb` 写死常量 —— 用户把列改名或建成别的类型，要点「完成任务」才现场报错，事前零提示。
+   * 与 `designerCol` 同一套路子，详见 evaluateThumbCol。
+   */
+  thumbCol: 'ticket_thumb_col',
+  /** 「缩略图」列可用吗（同步时检测；'0' = 缺失 / 不是 image 类型；未设 = 不设防） */
+  thumbOk: 'ticket_thumb_ok',
   /** 第 26 批（docs/31）：自动同步开关（'1'/'0'，**未设 = 开** —— 与 docs/16 §8 #3 的默认一致） */
   autoSync: 'ticket_auto_sync',
   /** 第 26 批：自动同步间隔（分钟；未设 = 30，读取时一律夹到 10~1440） */
@@ -173,6 +181,23 @@ export function setAllowAssignEnabled(v: boolean): void {
 /** 设计师列可用吗（同步时检测；未同步过 = 不设防，写失败有 toast 兜底） */
 export function designerColUsable(): boolean {
   return getMeta(META_KEYS.designerOk) !== '0'
+}
+
+/**
+ * 第 50 批（docs/35）：「缩略图」列的列名（meta 配置，默认「缩略图」；改列名只改这一处，读写同源）。
+ *
+ * 此前写死在 `COL.thumb` 且不可配 —— 沿用 `designerColName()` 的同一套路子。
+ */
+export function thumbColMetaName(): string {
+  return getMeta(META_KEYS.thumbCol) || COL.thumb
+}
+
+/**
+ * 第 50 批（docs/35）：「缩略图」列可用吗（同步时检测；未同步过 = 不设防，
+ * 写失败有 toast 兜底 —— 与设计师列同一口径，宁可放过也不误伤）。
+ */
+export function thumbColUsable(): boolean {
+  return getMeta(META_KEYS.thumbOk) !== '0'
 }
 
 export function readTicketConfig(): {
@@ -458,7 +483,9 @@ function extractRow(rec: TicketRawRecord): {
       project_name: takeText(v[COL.project]),
       reviewer_names: takeUserNames(v[COL.reviewer]),
       material_category: takeText(v[COL.matCat]),
-      thumb_url: joinThumbUrls(takeImageUrls(v[COL.thumb]))
+      // 第 50 批（docs/35）：走可配列名（`thumbColName()`），别再用 `COL.thumb` 常量 ——
+      // 否则列一改名，写回读的是新列、同步读的还是旧列，两边对不上（thumb_url 永远空）
+      thumb_url: joinThumbUrls(takeImageUrls(v[thumbColName()]))
     }
   }
 }
@@ -1202,6 +1229,38 @@ export function evaluateDesignerCol(
   if (checked > 0) setMeta(META_KEYS.designerOk, allOk ? '1' : '0')
 }
 
+/**
+ * 第 50 批（docs/35）：同步时评估「缩略图」image 列可用性。
+ *
+ * 与 `evaluateDesignerCol` 同一套路子，但判两件事：
+ *   ① **列在不在**（按列名精确匹配，列名走 meta 可配）
+ *   ② **类型是不是 `image`** —— 建成 text / url 列的话，`values` 传 `{title,imageUrl}` 会被服务端拒收
+ *
+ * 为什么值得做：此前列名写死、又没有预检，用户把列改名或建错类型，
+ * **要等点「完成任务」上传完图、写回那一步才现场报错**（白跑一趟上传）。
+ * 现在同步时就能判定，界面上提前说清。
+ *
+ * ⚠️ 与设计师列同一口径：**fields 拿不到就不设防**（CLI 版本差异），宁可放过也不误伤。
+ * 只在**至少查到一个子表**时才写标记，避免"没数据"被当成"列有问题"。
+ */
+export function evaluateThumbCol(
+  enabledSheets: Array<{ sheet_id: string; title: string }>,
+  fieldsBySheet: Record<string, Array<{ field_title: string; field_type: string }>> | undefined
+): void {
+  if (!fieldsBySheet) return
+  const col = thumbColMetaName()
+  let allOk = true
+  let checked = 0
+  for (const s of enabledSheets) {
+    const fields = fieldsBySheet[s.sheet_id]
+    if (!fields) continue
+    checked++
+    const hit = fields.find((f) => f.field_title === col)
+    if (!hit || hit.field_type !== 'image') allOk = false
+  }
+  if (checked > 0) setMeta(META_KEYS.thumbOk, allOk ? '1' : '0')
+}
+
 // ============================================================ 本地扩展字段（第 19 批 docs/22 §3）
 
 /** 一张单的本地扩展字段（印刷金额 / 绩效金额 / 备注，只存本地，不进工单队列） */
@@ -1247,9 +1306,14 @@ export function writeTicketMetrics(ticket_no: string, m: TicketMetrics): void {
 
 // ============================================================ 「完成任务」缩略图（第 19 批 docs/22 §4）
 
-/** 工单队列「缩略图」image 列的列名（固定，读写同源） */
+/**
+ * 工单队列「缩略图」image 列的列名（读写同源）。
+ *
+ * 第 50 批（docs/35）起**可配**（meta `ticket_thumb_col`，默认仍是「缩略图」）——
+ * 与 `designerColName()` 同一套路子。此前是写死的常量，列一改名就只剩「完成任务」时现场报错。
+ */
 export function thumbColName(): string {
-  return COL.thumb
+  return thumbColMetaName()
 }
 
 /** 一张单的「完成任务」结果（引擎只负责找成品图 + 生成缩略图，上传写回由调用方做） */
