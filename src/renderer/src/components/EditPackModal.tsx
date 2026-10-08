@@ -18,6 +18,7 @@ export function EditPackModal({
   projects,
   categories,
   channels,
+  grades,
   onClose,
   onSubmit
 }: {
@@ -26,6 +27,8 @@ export function EditPackModal({
   categories: string[]
   /** 第 23 批（docs/29）：使用场景清单（同样派生自左栏标签维度） */
   channels: string[]
+  /** 第 49 批（docs/34）：物料分级清单（同样派生自左栏标签维度） */
+  grades: string[]
   onClose: () => void
   onSubmit: (patch: UpdatePackPatch) => Promise<{ ok: boolean; error?: string }>
 }): React.JSX.Element {
@@ -33,6 +36,9 @@ export function EditPackModal({
   const [name, setName] = useState(pack.name)
   const [category, setCategory] = useState(pack.category)
   const [channel, setChannel] = useState(pack.channel)
+  // 第 49 批（docs/34）：物料分级。老库的 grade 可能是 undefined（第 18 次会话之前建的），
+  // 兜底成「未分级」，免得下拉框匹配不到值而显示空白。
+  const [grade, setGrade] = useState(pack.grade ?? COPY.ungraded)
   const [projectId, setProjectId] = useState<number | null>(
     isLoose ? (projects[0]?.id ?? null) : pack.project_id
   )
@@ -45,6 +51,8 @@ export function EditPackModal({
   const projectChanged = projectId !== pack.project_id
   const categoryChanged = category !== pack.category
   const channelChanged = channel !== pack.channel
+  const curGrade = pack.grade ?? COPY.ungraded
+  const gradeChanged = grade !== curGrade
   const scanTempChanged = scanTemp !== (pack.scan_temp === 1)
   const willMove = nameChanged || projectChanged
 
@@ -62,6 +70,7 @@ export function EditPackModal({
       name: name.trim(),
       category,
       channel,
+      grade,
       projectId,
       scanTemp
     })
@@ -69,11 +78,14 @@ export function EditPackModal({
     if (!r.ok) setErr(r.error ?? COPY.editPack.saveFailed)
   }
 
-  // 类别 / 场景下拉的清单就是左栏标签维度那一套（App 派生后传进来）。
+  // 类别 / 场景 / 分级下拉的清单就是左栏标签维度那一套（App 派生后传进来）。
   // 当前值不在清单里时把它补在第一格 —— 第 10 批起「删标签」会连带把包的类别改成「未分类」，
   // 正常不会再出现孤儿值；这一手是给老数据 / 手工改过库的情况留的逃生口。
   const categoryList = categories.includes(category) ? categories : [category, ...categories]
   const channelList = channels.includes(channel) ? channels : [channel, ...channels]
+  // 分级的兜底值是「未分级」（docs/34 §3.2），它多半**不在**清单里（那 4 项是S/A/B/C）——
+  // 所以老任务/未分级的任务照样要把「未分级」摆在第一格可见，别让人以为自己没数据。
+  const gradeList = grades.includes(grade) ? grades : [grade, ...grades]
 
   return (
     <div className="mask" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -114,33 +126,58 @@ export function EditPackModal({
             )}
           </div>
 
-          <div className="field">
-            <label>{COPY.editPack.projectLabel}</label>
-            <select
-              value={projectId ?? ''}
-              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-              <option value="">{COPY.editPack.noProject}</option>
-            </select>
-            {isLoose && !projectChanged && (
-              <div className="hint" style={{ color: 'var(--warn)' }}>
-                
-                {COPY.editPack.looseHint}
-              </div>
-            )}
-            {projectChanged && (
-              <div className="hint" style={{ color: 'var(--accent)' }}>
-                {targetProject
-                  ? fmt(COPY.editPack.moveInto, { name: targetProject.name })
-                  : COPY.editPack.moveBack}
-              </div>
-            )}
+          {/* 第 49 批（docs/34 §5.2，用户指定）：**所属项目与物料分级并排**。
+              原来项目选择是独占一整行的，现在与分级组成 2×2 的下拉矩阵的第一行。
+
+              ⚠️ 项目那几条提示（尤其「文件夹会搬去哪个项目」这种**会动磁盘**的告知）
+              不再塞在自己那半列里 —— 半列只有约 215px 宽，12px 字号会换行成 2~3 行，
+              重要告知读起来费劲。改为在 .field-row 下方**整行**显示（有提示才出现）。*/}
+          <div className="field-row">
+            <div className="field">
+              <label>{COPY.editPack.projectLabel}</label>
+              <select
+                value={projectId ?? ''}
+                onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+                <option value="">{COPY.editPack.noProject}</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label>{COPY.dim.grade}</label>
+              <select value={grade} onChange={(e) => setGrade(e.target.value)}>
+                {gradeList.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+
+          {/* 项目相关的提示，整行显示（见上方注释） */}
+          {(isLoose && !projectChanged) || projectChanged ? (
+            <div
+              className="hint"
+              style={{
+                color: projectChanged ? 'var(--accent)' : 'var(--warn)',
+                marginTop: -4
+              }}
+            >
+              {isLoose && !projectChanged ? (
+                COPY.editPack.looseHint
+              ) : targetProject ? (
+                fmt(COPY.editPack.moveInto, { name: targetProject.name })
+              ) : (
+                COPY.editPack.moveBack
+              )}
+            </div>
+          ) : null}
 
           {/* 第 24 批（用户反馈）：物料类别 / 使用场景两个下拉左右并排，下面的说明文字去掉 */}
           <div className="field-row">
@@ -197,7 +234,7 @@ export function EditPackModal({
             <br />
             {willMove
               ? COPY.editPack.saveHintMove
-              : categoryChanged || channelChanged || scanTempChanged
+              : categoryChanged || channelChanged || gradeChanged || scanTempChanged
                 ? COPY.editPack.saveHintCategory
                 : COPY.editPack.noChange}
           </div>

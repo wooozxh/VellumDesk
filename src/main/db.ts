@@ -37,6 +37,9 @@ export interface PackRow {
   category: string
   /** 第 23 批（docs/29）：任务的「使用场景」，与 category 完全对称 */
   channel: string
+  /** 第 49 批（docs/34）：任务的「物料分级」（S/A/B/C），与上面两个完全对称。
+   *  注意兜底值是 `UNGRADED`（未分级）而不是 `UNCATEGORIZED`（未分类）—— 见 db.ts 底部说明 */
+  grade: string
   /** 第 47 批（docs/33 §5.1）：扫描时是否收临时文件（0 = 不收，**默认**；1 = 收） */
   scan_temp: number
   folder_path: string
@@ -46,7 +49,7 @@ export interface PackRow {
 
 export interface TagRow {
   id: number
-  dimension: string // project | category | channel | status | time
+  dimension: string // project | category | channel | grade | status | time
   name: string
   color: string
   sort_order: number
@@ -695,6 +698,28 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     d.exec('ALTER TABLE packs ADD COLUMN scan_temp INTEGER NOT NULL DEFAULT 0')
   }
 
+  // ---- 迁移 19：任务也能绑「物料分级」（第 49 批 docs/34）----
+  // 用户拍板加第三个分类维度 S/A/B/C（优先级）。与 category / channel 完全对称：
+  //   · packs.grade —— 任务的「物料分级」（存标签**名字**不是外键）
+  // 不做任何数据搬运，老库升级后所有任务立刻是 `UNGRADED`（未分级），行为即刻生效。
+  //
+  // ⚠️ 兜底值刻意**不用** UNCATEGORIZED（未分类）：物料没有分级时叫「未分类」是错词
+  // （读起来像"归类失败"而不是"还没定优先级"）。删分级标签时任务应归「未分级」。
+  // tags.ts 的 removeTag 因此改成**按维度取兜底值**，见那里。
+  //
+  // 幂等：缺列才ALTER（迁移 8/9/13/17/18 同一模式）。
+  //
+  // ⚠️⚠️ 预制分级清单的补灌**不在这里** —— 见文件末尾「迁移 19b」。
+  // 原因：迁移 3/5（空库落预制项目与标签）排在本文件**最后**，而迁移 5 的门槛是
+  // `COUNT(*) FROM tags = 0`。若在这里先灌 4 个分级标签，空库会被误判成「不是空库」，
+  // **物料类别与使用场景的预制清单就永远灌不上了**（第 49 批首次跑 accept 实测踩到：
+  // 11 个类别标签与 7 个场景标签全变成 0）。教训：任何往tags 里写的逻辑，
+  // 都必须排在迁移 5 之后，或者干脆合并进迁移 5。
+  const packCols19 = d.prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+  if (!packCols19.some((c) => c.name === 'grade')) {
+    d.exec("ALTER TABLE packs ADD COLUMN grade TEXT NOT NULL DEFAULT '未分级'")
+  }
+
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----
   // 第 14 批：换成本厂实际在用的 6 个项目（名字/颜色/备注照真实库）。
   // 仍是「空库才落」—— 已有库（含用户本机）不动，不会重复灌、也不覆盖用户改过的颜色。
@@ -737,11 +762,39 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
       })
     }
   }
+
+  // ---- 迁移 19b：预制分级清单（S/A/B/C）—— **老库也补灌** ----
+  // 迁移 3/5 之后执行，这是**唯一**能安全写tags 的位置（理由见迁移 19 的注释）。
+  //
+  // 这是与迁移 3/5「空库才落」刻意不同的例外：
+  // 那条规矩的原意是「别覆盖用户改过的清单」，而 `grade` 是第 49 批**新建的维度**——
+  // 不存在「用户改过的分级清单」这回事，灌 4 项不破坏任何东西。
+  // 反之不灌的话：老库（tags 表已非空，迁移 5 不跑）永远拿不到这 4 项，
+  // 左栏会出现一个**空的「物料分级」分组**，建任务时那个下拉还会提示
+  // "清单为空，去左栏管理里加一个" —— 老用户第一次打开就是错位观感。
+  //
+  // 幂等且不越界：**只在本维度一条标签都没有时**才灌。
+  // 用户已自行增删过分级（改名、加了 D、改了配色）= 一个字节都不动。
+  const gradeCount = (
+    d.prepare("SELECT COUNT(*) AS c FROM tags WHERE dimension = 'grade'").get() as { c: number }
+  ).c
+  if (gradeCount === 0) {
+    const gradeDim = TAG_DIMENSIONS.find((dim) => dim.key === 'grade')
+    if (gradeDim) {
+      const insGrade = d.prepare(
+        `INSERT INTO tags (dimension, name, color, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      gradeDim.presets.forEach((name, i) => {
+        insGrade.run('grade', name, gradeDim.colors[i % gradeDim.colors.length], i, now)
+      })
+    }
+  }
 }
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义
 
-export type DimensionKey = 'category' | 'channel'
+export type DimensionKey = 'category' | 'channel' | 'grade'
 
 export interface DimensionDef {
   key: DimensionKey
@@ -823,6 +876,27 @@ export const TAG_DIMENSIONS: readonly DimensionDef[] = [
     ],
     colors: ['#4f8cff', '#3fb950', '#e8a33d', '#a884ff', '#f0603f', '#2bb5b5', '#4f8cff'],
     hint: COPY.dim.channelHint
+  },
+  {
+    // 第 49 批（docs/34）：物料分级 —— 与上面两个维度第三次复用同一套范式。
+    // 业务缺口：5~10 人团队只有「类别 / 场景」，**没有优先级**，谁先做全靠人脑记。
+    //
+    // - `mode` 刻意用 'multi'（与另两个维度一致）：这个字段只影响**文件**打标签时的选择行为，
+    //   与任务侧无关（任务侧永远是 packs.grade 单列）。用 'multi' 不碰任何冷路径 ——
+    //   'single' 分支自第 14 批砍掉状态维度后就没跑过，三个组件都读它，风险不值当。
+    // - 预制清单 S/A/B/C 在**老库也补灌**（迁移 19），与另两个维度的「空库才落」不同，理由见迁移 19 注释。
+    key: 'grade',
+    label: COPY.dim.grade,
+    mode: 'multi',
+    editable: true,
+    presets: [
+      COPY.seed.gradeS, // #f0603f 红 —— 最高优先级
+      COPY.seed.gradeA, // #e8a33d 橙
+      COPY.seed.gradeB, // #4f8cff 蓝
+      COPY.seed.gradeC  // #6b7280 灰 —— 最低 / 暂不做
+    ],
+    colors: ['#f0603f', '#e8a33d', '#4f8cff', '#6b7280'],
+    hint: COPY.dim.gradeHint
   }
 ] as const
 
@@ -861,3 +935,15 @@ export function pickColor(seed: number): string {
  * 常量已删。类别的增删改都在左栏「标签管理 → 物料类别」里做。
  */
 export const UNCATEGORIZED = '未分类'
+
+/**
+ * 包没分级时的兜底值（`packs.grade` 的建表默认值 / 建分级留空时也用它）。
+ *
+ * 第 49 批（docs/34 §3.2）：**刻意不用 `UNCATEGORIZED`**。
+ * 物料没有类别时叫「未分类」通顺；没有分级时也叫「未分类」是错词 ——
+ * 读起来像"归类失败"，而不是"还没定优先级"。
+ *
+ * 因此凡是「某个维度删标签后任务归什么值」，都必须**按维度取兜底值**
+ * （见 `tags.ts` 的 `PACK_DIM_FALLBACK`），不能一刀切用 UNCATEGORIZED。
+ */
+export const UNGRADED = '未分级'

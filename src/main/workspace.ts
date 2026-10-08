@@ -21,6 +21,8 @@ import {
   getMeta,
   setMeta,
   UNCATEGORIZED,
+  /** 第 49 批（docs/34）：物料分级的兜底值（与 UNCATEGORIZED 同机制，词不同） */
+  UNGRADED,
   type AssetRow,
   type PackRow,
   type PackVersionRow,
@@ -449,6 +451,8 @@ export interface CreatePackInput {
   category?: string
   /** 第 23 批（docs/29）：任务的「使用场景」（标签名字）；留空记「未分类」 */
   channel?: string
+  /** 第 49 批（docs/34）：任务的「物料分级」（标签名字）；留空记「未分级」（**不是**未分类） */
+  grade?: string
   workspaceRoot: string
 }
 
@@ -477,6 +481,8 @@ export function createPack(input: CreatePackInput): PackRow {
   const name = rawName || fallbackPackName()
   const category = (input.category ?? '').trim() || UNCATEGORIZED
   const channel = (input.channel ?? '').trim() || UNCATEGORIZED
+  // 第 49 批（docs/34）：分级用**自己的**兜底值 UNGRADED，不用 UNCATEGORIZED
+  const grade = (input.grade ?? '').trim() || UNGRADED
 
   // 三级结构下"归属哪个项目"直接决定包放进哪个文件夹，所以项目必须先确定
   ensureFolderNames()
@@ -515,10 +521,10 @@ export function createPack(input: CreatePackInput): PackRow {
   const ts = nowIso()
   const info = db
     .prepare(
-      `INSERT INTO packs (name, project_id, category, channel, folder_path, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO packs (name, project_id, category, channel, grade, folder_path, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(name, projectId, category, channel, folderPath, ts, ts)
+    .run(name, projectId, category, channel, grade, folderPath, ts, ts)
 
   const packId = Number(info.lastInsertRowid)
 
@@ -916,13 +922,13 @@ export function scanAll(workspaceRoot: string): ScanResult {
   // 2. 让硬盘上的包文件夹与数据库对齐（同事可能手动建了文件夹）
   const knownPack = db.prepare('SELECT id FROM packs WHERE folder_path = ?')
   const insPack = db.prepare(
-    `INSERT INTO packs (name, project_id, category, channel, folder_path, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO packs (name, project_id, category, channel, grade, folder_path, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
   for (const p of packPlan) {
     if (knownPack.get(p.dir)) continue
-    // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名，类别/场景先记「未分类」）
-    insPack.run(basename(p.dir), p.projectId, UNCATEGORIZED, UNCATEGORIZED, p.dir, ts, ts)
+    // 硬盘上先有的文件夹，补一条记录（包名 = 文件夹名，类别/场景记「未分类」、分级记「未分级」）
+    insPack.run(basename(p.dir), p.projectId, UNCATEGORIZED, UNCATEGORIZED, UNGRADED, p.dir, ts, ts)
   }
 
   // 3. 收集所有文件
@@ -2145,6 +2151,8 @@ export function movePackTo(
     name: string
     category: string
     channel: string
+    /** 第 49 批（docs/34）：物料分级。不传 = 保持原值 */
+    grade?: string
     /** 第 47 批（docs/33 §5.1）：扫描临时文件开关。不传 = 保持原值（纯数据，不碰磁盘） */
     scanTemp?: boolean
   }
@@ -2166,6 +2174,9 @@ export function movePackTo(
   if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category = target.category.trim() || UNCATEGORIZED
   const channel = target.channel.trim() || UNCATEGORIZED
+  // 第 49 批（docs/34）：分级用 UNGRADED 兜底；不传 = 保持原值（与另两个维度的取法一致）
+  const grade =
+    target.grade === undefined ? cur.grade : target.grade.trim() || UNGRADED
   // 第 47 批（docs/33 §5.1）：临时文件开关 —— 不传就保持原值
   const scanTemp = target.scanTemp === undefined ? cur.scan_temp : target.scanTemp ? 1 : 0
 
@@ -2177,11 +2188,11 @@ export function movePackTo(
       : uniqueFolderPath(parentDir, sanitizeFolderName(name))
   const needMove = to.toLowerCase() !== cur.folder_path.toLowerCase()
 
-  // 只改类别 / 场景 / 临时文件开关 → 纯数据，不碰磁盘
+  // 只改类别 / 场景 / 分级 / 临时文件开关 → 纯数据，不碰磁盘
   if (!needMove) {
     db.prepare(
-      'UPDATE packs SET name = ?, category = ?, channel = ?, scan_temp = ?, project_id = ?, updated_at = ? WHERE id = ?'
-    ).run(name, category, channel, scanTemp, target.projectId, nowIso(), packId)
+      'UPDATE packs SET name = ?, category = ?, channel = ?, grade = ?, scan_temp = ?, project_id = ?, updated_at = ? WHERE id = ?'
+    ).run(name, category, channel, grade, scanTemp, target.projectId, nowIso(), packId)
     return { ok: true, pack: getPackRow(packId) }
   }
 
@@ -2202,8 +2213,8 @@ export function movePackTo(
     let paths = 0
     db.transaction(() => {
       db.prepare(
-        'UPDATE packs SET name = ?, category = ?, channel = ?, scan_temp = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
-      ).run(name, category, channel, scanTemp, to, target.projectId, nowIso(), packId)
+        'UPDATE packs SET name = ?, category = ?, channel = ?, grade = ?, scan_temp = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
+      ).run(name, category, channel, grade, scanTemp, to, target.projectId, nowIso(), packId)
       paths = reprefixPaths(workspaceRoot, cur.folder_path, to)
     })()
     return { ok: true, pack: getPackRow(packId), moved: { from: cur.folder_path, to, paths } }
@@ -2228,6 +2239,8 @@ export interface UpdatePackPatch {
   category?: string
   /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
   channel?: string
+  /** 第 49 批（docs/34）：任务的「物料分级」（标签名字）；传空串 = 归「未分级」 */
+  grade?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
   /** 第 47 批（docs/33 §5.3）：扫描时是否收临时文件（纯数据，不碰磁盘） */
@@ -2262,6 +2275,8 @@ export function updatePack(
   const category =
     patch.category === undefined ? cur.category : patch.category.trim() || UNCATEGORIZED
   const channel = patch.channel === undefined ? cur.channel : patch.channel.trim() || UNCATEGORIZED
+  // 第 49 批（docs/34）：分级传空串 → 归「未分级」（不是「未分类」）；不传 = 保持原值
+  const grade = patch.grade === undefined ? cur.grade : patch.grade.trim() || UNGRADED
   const projectId = patch.projectId === undefined ? cur.project_id : patch.projectId
 
   return movePackTo(workspaceRoot, packId, {
@@ -2269,6 +2284,7 @@ export function updatePack(
     name,
     category,
     channel,
+    grade,
     // 第 47 批（docs/33 §5.1）：临时文件开关；patch 没带就保持原值
     scanTemp: patch.scanTemp
   })

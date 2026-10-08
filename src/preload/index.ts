@@ -38,7 +38,7 @@ const api = {
   restoreProject: (id: number) => ipcRenderer.invoke('project:restore', id),
   updatePack: (
     id: number,
-    patch: { name?: string; category?: string; channel?: string; projectId?: number | null }
+    patch: { name?: string; category?: string; channel?: string; grade?: string; projectId?: number | null }
   ) => ipcRenderer.invoke('pack:update', { id, patch }),
 
   // 第 8 批：重新定位（M8-03）
@@ -67,7 +67,7 @@ const api = {
   setCurrentVersion: (versionId: number) => ipcRenderer.invoke('version:setCurrent', versionId),
 
   // 建包 / 扫描
-  createPack: (input: { name?: string; projectId?: number | null; category?: string; channel?: string }) =>
+  createPack: (input: { name?: string; projectId?: number | null; category?: string; channel?: string; grade?: string }) =>
     ipcRenderer.invoke('pack:create', input),
   refreshScan: () => ipcRenderer.invoke('scan:refresh'),
   /**

@@ -1035,19 +1035,35 @@ async function main(): Promise<void> {
   log('\n[14] 第 2 批 B-04：PSD 内嵌预览 / 元信息')
 
   // 真实样本（用户提供）；不在就跳过真实断言，只跑降级断言
-  const PSD_SAMPLE = 'C:\\Users\\30873\\Desktop\\访学证.psd'
-  const hasSample = existsSync(PSD_SAMPLE)
-  log(`  （真实 PSD 样本：${hasSample ? '有 —— 访学证.psd' : '无 —— 跳过真实断言'}）`)
+  //
+  // ⚠️ 样本路径原本写死 `C:\Users\30873\Desktop\访学证.psd`（第 2 批留下的）。
+  // 换机器后这条永远FAIL —— 第 46 次会话就记过这个欠条。改成**按当前用户桌面找**，
+  // 并把「已复制」这条断言**包进 hasSample 里**（与紧邻其后的 ~10 条真实 PSD 断言同一口径）：
+  //   · 有样本 → 该断言真跑（强度不减，仍钉住"复制成功"这件事）
+  //   · 无样本 → 跳过，不报一条假红
+  const psdName = '访学证.psd'
+  const psdCandidates = [
+    join(process.env.USERPROFILE ?? '', 'Desktop', psdName),
+    join(process.env.USERPROFILE ?? '', '桌面', psdName),
+    // 兼容老路径（第 2 批记录的那台机器）
+    'C:\\Users\\30873\\Desktop\\访学证.psd',
+    join(WS, psdName)
+  ]
+  const PSD_SAMPLE = psdCandidates.find((p) => existsSync(p)) ?? ''
+  const hasSample = PSD_SAMPLE !== ''
+  log(`  （真实 PSD 样本：${hasSample ? `有 —— ${PSD_SAMPLE}` : '无 —— 跳过真实断言'}）`)
 
   const psdPack = mkPack({ name: 'PSD测试包', workspaceRoot: WS })
   let sampleCopied = false
   if (hasSample) {
     const { copyFileSync } = require('fs') as typeof import('fs')
-    const dst = join(psdPack.folder_path, '01-成品', '访学证.psd')
+    const dst = join(psdPack.folder_path, '01-成品', psdName)
     copyFileSync(PSD_SAMPLE, dst)
     sampleCopied = existsSync(dst)
+    ok(sampleCopied, '真实 PSD 样本已复制进测试包')
+  } else {
+    log('  （跳过「真实 PSD 样本已复制进测试包」—— 本机没有该样本文件，非回归）')
   }
-  ok(sampleCopied, '真实 PSD 样本已复制进测试包')
 
   // 假 PSD（文本冒充）：降级路径任何环境都要过
   const fakePsdPath = join(psdPack.folder_path, '02-素材', 'fake.psd')
@@ -1188,12 +1204,13 @@ async function main(): Promise<void> {
   ok(pdfAgain === 0, `PDF 页数第二次运行处理 0 个（幂等）：实际 ${pdfAgain}`)
 
   // ============ 第 3 批 C-01：标签维度与预制标签 ============
-  log('\n[16] 第 3 批 C-01：2 个标签维度 + 预制标签（第 14 批换清单）')
+  log('\n[16] 第 3 批 C-01：标签维度与预制标签（第 14 批换清单 · 第 49 批加物料分级）')
 
   const dims = listTagDimensions()
-  ok(dims.length === 2, `维度数 = ${dims.length}（应为 2：物料类别/使用场景；项目/时间/状态已砍）`)
+  ok(dims.length === 3, `维度数 = ${dims.length}（应为 3：物料类别/使用场景/物料分级；项目/时间/状态已砍）`)
   ok(
-    dims.map((d) => d.key).join(',') === 'category,channel',
+    // 第 49 批（docs/34）：维度顺序加了 grade，断言跟着更新 —— 强度不减（仍钉死顺序）
+    dims.map((d) => d.key).join(',') === 'category,channel,grade',
     `维度顺序：${dims.map((d) => d.key).join(',')}`
   )
   const categoryDim = dims.find((d) => d.key === 'category')!
@@ -5281,6 +5298,283 @@ async function main(): Promise<void> {
 
   // ---- (7) 开关是纯数据：磁盘结构一个字节没动 ----
   ok(existsSync(join(w47tPack.folder_path, '03-工程')), '任务文件夹结构原样（开关不碰磁盘）')
+
+  // ============ 第 49 批：物料分级 S/A/B/C（docs/34） ============
+  log('\n[42] 第 49 批：物料分级维度 + 任务绑定 + 兜底值「未分级」（docs/34）')
+  {
+    const gRoot = join('D:\\_accept_ws', `wstest49_${RUN_ID}`)
+    const gWs = join(gRoot, 'ws')
+    hardRm(gRoot)
+    mkdirSync(gWs, { recursive: true })
+    closeDb()
+    openDb(gWs)
+    initWorkspace(gWs)
+
+    const gProj = createProject({ name: '分级-甲', workspaceRoot: gWs }).project!
+    const gGrade = (id: number): string =>
+      (getDb().prepare('SELECT grade FROM packs WHERE id = ?').get(id) as { grade: string }).grade
+    const gCat = (id: number): string =>
+      (getDb().prepare('SELECT category FROM packs WHERE id = ?').get(id) as { category: string })
+        .category
+    const gTags = (
+      key: string
+    ): Array<{ id: number; name: string; color: string; packCount: number; assetCount: number }> =>
+      (listTagDimensions().find((d) => d.key === key)?.tags ?? []) as never
+
+    // ---- (1) 迁移 19：packs 有 grade 列 + 列的默认值是「未分级」 ----
+    const gCols = (
+      getDb().prepare('PRAGMA table_info(packs)').all() as Array<{ name: string; dflt_value: string | null }>
+    )
+    const gCol = gCols.find((c) => c.name === 'grade')
+    ok(!!gCol, '迁移 19：packs 表有 grade 列（任务的「物料分级」）')
+    ok(
+      !!gCol && String(gCol.dflt_value ?? '').includes('未分级'),
+      `迁移 19：grade 列默认值 = ${gCol?.dflt_value ?? '(无)'}（刻意是「未分级」不是「未分类」）`
+    )
+
+    // ---- (2) 【核心】预制清单：老库也补灌S/A/B/C（迁移 19 的破例）----
+    const gDims = listTagDimensions()
+    const gDim = gDims.find((d) => d.key === 'grade')!
+    ok(!!gDim, '维度列表里有「物料分级」（第 3 个维度）')
+    ok(gDim.mode === 'multi', `分级维度 mode=multi（与另两个维度一致，不碰 single 冷路径）：${gDim.mode}`)
+    ok(gDim.editable, '分级维度可增删改（左栏「管理」里能改）')
+    ok(
+      gDim.tags.length === 4 && gDim.tags.map((t) => t.name).join(',') === 'S,A,B,C',
+      `预制分级 = ${gDim.tags.map((t) => t.name).join(',')}（顺序 S 最高 → C 最低）`
+    )
+    ok(
+      gDim.tags.every((t) => /^#[0-9a-f]{6}$/i.test(t.color)),
+      `4 项都有合法配色：${gDim.tags.map((t) => `${t.name}=${t.color}`).join(' ')}`
+    )
+    // 补灌幂等：再跑一次 initWorkspace 不该重复灌
+    const gBefore = gDim.tags.length
+    initWorkspace(gWs)
+    const gAfter = listTagDimensions().find((d) => d.key === 'grade')!.tags.length
+    ok(gBefore === gAfter, `补灌幂等：重复初始化后仍是 ${gAfter} 个（没重复灌）`)
+
+    // ---- (3) 建包带 grade；不传 =「未分级」（**不是**未分类）----
+    // ⚠️ 直接取**预制**的 S/A 标签（不要 createTag —— 「S」已存在，
+    // createTag 会因同维度同名被拒、返回 { ok:false } 且 .tag 为 undefined）
+    const gS = gTags('grade').find((t) => t.name === 'S')!
+    const gA = gTags('grade').find((t) => t.name === 'A')!
+    ok(!!gS?.id && !!gA?.id, `拿到预制分级标签：S(id=${gS?.id}) / A(id=${gA?.id})`)
+    const gPack1 = createPack({
+      name: '分级包甲',
+      projectId: gProj.id,
+      category: '海报',
+      grade: 'S',
+      workspaceRoot: gWs
+    })
+    const gPack2 = createPack({
+      name: '分级包乙',
+      projectId: gProj.id,
+      category: '海报',
+      grade: 'A',
+      workspaceRoot: gWs
+    })
+    const gPack3 = createPack({
+      name: '分级包丙',
+      projectId: gProj.id,
+      category: '单页',
+      workspaceRoot: gWs
+    })
+    ok(gGrade(gPack1.id) === 'S' && gGrade(gPack2.id) === 'A', '建包选的分级落在 packs.grade 上')
+    ok(
+      gGrade(gPack3.id) === '未分级',
+      `【核心】不传分级 → 记「未分级」（实际：${gGrade(gPack3.id)}，刻意不是「未分类」）`
+    )
+    ok(
+      listPacks().find((p) => p.id === gPack1.id)!.grade === 'S',
+      'listPacks 把 grade 带出来（界面按它筛任务）'
+    )
+
+    // ---- (4) 计数：分级标签的任务数（与另两个维度同一口径）----
+    const gSTag = gTags('grade').find((t) => t.name === 'S')!
+    const gATag = gTags('grade').find((t) => t.name === 'A')!
+    ok(!!gSTag && gSTag.packCount === 1, `「S」的任务数 = ${gSTag?.packCount}（应为 1）`)
+    ok(!!gATag && gATag.packCount === 1, `「A」的任务数 = ${gATag?.packCount}（应为 1）`)
+    const gCTag = gTags('grade').find((t) => t.name === 'C')!
+    ok(!!gCTag && gCTag.packCount === 0, `「C」没人用 → 任务数 = ${gCTag?.packCount}（应为 0，但标签仍在列）`)
+
+    // ---- (5) 改名联动 → packs.grade 跟着改 ----
+    const gRename = updateTag(gS.id, { name: 'S-特' })
+    ok(gRename.ok && gRename.packsUpdated === 1, `改名：${gRename.packsUpdated} 个包的分级跟着改了`)
+    ok(gGrade(gPack1.id) === 'S-特', '包的分级成了新名字')
+    ok(gGrade(gPack2.id) === 'A', '【边界】没用这个分级的包一个没动')
+
+    // ---- (6) 【最核心】删除联动 → 归「未分级」而不是「未分类」（docs/34 §3.2）----
+    // 这是本批最容易写错的一处：tags.ts 的 removeTag 原本对所有维度统一写 UNCATEGORIZED，
+    // 加了 grade 之后必须按维度取兜底值，否则分级会被写成「未分类」（一个错词）。
+    ok(gGrade(gPack3.id) === '未分级', '对照：未分级的包本来的值就是「未分级」')
+    const gDel = removeTag(gS.id)
+    ok(gDel.ok && gDel.packsAffected === 1, `删分级标签：${gDel.packsAffected} 个包受影响`)
+    ok(
+      gGrade(gPack1.id) === '未分级',
+      `【最核心】删掉分级标签后归「未分级」而不是「未分类」（实际：${gGrade(gPack1.id)}）`
+    )
+    ok(gGrade(gPack1.id) !== '未分类', '【反向断言】绝不能是「未分类」')
+    ok(gGrade(gPack2.id) === 'A', '【边界】另一个分级的包不受影响')
+    ok(gCat(gPack1.id) === '海报', '【边界】包的物料类别不受影响')
+
+    // ---- (7) 维度之间互不串门：改「物料类别」标签不动 packs.grade ----
+    const gCatTag = gTags('category').find((t) => t.name === '海报')!
+    const gGradeBefore = gGrade(gPack2.id)
+    updateTag(gCatTag.id, { name: '海报-改' })
+    ok(
+      gGrade(gPack2.id) === gGradeBefore,
+      '【只认自己维度】改「物料类别」标签 → packs.grade 纹丝不动'
+    )
+    ok(gCat(gPack2.id) === '海报-改', '包的类别跟着改（对照）')
+
+    // ---- (8) 跨维度同名不串门：grade 维度有个叫「海报」的分级，改它不动 category ----
+    const gDup = createTag({ dimension: 'grade', name: '海报' }).tag!
+    ok(!!gDup, '跨维度同名允许：分级维度也能叫「海报」')
+    const gCatNow = gCat(gPack2.id)
+    const gRename2 = updateTag(gDup.id, { name: '海报-分级' })
+    ok(gRename2.ok, '改「分级维度」的那个「海报」成功')
+    ok(gCat(gPack2.id) === gCatNow, '【反向断言】category 维度的包一个没被改（只认 dimension）')
+
+    // ---- (9) updatePack 改 grade（编辑任务面板走这条路）；传空串 → 归未分级 ----
+    const gEdit = updatePack(gPack3.id, { grade: 'B' }, gWs)
+    ok(gEdit.ok && gGrade(gPack3.id) === 'B', '编辑任务能改「物料分级」（纯数据，不碰磁盘）')
+    const gEdit2 = updatePack(gPack3.id, { grade: '' }, gWs)
+    ok(
+      gEdit2.ok && gGrade(gPack3.id) === '未分级',
+      `编辑时传空串 → 归「未分级」（实际：${gGrade(gPack3.id)}）`
+    )
+
+    // ---- (10) 改名 / 换项目**不丢**分级（搬完仍是原值）----
+    const gKeep = createPack({
+      name: '分级包丁',
+      projectId: gProj.id,
+      category: '海报',
+      grade: 'A',
+      workspaceRoot: gWs
+    })
+    const gProj2 = createProject({ name: '分级-乙', workspaceRoot: gWs }).project!
+    const gMoved = updatePack(gKeep.id, { projectId: gProj2.id }, gWs)
+    ok(gMoved.ok && gMoved.moved, `换项目真的搬了文件夹（重写 ${gMoved.moved?.paths} 条记录）`)
+    ok(gGrade(gKeep.id) === 'A', '【边界】换项目后分级不丢（仍是 A）')
+    ok(gGrade(gKeep.id) !== '未分级', '【反向断言】搬文件夹不该把分级打回未分级')
+    const gRenamed = updatePack(gKeep.id, { name: '分级包丁-改名' }, gWs)
+    ok(gRenamed.ok && gGrade(gKeep.id) === 'A', '改名后分级也不丢')
+
+    // ---- (11) 改分级**不碰磁盘**（与改类别同规矩：只有改名/换项目动磁盘）----
+    // ⚠️ 路径要从库里重新读 —— `gKeep.folder_path` 是建包时的快照，
+    // 前面换项目 + 改名已经搬过两次，拿它existsSync 会扑空（第一次写这条时踩过）
+    const gDiskFolder = (
+      getDb().prepare('SELECT folder_path FROM packs WHERE id = ?').get(gKeep.id) as {
+        folder_path: string
+      }
+    ).folder_path
+    const gDisk = updatePack(gKeep.id, { grade: 'C' }, gWs)
+    ok(gDisk.ok && !gDisk.moved, '只改分级 → 不搬文件夹（纯数据）')
+    ok(existsSync(gDiskFolder), `原文件夹还在（改分级没动磁盘）：${gDiskFolder}`)
+    ok(
+      (getDb().prepare('SELECT folder_path FROM packs WHERE id = ?').get(gKeep.id) as {
+        folder_path: string
+      }).folder_path === gDiskFolder,
+      '【反向断言】folder_path 一个字都没变（确实没搬）'
+    )
+    ok(gDisk.pack?.grade === 'C', '分级确实改成 C 了（对照：值变了但磁盘没动）')
+
+    // ---- (12) 工单自动建的任务 = 未分级（本批刻意不接工单侧，企微表没有分级列）----
+    const gRec = (no: string): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: `物料-${no}` }],
+        当前审批状态: [{ text: '审批中' }],
+        设计师: [{ userId: 'uME', userName: '本机测试员' }],
+        业务归属: [{ text: '分级-甲' }]
+      }
+    })
+    const gPayload = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheetG',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const gIdentity = { userid: 'uME', name: '本机测试员' }
+    applySync({
+      payloads: [gPayload([gRec('G0001')])],
+      structureChanged: false,
+      identity: gIdentity,
+      workspaceRoot: gWs
+    })
+    const gSync = applySync({
+      payloads: [gPayload([gRec('G0010')])],
+      structureChanged: false,
+      identity: gIdentity,
+      workspaceRoot: gWs
+    })
+    ok(gSync.tasksCreated === 1, `工单自动建任务：${gSync.tasksCreated} 个`)
+    const gTicketPack = (
+      getDb().prepare('SELECT pack_id FROM tickets WHERE ticket_no = ?').get('G0010') as {
+        pack_id: number | null
+      }
+    ).pack_id
+    ok(
+      gTicketPack !== null && gGrade(gTicketPack) === '未分级',
+      '【边界】工单自动建的任务分级是「未分级」（本批不接工单侧）'
+    )
+
+    closeDb()
+    hardRm(gRoot)
+  }
+
+  // ============ 第 49 批：迁移 19 的老库补灌（在**有标签**的老库上验证） ============
+  log('\n[43] 第 49 批：老库补灌 S/A/B/C（迁移 19 §break例 —— 只在该维度空时灌）')
+  {
+    const g2Root = join('D:\\_accept_ws', `wstest49b_${RUN_ID}`)
+    const g2Ws = join(g2Root, 'ws')
+    hardRm(g2Root)
+    mkdirSync(g2Ws, { recursive: true })
+    closeDb()
+    openDb(g2Ws)
+    // 先建库并灌满另两个维度的标签，模拟「已经有标签的老库」
+    initWorkspace(g2Ws)
+    ok(
+      (getDb().prepare('SELECT COUNT(*) AS c FROM tags').get() as { c: number }).c > 0,
+      '前置：老库里已有标签（不是空库）'
+    )
+
+    // 手工把grade 维度的标签删光，模拟「升级前的老库」—— 迁移 19 应补灌回来
+    getDb().prepare("DELETE FROM tags WHERE dimension = 'grade'").run()
+    ok(
+      (getDb().prepare("SELECT COUNT(*) AS c FROM tags WHERE dimension = 'grade'").get() as {
+        c: number
+      }).c === 0,
+      '前置：grade 维度现在是空的（模拟没升级过的老库）'
+    )
+    closeDb()
+    openDb(g2Ws)
+    initWorkspace(g2Ws) // ← 这一步就是「老用户第一次打开升级后的软件」
+    const g2Seeded = listTagDimensions().find((d) => d.key === 'grade')?.tags ?? []
+    ok(
+      g2Seeded.length === 4 && g2Seeded.map((t) => t.name).join(',') === 'S,A,B,C',
+      `【核心】老库升级后自动补灌 4 个分级（实际：${g2Seeded.map((t) => t.name).join(',') || '空'}）`
+    )
+
+    // 用户自己改过分级 → 再升级**不许覆盖**
+    getDb().prepare("UPDATE tags SET name = 'S-紧急' WHERE dimension = 'grade' AND name = 'S'").run()
+    getDb().prepare("DELETE FROM tags WHERE dimension = 'grade' AND name = 'C'").run()
+    closeDb()
+    openDb(g2Ws)
+    initWorkspace(g2Ws)
+    const g2After = (listTagDimensions().find((d) => d.key === 'grade')?.tags ?? []).map(
+      (t) => t.name
+    )
+    ok(
+      g2After.includes('S-紧急') && !g2After.includes('C'),
+      `【铁律·不越界】用户改过的分级清单一个不动（实际：${g2After.join(',') || '空'}）`
+    )
+    ok(!g2After.includes('S'), '【反向断言】被改名的 S 没有被补灌回来（没覆盖用户修改）')
+    ok(!g2After.includes('C'), '【反向断言】被删掉的 C 没有被补灌回来（没复活用户删的）')
+
+    closeDb()
+    hardRm(g2Root)
+  }
 
 // ============ 汇总 ============
   log('\n' + '='.repeat(62))

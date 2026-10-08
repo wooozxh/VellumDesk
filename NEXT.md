@@ -6,32 +6,36 @@
 
 ---
 
-## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 第 48 次会话复核）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 第 49 次会话复核）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| **`main`**（唯一） | `acebc0e`（= `origin/main`） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；代码版本 **1.9.0** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
+| **`main`**（唯一） | 第 49 批已改完**未提交**（远端仍是第 47 批的 `3bffe66`） | 第 1~28 批 + 第 47 批 + **第 49 批物料分级**；代码版本 **1.9.1** | 唯一开发分支；**本批尚未 commit / push / 出包** |
 
 要点：
 
 - **仓库**：`origin` = `https://github.com/wooozxh/VellumDesk.git`（**PUBLIC**），只有 `main` 一个分支。
-  历史功能分支（`TM` / `feature/incr` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）均已合入 `main` 后删除。
 - **新分支约定**：`feature/小写短横线`，合入即删。
 - **软件名（docs/28 全站改名）**：界面 **Vellum工作台**；exe / 安装包 / 仓库 **VellumDesk**；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。
-- **发版渠道**：GitHub Release 已开（`v1.8.2` / `v1.8.3` 都已发布）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
-- **稳定点备份（项目外，2026-09-30 已做）**：`D:\_accept_ws\backup\` 下
-  - `proj_media-v1.1.0-全历史.bundle`（721 KB，含全部提交历史；`git clone <该文件> <目录>` 即可恢复）
-  - `proj_media_v1.1.0_源码\`（19831 个文件 / 1.05 GB，含 `.git` 与 ffmpeg）
-  - `素材管家-1.1.0-安装包.exe`（179.5 MB）
-- **版本号往下走，别重号**：1.1.0 已发同事；1.3.0 是坏包；1.3.1 热修；1.3.2 = 第 13~16 批；
-  **1.4.0 = 第 17 批**；**1.5.0 / 1.6.0 / 1.7.0 只写在提交信息里、从未出包**（第 18/19/20 批）；
-  **1.8.0 = 第 18~21 批一次性打出**；1.8.1 = +第 22 批（**坏包，包内漏带 wecom-cli.exe，别用**）；
-  **1.8.2 = 第 23~27 批热修**（`D:\_accept_ws\rel_out\v1.8.2\`）；
-  **1.8.3 = 第 28 批 + 新 LOGO 图标（ico 7 尺寸 + 512 png）—— 最新已发**
-  （GitHub Release `v1.8.3`，2026-10-08 00:44 发布，附 `VellumDesk-1.8.3-Setup.exe`；
-  **本机 `rel_out` 里没有它，那次出包在另一台机器上做的**）；
-  **1.9.0 = 第 47 批（假丢失治理）—— 最新已出包**（`D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`，
-  192.1 MB，2026-10-08；**未发 GitHub Release**，本地包而已）；**下一批从 1.9.1 起**。
+- **发版渠道**：GitHub Release 已开（最新 **v1.8.3**）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
+- **⚠️ 关于 1.9.0 的本地包**：第 48 次会话台账记「已出本地包 `rel_out\v1.9.0\...`」，
+  但 **17736 机器上 `rel_out` 里没有 `v1.9.0` 目录**（只有 v1.8.1 / v1.8.1-vellum / v1.8.3）——
+  那次出包在**另一台机器**上做的（同 v1.8.3 的情况）。**别把这句当既成事实。**
+- **验收基线口径变了**：档案曾记 931 项，那是第 47 批在**另一台机器**上跑的。
+  **第 49 批在 17736 首次实测 = 967 项全过 + 12 场景全绿**，以 967 为准。
+- 版本号往下走，别重号：**1.9.1 = 第 49 批（物料分级，未出包）**；下一批从 **1.9.2** 起。
+- 下一个 docs 编号 **35**（34 = 第 49 批物料分级）；下一个迁移号 **20**（19/19b = 第 49 批）。
+- **第 49 批物料分级已关单**（2026-10-08 用户人工验收通过）；第 47 批人工验收也早已通过。
+- **第 19 批的前置「工单队列加缩略图 image 列」已完成，且 2026-10-08 实探确认真表里有**：
+  两个生产子表（电子物料 / 印刷物料）**列名精确为 `缩略图`、类型 `image`**，与代码写死的 `COL.thumb` 一致。
+  ⚠️ **但 17736 机器仍未配置工单表**（meta 里无 `ticket_docid` / `ticket_sheets`）——
+  **要在这台机器验收第 19 批，得先在软件「工单设置」里粘链接连接**。
+  ⚠️ **两张生产表各缺一个分类列**（电子物料无「物料类别」、印刷物料无「物料使用场景」）
+  → **用户 2026-10-08 拍板：接受，不补列**，属预期行为（详见 PROGRESS 第 49 次会话）。
+  **测试子表 `tI8OUG` 不上生产环境，一律不管。**
+- ⛔ **「缩略图」列没有可用性预检（2026-10-08 查出的缺口）**：列名**写死**为 `缩略图`
+  （`COL.thumb` / `thumbColName()` 不可配），且**没有**设计师列那样的 `evaluateDesignerCol` 式预检。
+  列名差一个字或类型不是 image，**只有点「完成任务」时才会现场报错**。补预检见 PROGRESS 第 49 次会话。
 
 ---
 
@@ -41,16 +45,13 @@
 开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
-本机现状（2026-10-08 第 48 次会话复核，开工前请再跑一次 git status / git log 确认）：
-- 分支只有 main（= origin/main = `acebc0e`，含第 1~28 批 + 第 47 批 + 全站改名 docs/28）。直接在 main 上开工；
-  新功能开 feature/小写短横线，合入即删。
-- 版本号 **1.9.0**（代码版本）；验收基线 accept **931 项**（只增不减）；界面场景 12 个。
-- 出包现状：**1.9.0 已出本地包** —— `D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`（192.1 MB），
-  **未发 GitHub Release**；GitHub Release 最新 = **v1.8.3**（185 MB 附件已确认上传成功）。
+本机现状（2026-10-08 第 49 次会话复核，开工前请再跑一次 git status / git log 确认）：
+- 分支只有 main（远端 = `3bffe66`，= 第 47 批；**第 49 批物料分级已改完但未提交**）。
+  直接在 main 上开工；新功能开 feature/小写短横线，合入即删。
+- 版本号 **1.9.1**（第 49 批物料分级，**未出包**）；验收基线 accept **967 项**（只增不减）；界面场景 12 个。
+- 出包现状：本机 rel_out **没有 v1.9.0**（第 48 批那次出包在另一台机器）；GitHub Release 最新 = **v1.8.3**。
   ⚠️ 发 Release = 对外发布（仓库 PUBLIC），要发先问我。
-- 下一个迁移号 **19**（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
-  15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel / 18 假丢失治理〔assets.missing_ignored_at + packs.scan_temp〕）。
-- 下一批版本号从 **1.9.1** 起；下一个 docs 编号 **34**（33 = 第 47 批假丢失治理）。
+- 下一个迁移号 **20**（19 / 19b= 第 49 批物料分级）；下一批版本号从 **1.9.2** 起；下一个 docs 编号 **35**。
 
 先读这七份，读完再动手（只读，不改文件）：
 1. D:\proj_media\PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
@@ -62,10 +63,10 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 7. D:\proj_media\docs\32-打包交付尺寸与命名修正.md —— 第 28 批（已随 1.8.3 发出）
 
 读完先向我复述三件事，等我确认后再继续：
-① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.9.0 · **931 项** + 12 场景）
-② 未完成的待办（见本文件第四节：1.9.0 未发 Release；文案在线表待 pull 复核〔第 28 批 3 条可能已随
-  第 47 批一次刷上〕；第 17~20 批真表 / 真机人工验收收尾；第 2 批 PSD 样本断言在 17736 机器上缺失待拍板
-  —— 见 PROGRESS 第 46 次会话「环境备注」）
+① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.9.1 · **967 项** + 12 场景）
+② 未完成的待办（见本文件第四节：**1.9.1 未出包也未提交**；文案在线表 publish 仍欠〔第 49 批新增 9 条，
+  且 `tools/copy-sheet/push.cjs` 的 mcporter 路径写死 30873 机器、17736 上跑不了，要回有 mcporter 的机器〕；
+  第 17~20 批真表 / 真机人工验收收尾；第 49 批物料分级真机人工验收）
 ③ 你建议的下一批方向 + 理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
@@ -85,7 +86,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 931 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node out/test/accept.cjs（当前 967 项，只许增不许减）；界面改动再跑
   NODE_OPTIONS= node _shotapp/run-verify4.cjs
   banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
@@ -291,3 +292,9 @@ M6 还剩的其他小项：
 | **「完成任务」回传的是「最新版本的全部成品」缩略图（第 27 批起，issue #2）** | 原为「第一张成品」（`docs/22` §4 原设计）。现逐张上传、写回同一 image 列（多个 `{title,imageUrl}`）。本地 `tickets.thumb_url`：0 张 = NULL、1 张 = 纯 URL（与老数据同格式）、多张 = JSON 数组 —— 读一律走 `parseThumbUrls` |
 | ⛔ **改「缩略图」相关的取数逻辑，必须连带看报表导出** | 工单队列那一列被 `report.ts` / `reportWecom.rehostReportThumb` 复用（导出时逐张重传）。只改「完成任务」不改报表 = 导出仍丢图 |
 | **企微智能表格 image 列可存多张** | 值是数组 `[{title,imageUrl}]`，写多个元素即多图（2026-10-05 实测列类型 `field_type: image`，无张数上限字段）。「完成任务」「报表导出」都按这个口径写 |
+| ⛔ **往`tags` 表写任何东西，必须排在「迁移 5」之后** | 迁移 3/5（空库落预制项目与标签）排在 `db.ts` 的**最后**，迁移 5 的门槛是 `COUNT(*) FROM tags = 0`。第 49 批最初把分级的预制补灌写在迁移 19（`ALTER` 旁边）→ 空库被那 4 个分级**误判成「不是空库」**，物料类别 11 项 + 使用场景 7 项**永远灌不上**（accept 实测两类标签全变 0）。**正解**：补灌挪到迁移 5 之后（本批叫「迁移 19b」）。以后加维度/加标签一律照此办理 |
+| ⛔ **改完 `src/main` 忘了重打 bundle，界面场景会拿着旧代码跑出一堆假失败** | 第 49 批踩过：修完 `db.ts` 的迁移顺序后没重打 `workspace.cjs`，`category` 场景**假失败 11 项**（看起来像代码回归）。**定位手法（可复用）**：建一个空库直接跑 `initWorkspace`，用 sqlite 查 `SELECT dimension, COUNT(*) FROM tags GROUP BY dimension` —— 数据不对就是 bundle 陈旧，不是代码问题。场景壳加载的是 `out/test/workspace.cjs`，**不是源码** |
+| **断言里别拿「建包时的 folder_path 快照」去 `existsSync`** | 前面若换过项目 / 改过名，路径早就变了 → **假失败**。要 `SELECT folder_path FROM packs WHERE id=?` 重读。第 49 批写这条时踩了一次 |
+| **别对预置标签名调 `createTag`** | 同维度同名会被拒 → 返回 `{ ok:false }` 且 `.tag` 为 `undefined` → 后续取 `.id` 直接崩。断言里要预置标签就 `listTagDimensions().find(...)` 里取 |
+| **`zero`（0 条压暗）类只有共享的 `tagNum()` 辅助会读** | 自己写的 `js()` 取 `.tp-tag` 属性时容易漏 `classList.contains('zero')`，导致「数字对了但压暗那条断言」失败。场景壳里凡是判压暗，走 `tagNum()` |
+| **`copy-sheet` 的 `push.cjs` 里 mcporter 路径写死 30873 机器** | `tools/copy-sheet/push.cjs` 第 23 行`MCP_CLI = 'C:/Users/30873/.../mcporter/dist/cli.js'`。**17736 机器上没有 mcporter → publish / pull 跑不了**，文案改动只能先落地在 `copy.ts`，刷在线表要回有 mcporter 的机器 |

@@ -26,6 +26,8 @@ export interface PackCard {
   category: string
   /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
   channel: string
+  /** 第 49 批（docs/34）：任务的「物料分级」（S/A/B/C，兜底「未分级」） */
+  grade: string
   /** 第 47 批（docs/33 §5.1）：扫描时是否收临时文件（0 = 不收，**默认**；1 = 收） */
   scan_temp: number
   folder_path: string
@@ -129,6 +131,8 @@ export interface UpdatePackPatch {
   category?: string
   /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
   channel?: string
+  /** 第 49 批（docs/34）：任务的「物料分级」（标签名字）；传空串 = 归「未分级」 */
+  grade?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
   /** 第 47 批（docs/33 §5.3）：扫描时是否收临时文件（纯数据，不碰磁盘） */
@@ -805,6 +809,8 @@ export interface Api {
     category?: string
     /** 第 23 批（docs/29）：任务的「使用场景」 */
     channel?: string
+    /** 第 49 批（docs/34）：任务的「物料分级」 */
+    grade?: string
   }) => Promise<{ ok: boolean; pack?: PackCard; error?: string }>
   refreshScan: () => Promise<ScanResult>
   /**

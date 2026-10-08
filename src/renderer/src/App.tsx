@@ -252,6 +252,14 @@ export default function App(): React.JSX.Element {
     [tagDimensions]
   )
 
+  /**
+   * 第 49 批（docs/34）：任务的「物料分级」清单 —— 第三次复用同一套派生方式。
+   */
+  const gradeOptions = useMemo(
+    () => tagDimensions.find((d) => d.key === 'grade')?.tags.map((t) => t.name) ?? [],
+    [tagDimensions]
+  )
+
   /** 已选标签的完整信息（含维度与名字）—— 任务分类存的是**名字**，筛选时要把 tagId 还原成名字 */
   const selectedTagObjs = useMemo(() => {
     const set = new Set(selectedTagIds)
@@ -603,6 +611,8 @@ export default function App(): React.JSX.Element {
     projectId: number | null
     category: string
     channel: string
+    /** 第 49 批（docs/34）：物料分级 */
+    grade: string
   }): Promise<void> => {
     if (!requireWs()) return
     try {
@@ -906,9 +916,12 @@ export default function App(): React.JSX.Element {
     if (selectedTagObjs.length) {
       const catNames = selectedTagObjs.filter((t) => t.dimension === 'category').map((t) => t.name)
       const chNames = selectedTagObjs.filter((t) => t.dimension === 'channel').map((t) => t.name)
+      // 第 49 批（docs/34）：物料分级加入任务筛选（第三支，与上面两支同一规矩）
+      const grNames = selectedTagObjs.filter((t) => t.dimension === 'grade').map((t) => t.name)
       list = list.filter((p) => {
         if (catNames.length && !catNames.includes(p.category)) return false
         if (chNames.length && !chNames.includes(p.channel)) return false
+        if (grNames.length && !grNames.includes(p.grade ?? COPY.ungraded)) return false
         return true
       })
     }
@@ -1656,6 +1669,7 @@ export default function App(): React.JSX.Element {
           projects={projects}
           categories={categoryOptions}
           channels={channelOptions}
+          grades={gradeOptions}
           onClose={() => setShowNew(false)}
           onSubmit={doCreatePack}
         />
@@ -1684,6 +1698,7 @@ export default function App(): React.JSX.Element {
           projects={projects}
           categories={categoryOptions}
           channels={channelOptions}
+          grades={gradeOptions}
           onClose={() => setEditingPackId(null)}
           onSubmit={submitPackEdit}
         />

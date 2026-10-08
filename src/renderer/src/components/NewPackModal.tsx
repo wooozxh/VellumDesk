@@ -19,6 +19,7 @@ export function NewPackModal({
   projects,
   categories,
   channels,
+  grades,
   onClose,
   onSubmit
 }: {
@@ -26,30 +27,36 @@ export function NewPackModal({
   categories: string[]
   /** 第 23 批（docs/29）：使用场景清单（同样派生自左栏标签维度） */
   channels: string[]
+  /** 第 49 批（docs/34）：物料分级清单（同样派生自左栏标签维度） */
+  grades: string[]
   onClose: () => void
   onSubmit: (v: {
     name: string
     projectId: number | null
     category: string
     channel: string
+    grade: string
   }) => Promise<void>
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [projectId, setProjectId] = useState<number | null>(projects[0]?.id ?? null)
   const [category, setCategory] = useState(categories[0] ?? '未分类')
   const [channel, setChannel] = useState(channels[0] ?? '未分类')
+  // 第 49 批（docs/34）：分级的兜底值是「未分级」而不是「未分类」（docs/34 §3.2）
+  const [grade, setGrade] = useState(grades[0] ?? COPY.ungraded)
   const [busy, setBusy] = useState(false)
 
   // 清单可能比弹窗后到，也可能刚被左栏改过：选中的那个不在清单里就顺延到第一个，
   // 一个都没有就记「未分类」（跟后端 `UNCATEGORIZED` 同一个值）
   const picked = categories.includes(category) ? category : (categories[0] ?? '未分类')
   const pickedChannel = channels.includes(channel) ? channel : (channels[0] ?? '未分类')
+  const pickedGrade = grades.includes(grade) ? grade : (grades[0] ?? COPY.ungraded)
 
   const submit = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
     try {
-      await onSubmit({ name, projectId, category: picked, channel: pickedChannel })
+      await onSubmit({ name, projectId, category: picked, channel: pickedChannel, grade: pickedGrade })
     } finally {
       setBusy(false)
     }
@@ -82,22 +89,45 @@ export function NewPackModal({
             <div className="hint">{COPY.newPack.nameHint}</div>
           </div>
 
-          <div className="field">
-            <label>{COPY.editPack.projectLabel}</label>
-            <select
-              value={projectId ?? ''}
-              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <div className="hint">
-              
-              {COPY.newPack.projectHint}
+          {/* 第 49 批（docs/34 §5.2，用户指定）：**所属项目与物料分级并排**，
+              与下面「物料类别 / 使用场景」一起组成 2×2 的下拉矩阵。
+              项目那条静态说明移到行下整行（半列太窄会换行）。*/}
+          <div className="field-row">
+            <div className="field">
+              <label>{COPY.editPack.projectLabel}</label>
+              <select
+                value={projectId ?? ''}
+                onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="field">
+              <label>{COPY.dim.grade}</label>
+              {grades.length === 0 ? (
+                <div className="hint" style={{ color: 'var(--warn)' }}>
+                  {COPY.newPack.noGrade}
+                </div>
+              ) : (
+                <select value={pickedGrade} onChange={(e) => setGrade(e.target.value)}>
+                  {grades.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* 项目的静态说明，整行显示（见上方注释） */}
+          <div className="hint" style={{ marginTop: -4 }}>
+            {COPY.newPack.projectHint}
           </div>
 
           {/* 第 24 批（用户反馈）：物料类别 / 使用场景两个下拉左右并排，下面的说明文字去掉

@@ -312,6 +312,10 @@ app.whenReady().then(async () => {
     addPack.run('计数甲包', '海报', packDirA, projA.id, now, now)
     addPack.run('计数乙包', '海报', packDirB, projB.id, now, now)
     addPack.run('计数游离包', '海报', packDirLoose, null, now, now)
+    // 第 49 批（docs/34）：给「甲包」标 S 级、「乙包」标 A 级、游离包留未分级 ——
+    // 用来验分级标签的数字也统计任务数，且**跟随左栏当前项目范围**（甲/乙/待归类各不同）。
+    d.prepare("UPDATE packs SET grade = 'S' WHERE name = '计数甲包'").run()
+    d.prepare("UPDATE packs SET grade = 'A' WHERE name = '计数乙包'").run()
     d.close()
 
     wsm.scanAll(ws)
@@ -1229,12 +1233,44 @@ app.whenReady().then(async () => {
     )
     ok(editBox.title.includes(COPY.editPack.title), `弹窗标题：${editBox.title.trim()}`)
     ok(
-      editBox.fields === 5,
-      `五块可改：名称 / 所属项目 / 物料类别 / 使用场景 / 扫描临时文件（${editBox.fields} 块）`
+      // 第 49 批（docs/34）：物料分级作为**独立的一个 .field** 加进了「所属项目」那一行
+      // （项目 + 分级并排），所以 .field 由 5 块变 6 块、下拉由 3 个变 4 个。
+      editBox.fields === 6,
+      `六块可改：名称 / 所属项目 / 物料分级 / 物料类别 / 使用场景 / 扫描临时文件（${editBox.fields} 块）`
     )
     ok(
-      editBox.selects === 3,
-      `项目 / 物料类别 / 使用场景 三个下拉（第 23 批起类别与场景由按钮改下拉；${editBox.selects} 个）`
+      editBox.selects === 4,
+      `所属项目 / 物料分级 / 物料类别 / 使用场景 四个下拉（第 49 批加了分级；${editBox.selects} 个）`
+    )
+    // 第 49 批：钉住「项目与分级并排」这个用户指定的布局（编辑弹窗与新建弹窗都要）
+    const editLayout = await js(
+      `(() => {
+         const m = document.querySelector('.modal')
+         if (!m) return null
+         const rows = [...m.querySelectorAll('.field-row')]
+         const hit = rows.find(r => {
+           const ls = [...r.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim())
+           return ls.includes(${JSON.stringify(COPY.editPack.projectLabel)})
+             && ls.includes(${JSON.stringify(COPY.dim.grade)})
+         })
+         if (!hit) return { found: false }
+         const fs = [...hit.querySelectorAll('.field')]
+         const a = fs[0].getBoundingClientRect(), b = fs[1].getBoundingClientRect()
+         return {
+           found: true,
+           sameRow: Math.abs(a.top - b.top) < 4,
+           labels: [...hit.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim()),
+           gradeOptions: [...fs[1].querySelectorAll('select option')].map(o => (o.textContent||'').trim())
+         }
+       })()`
+    )
+    ok(
+      !!editLayout && editLayout.found && editLayout.sameRow,
+      `【核心·布局】编辑弹窗里「所属项目」与「物料分级」并排（labels=${JSON.stringify(editLayout && editLayout.labels)}）`
+    )
+    ok(
+      !!editLayout && editLayout.gradeOptions && editLayout.gradeOptions.length > 0,
+      `编辑弹窗的分级下拉有值可选：${JSON.stringify(editLayout && editLayout.gradeOptions)}`
     )
     ok(editBox.path.includes('招生折页-A4'), '弹窗里显示了当前文件夹在哪')
     await shot('shot-b7-2-lifecycle-editpack.png')
@@ -1573,6 +1609,89 @@ app.whenReady().then(async () => {
       all1 && all1.n === 4 + packAll(),
       `【全部】切回来还是 ${all1 && all1.n}（4 个文件 + ${packAll()} 个任务）`
     )
+
+    // (7-49) 第 49 批（docs/34）：**分级标签的数字也统计任务数**，且跟随项目范围。
+    // 布景：甲包 = S、乙包 = A、游离包 = 未分级；文件全部只贴了「海报」，没贴分级
+    //       → 所以分级的数字应当**纯等于任务数**（文件那一半是 0）。
+    const packOfGrade = (grade) =>
+      (
+        qTC(
+          `SELECT COUNT(*) AS c FROM packs k LEFT JOIN projects p ON p.id = k.project_id
+            WHERE (k.project_id IS NULL OR p.archived = 0) AND k.grade = ?`,
+          grade
+        ) || {}
+      ).c
+    await expandDim(COPY.dim.grade)
+    await wait(400)
+    const gradeTags = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
+         if (!d) return null
+         return [...d.querySelectorAll('.tp-tag')].map(b => ({
+           name: ((b.querySelector('.tp-tag-name')||{}).innerText||'').trim(),
+           n: ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim(),
+           title: b.getAttribute('title') || ''
+         }))
+       })()`
+    )
+    ok(
+      Array.isArray(gradeTags) && gradeTags.length === 4,
+      `【核心】左栏「物料分级」维度有 4 个预制标签（实际 ${Array.isArray(gradeTags) ? gradeTags.length : 0}）`
+    )
+    const gS = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'S') : null
+    const gA = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'A') : null
+    const gC = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'C') : null
+    ok(
+      !!gS && Number(gS.n) === packOfGrade('S'),
+      `【核心】「S」的数字 = ${gS && gS.n}（应等于 ${packOfGrade('S')} 个任务；文件没贴分级所以文件那一半是 0）`
+    )
+    ok(
+      !!gA && Number(gA.n) === packOfGrade('A'),
+      `【核心】「A」的数字 = ${gA && gA.n}（应等于 ${packOfGrade('A')} 个任务）`
+    )
+    // 0 条标签要压暗 —— `zero` 类只有共享的 tagNum() 会读，所以这条走它
+    const gCNum = await tagNum('C')
+    ok(
+      !!gCNum && gCNum.n === 0 && gCNum.zero,
+      `没人用的「C」数字 0 且压暗（实际 ${gCNum && gCNum.n}，zero=${gCNum && gCNum.zero}）`
+    )
+    ok(
+      !!gS && gS.title.includes('任务') && gS.title.includes('文件'),
+      `分级标签的悬停提示也把数字分解成「任务 + 文件」：${gS && gS.title}`
+    )
+
+    // 分级数字跟随项目范围：切到甲项目，S 应为 1；切到乙项目，S 应为 0（乙包是 A）
+    await pickSideItem('海南升学集训营', '.side .proj-item')
+    await wait(700)
+    const gS_A = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
+         if (!d) return null
+         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === 'S')
+         return b ? ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim() : null
+       })()`
+    )
+    ok(
+      gS_A === '1',
+      `【核心】切到甲项目后「S」= ${gS_A}（该范围只有甲包= S 级；数字必须跟着范围走）`
+    )
+    await pickSideItem('精英升学先修营', '.side .proj-item')
+    await wait(700)
+    const gS_B = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
+         if (!d) return null
+         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === 'S')
+         return b ? ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim() : null
+       })()`
+    )
+    ok(gS_B === '0', `【核心】切到乙项目后「S」= ${gS_B}（该范围没有 S 级任务 → 0）`)
+    await shot('shot-b49-2-tagcount-grade.png')
+    await pickSideItem('全部')
+    await wait(600)
 
     // (8) 解绑一个项目 → 全库数字立刻跟着减（原 bug：纹丝不动）
     const names = await projRowNames()
@@ -2557,7 +2676,88 @@ app.whenReady().then(async () => {
         JSON.stringify(scenes1) === JSON.stringify(panelScenes),
       '【核心】建包能选的「使用场景」= 左栏「使用场景」，一字不差'
     )
+
+    // (2b-49) 第 49 批（docs/34）：物料分级 —— 预制清单在左栏出现，且建包下拉与之一字不差
+    await expandDim(COPY.dim.grade)
+    await wait(500)
+    const panelGrades = await js(
+      `(() => {
+         const d = [...document.querySelectorAll('.tp-dim')]
+           .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
+         if (!d) return null
+         return [...d.querySelectorAll('.tp-tag-name')].map(x => x.innerText.trim())
+       })()`
+    )
+    ok(
+      Array.isArray(panelGrades) && panelGrades.length === 4,
+      `【布景】左栏「物料分级」有 ${Array.isArray(panelGrades) ? panelGrades.length : 0} 个预制标签（应为 4：S/A/B/C）`
+    )
+    ok(
+      Array.isArray(panelGrades) && panelGrades.join(',') === 'S,A,B,C',
+      `【核心】预制分级顺序 = S,A,B,C（实际：${Array.isArray(panelGrades) ? panelGrades.join(',') : String(panelGrades)}）`
+    )
+
+    await openNewPack()
+    const grades1 = await readNewPackSelect(COPY.dim.grade)
+    ok(
+      Array.isArray(grades1) && grades1.length > 0,
+      `新建包弹窗有「物料分级」下拉（${Array.isArray(grades1) ? grades1.join('、') : String(grades1)}）`
+    )
+    ok(
+      Array.isArray(grades1) &&
+        Array.isArray(panelGrades) &&
+        JSON.stringify(grades1) === JSON.stringify(panelGrades),
+      '【核心】建包能选的「物料分级」= 左栏「物料分级」，一字不差'
+    )
+
+    // (2b-49b) 【核心·布局】用户指定：所属项目与物料分级**并排**（同一个 .field-row）
+    const layoutOk = await js(
+      `(() => {
+         const m = [...document.querySelectorAll('.mask > .modal')]
+           .find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.top.newPack)}))
+         if (!m) return null
+         const rows = [...m.querySelectorAll('.field-row')]
+         const hit = rows.find(r => {
+           const labels = [...r.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim())
+           return labels.includes(${JSON.stringify(COPY.editPack.projectLabel)})
+             && labels.includes(${JSON.stringify(COPY.dim.grade)})
+         })
+         if (!hit) return { found: false, rowLabels: rows.map(r => [...r.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim())) }
+         const fs = [...hit.querySelectorAll('.field')]
+         const a = fs[0].getBoundingClientRect(), b2 = fs[1].getBoundingClientRect()
+         return {
+           found: true,
+           sameRow: Math.abs(a.top - b2.top) < 4,
+           leftIsProject: ((fs[0].querySelector('label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.editPack.projectLabel)},
+           twoSelects: fs.filter(f => f.querySelector('select')).length === 2,
+           rowLabels: [...hit.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim())
+         }
+       })()`
+    )
+    ok(layoutOk && layoutOk.found, `项目与分级在同一行（实际行分组：${JSON.stringify(layoutOk && layoutOk.rowLabels)}）`)
+    ok(!!layoutOk && layoutOk.sameRow, '【核心】两个下拉顶端对齐（确实并排，不是上下堆叠）')
+    ok(!!layoutOk && layoutOk.leftIsProject, '【核心】左边是「所属项目」（用户指定分级放它旁边）')
+    ok(!!layoutOk && layoutOk.twoSelects, '该行是两个下拉（不是只有一个）')
+
+    // 2×2 矩阵：第二行应是「物料类别 + 使用场景」
+    const matrixRows = await js(
+      `(() => {
+         const m = [...document.querySelectorAll('.mask > .modal')]
+           .find(x => ((x.querySelector('h3')||{}).innerText||'').includes(${JSON.stringify(COPY.top.newPack)}))
+         if (!m) return null
+         return [...m.querySelectorAll('.field-row')].map(r =>
+           [...r.querySelectorAll('.field > label')].map(l => (l.innerText||'').trim()).join('+'))
+       })()`
+    )
+    ok(
+      Array.isArray(matrixRows) &&
+        matrixRows.length === 2 &&
+        matrixRows[1] === [COPY.dim.category, COPY.dim.channel].join('+'),
+      `【核心】2×2 下拉矩阵第二行 = 物料类别+使用场景（实际：${JSON.stringify(matrixRows)}）`
+    )
+
     await shot('shot-b10-1-newpack-same-list.png')
+    await shot('shot-b49-1-newpack-grade.png')
     await closeTopModal()
 
     // (2c) 第 23 批【核心】标签数字含任务数 + 点标签筛任务（用户报的 bug：新建任务后

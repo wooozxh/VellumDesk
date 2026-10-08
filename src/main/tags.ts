@@ -1,5 +1,12 @@
 import { COPY, fmt } from '../shared/copy'
-import { getDb, getDimension, TAG_DIMENSIONS, UNCATEGORIZED, type TagRow } from './db'
+import {
+  getDb,
+  getDimension,
+  TAG_DIMENSIONS,
+  UNCATEGORIZED,
+  UNGRADED,
+  type TagRow
+} from './db'
 import { VISIBLE_PACK_SQL } from './workspace'
 
 /**
@@ -32,11 +39,28 @@ const CATEGORY_DIM = 'category'
  */
 const PACK_DIM_COLUMN: Record<string, string> = {
   [CATEGORY_DIM]: 'category',
-  channel: 'channel'
+  channel: 'channel',
+  // 第 49 批（docs/34）：物料分级 —— 加这一行，下面三处（改名联动 / 删除联动 / 计数）自动生效
+  grade: 'grade'
 }
 
 /**
- * 有多少个包的某个分类维度（物料类别 / 使用场景）正是这个标签名。
+ * 维度 key → 删掉该维度的标签后，用它的任务归到什么值。
+ *
+ * 第 49 批（docs/34 §3.2）：**不能一刀切用 UNCATEGORIZED**。
+ * 物料没有分级时叫「未分类」是错词 —— 读起来像"归类失败"而不是"还没定优先级"。
+ * 所以分级维度归 `UNGRADED`（未分级），其余维度仍是 `UNCATEGORIZED`（未分类）。
+ *
+ * 用不上的维度返回 null = 不参与联动（与 PACK_DIM_COLUMN 的判定保持一致）。
+ */
+const PACK_DIM_FALLBACK: Record<string, string> = {
+  [CATEGORY_DIM]: UNCATEGORIZED,
+  channel: UNCATEGORIZED,
+  grade: UNGRADED
+}
+
+/**
+ * 有多少个包的某个分类维度（物料类别 / 使用场景 / 物料分级）正是这个标签名。
  *
  * - 只有 PACK_DIM_COLUMN 里的维度参与：其余维度就算撞了同名标签，也跟包无关
  * - 统计**全库**包（含已解绑项目名下的）：那些包界面上隐身，但数据得跟着走，
@@ -129,6 +153,7 @@ export function listTagDimensions(scope?: { projectId?: number | null }): Dimens
                   WHERE (pj.archived IS NULL OR pj.archived = 0)${packScopeSql}
                     AND (CASE WHEN t.dimension = 'category' THEN kp.category = t.name
                               WHEN t.dimension = 'channel'  THEN kp.channel  = t.name
+                              WHEN t.dimension = 'grade'    THEN kp.grade    = t.name
                               ELSE 0 END)
                ) AS packCount
                  FROM tags t
@@ -241,9 +266,9 @@ export function tagUsage(id: number): { assetCount: number; packCount: number } 
   }
   return {
     assetCount: r.c,
-    // 第 10 批：删「物料类别」前要把用它的包数一并告诉用户 ——
+    // 第 10 批：删「物料类别」前要把用它的包数一并告诉用户——
     // 界面上得说清「不只是素材上的标签没了，这些包的类别也会被去掉」
-    // 第 23 批：「使用场景」同理。
+    // 第 23 批：「使用场景」同理；第 49 批（docs/34）：「物料分级」同理。
     packCount: cur ? countPacksWithDimension(cur.dimension, cur.name) : 0
   }
 }
@@ -273,10 +298,13 @@ export function removeTag(id: number): {
     db.prepare('DELETE FROM asset_tags WHERE tag_id = ?').run(id)
     db.prepare('DELETE FROM tags WHERE id = ?').run(id)
     const col = PACK_DIM_COLUMN[cur.dimension]
-    if (col) {
+    // 第 49 批（docs/34 §3.2）：兜底值**按维度取** —— 分级归「未分级」，
+    // 其余维度仍归「未分类」。写死 UNCATEGORIZED 会把分级写成「未分类」（一个错词）。
+    const fallback = PACK_DIM_FALLBACK[cur.dimension]
+    if (col && fallback) {
       packsAffected = db
         .prepare(`UPDATE packs SET ${col} = ?, updated_at = ? WHERE ${col} = ?`)
-        .run(UNCATEGORIZED, new Date().toISOString(), cur.name).changes
+        .run(fallback, new Date().toISOString(), cur.name).changes
     }
   })
   tx()
