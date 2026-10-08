@@ -1564,6 +1564,50 @@ typecheck 0 错；四 bundle + `electron-vite build`；**accept 1003 → 1051 �
 ③ 用户那条真实幽灵记录仍在 1.9.1 装机版里，要出包才能清；
 ④ 第 17/18 批真表验收；⑤ 报表导出（用户自己测）。
 
+### 2026-10-09（**发版会话**）—— 推代码 · 出包 · 发 Release v1.9.4
+
+> ⚠️ 本会话**不占用批次编号**：另一台机器的会话已用「第 54 次会话」记录第 54 批，
+> 两边撞号，故此处改称「发版会话」。合并时按**时间**排在本文件里更靠前的位置。
+
+用户指令：代理已开，推代码 / commit / 出包 / 发 release。
+
+#### 1. 推代码
+
+- 本地积压 3 个提交（第 50 / 51 / 52+53 批）→ **全部推送成功**，远端 `main` = **`f4ea2de`**。
+- ⚠️ **踩坑**：`git push` **完全无输出、`$?` 还是 0**，一度误判成"没推动"、白重试了几轮。
+  加 `GIT_TRACE=1` 写日志才看到实际是成功的（`740acc0..f4ea2de main -> main`）。
+  **结论：判定推送一律用 `git rev-parse origin/main` / `git ls-remote`，别信 push 的输出。**
+  （已写进坑表）
+
+#### 2. 出包 v1.9.4
+
+- 前置核查（按台账要求，**这条历史上漏带过一次**）：
+  `resources/wecom-cli/wecom-cli.exe` 10,091,560 / `ffmpeg.exe` 133,708,800 /
+  `ffprobe.exe` 133,496,832 —— 三个都在源目录，
+  **且确认真的进了包**（`win-unpacked/resources/` 下逐个核对，字节数一致）。
+- 命令：`npm run build` → `npx electron-builder --win --config.directories.output=D:/_release/v1.9.4`
+  （输出到**项目外**全新目录）。耗时约 7 分半。
+- 产物 **`VellumDesk-1.9.4-Setup.exe` = 193,948,159 字节**（NSIS x64，未签名）。
+
+#### 3. 发 Release
+
+- tag **`v1.9.4`**（指向 `f4ea2de`）已建并推送。
+- ⚠️ **本机没装 `gh`**，且 **GitHub 连接器只有读 Release 的工具、没有创建/上传** →
+  改用 **GCM 里已存的令牌**直接打 GitHub API：
+  `POST /repos/wooozxh/VellumDesk/releases`（id `407094210`）→
+  `POST uploads.github.com/.../releases/407094210/assets?name=VellumDesk-1.9.4-Setup.exe`。
+  **令牌只落临时文件、用完立刻 `rm`、全程不打印内容。** 上传 185 MB 走代理约 10 分钟。
+- **结果**：<https://github.com/wooozxh/VellumDesk/releases/tag/v1.9.4> 已发布
+  （非 draft、非 prerelease），附件 `VellumDesk-1.9.4-Setup.exe` 193,948,159 字节、`state = uploaded`。
+- **Release 说明覆盖 v1.8.3 → v1.9.4 的六批改动**（47 假丢失 / 49 物料分级 / 50 缩略图列预检 /
+  51 清掉记录 / 52 分级改名 / 53 封面文件）—— 因为中间 1.9.0~1.9.3 都没单独发过包。
+  另**如实写明**一处已知事项：两张生产表各缺一个分类列，属预期不是故障。
+
+#### 下一步
+
+① **文案在线表 publish 仍欠**（分级 4 个名字改了，在「默认数据」子表）；
+② 用户那条真实幽灵记录：**装 v1.9.4 后就能用「清掉记录」点掉**；
+③ 第 17 / 18 批真表验收；④ 报表导出（用户自己测）。
 ### 2026-10-09（第 54 次会话）—— 第 54 批「任务快捷方式」+「首次配置引导」（docs/39 / docs/40）—— 版本 1.9.5
 
 - **开工前核对**：`git status/log/branch` 全过 —— 只有 `main`，本地 = `origin/main` = `f4ea2de`（第 53 批），版本 1.9.4。

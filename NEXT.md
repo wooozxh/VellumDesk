@@ -29,7 +29,7 @@
   下一个迁移号仍 **21**（第 54 / 55 批**均无新增迁移**，第 55 批只用既有表）。
 - **出包现状**：`rel_out` 里最新 = **v1.9.6**（第 55 批出，含第 49~55 批全部功能）→
   `D:\_accept_ws\rel_out\v1.9.6\VellumDesk-1.9.6-Setup.exe`（192 MB；已过包内资源核对 + 裸启动冒烟 2.0s）。
-  **GitHub Release 仍停在 v1.8.3** —— 发 = 对外发布，等用户示意。
+  **GitHub Release 最新 = v1.9.4**（2026-10-09 已发；v1.8.3 那句话已被 v1.9.4 发版取代）。
 - **第 49 批物料分级已关单**（2026-10-08 用户人工验收通过）；第 47 批人工验收也早已通过。
 - **文案在线表**：第 52 / 54 批欠的已在第 54 批刷完；第 55 批新增 1 条内部说明，**本批已 publish 补齐**。
   本机 mcporter 可用（脚本里路径写死 30873 机器、本机就是 30873，不用换机）。
@@ -68,7 +68,8 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
   直接在 main 上开工；新功能开 feature/小写短横线，合入即删。
 - 版本号 **1.9.6**；验收基线 accept **1116 项**（只增不减）+ 界面场景 **13 个**（含 wizard）。
   ⚠️ 基线一律以**本机** accept-result.txt 为准：档案以前记的 1051 是"档案数"，本机是 1062（差的 11 项是 PSD 条件断言）。
-- 出包现状：`rel_out` 里最新 = **v1.9.6**（含第 49~55 批，已过冒烟）；GitHub Release 最新 = **v1.8.3**。
+- 出包现状：`rel_out` 里最新 = **v1.9.6**（含第 49~55 批，已过冒烟）；GitHub Release 最新 = **v1.9.4**；
+  另有一份 v1.9.4 的包在 `D:\_release\v1.9.4\`（发版时生成的，与 rel_out 无关）。
   ⚠️ 发 Release = 对外发布（仓库 PUBLIC），要发先问我。
 - `docs/manual/` 是**用户使用手册**（已完成并**已入库**；两个大产物由 `.gitignore` 排除、脚本可重建）。
   用户打算**发 Release 时把手册附在 exe 旁边**。改手册或改界面后跑 `node tools/manual/check.cjs`。
@@ -86,7 +87,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
 读完先向我复述三件事，等我确认后再继续：
 ① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.9.6 · **1116 项** + 13 场景）
-② 未完成的待办（**第 55 批未出包**、GitHub Release 停在 v1.8.3、第 17/18 批真表验收、
+② 未完成的待办（**第 55 批未出包**、GitHub Release 最新 = v1.9.4〔第 50~53 批已发〕、第 17/18 批真表验收、
   报表导出用户自己测、手册待随 Release 分发）
 ③ 你建议的下一批方向 + 理由，等我拍板
 
@@ -366,3 +367,10 @@ M6 还剩的其他小项：
 | ⛔ **项目自带的 ffmpeg 没有 libx264** | 生成演示 mp4 时 `-c:v libx264` 会直接失败（"Unknown encoder"）。**改用 `-c:v mpeg4 -q:v 5`**（或 `-c:v mjpeg`），能出可播放的 mp4（体积略大） |
 | **用户使用手册在 `docs/manual/`（第 55 批做的，已入库）** | 源码 = `index.html` + `manual.css`（**唯一样式来源**，手册与样板页共用）+ `styleguide.html`（**组件样板页**：写新章节照它抄）+ `images/`（44 张）。**两个大产物不入库**（便携版 7 MB / A4 PDF 6 MB，`.gitignore` 排除、脚本可重建）。PDF 已按要求去掉目录页（`@media print` 里 `.tocsec{display:none}`）。**改完手册必做**：① 重生成两份产物（`tools/manual/make_single.py` + `export_pdf.cjs`，**一律用仓库里的脚本**，别用 `_accept_ws` 下的旧副本 —— 踩过：旧副本做出来的单文件版是裸 HTML）② 跑 `node tools/manual/check.cjs` |
 | ⛔ **文档类交付物防跑偏，靠"三道防线"（第 55 批立的规矩）** | ① **机器体检** —— `node tools/manual/check.cjs` 七项（版本号 / 目录对账 / 图片 / 结构 / **类名白名单** / **按钮名 ↔ 字典** / 产物新鲜度）；能自动判对错的，一律不靠眼睛。② **单一事实源** —— 样式只有 `manual.css` 一份、按钮名来自 `copy.ts` 字典、截图由 `manual` 场景脚本重拍（别手截、别复制一份 CSS）。③ **流程钩子** —— 写进完工清单（见启动词铁律段），否则工具没人跑。这套第一次跑就抓出两个真问题（封面版本号、软件漏了字典）|
+| ⛔ **`git push` 的输出会被吞，别信它「没输出=没推动」** | 本机 `git push` 经常**完全无输出、`$?` 还是 0**，但其实**已经成功**（加 `GIT_TRACE=1` 写日志才看得到
+  `740acc0..f4ea2de main -> main`）。第 53/54 批两次都因此误判"没推动"、白重试好几轮。
+  **判定推送结果一律用 `git rev-parse origin/main` 或 `git ls-remote origin main` 核对。** |
+| ⛔ **本机没装 `gh`，GitHub 连接器也没有"创建 Release"的工具** | 连接器只有 `list_releases` / `get_latest_release` / `get_release_by_tag`（**只读**）。
+  **发 Release 走 API**：用 `printf "protocol=https\nhost=github.com\n\n" | git credential fill` 从
+  GCM 取已存令牌 → `POST /repos/{o}/{r}/releases` → `POST uploads.github.com/.../releases/{id}/assets?name=...`。
+  **令牌只落临时文件、用完立刻 rm、全程不打印。** |

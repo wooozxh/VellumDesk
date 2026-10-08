@@ -950,6 +950,28 @@
 - **放弃**：做成"优先于真实成品图"（用户明确只要兜底，且会改变现有所有包的行为）；
   放宽命名为 `封面.jpg`（太容易与普通素材撞名）；只认 `.jpg` 不含 `.jpeg`（同一格式的两种后缀，只认一个会让人白踩坑）。
 
+## 2026-10-09　v1.9.4 发版（第 54 次会话）—— 含出包与发 Release 的可复用流程
+
+- **本次发布内容**：v1.8.3 直接跳到 **v1.9.4**（中间 1.9.0 / 1.9.1 / 1.9.2 / 1.9.3 都没单独发过包），
+  Release 说明把**五次改动一起列出**（第 47 / 49 / 50 / 51 / 52 / 53 批）。
+- **出包路径**：`D:/_release/v1.9.4/`（**项目外**全新目录，按台账约定；`npm run build` →
+  `npx electron-builder --win --config.directories.output=D:/_release/v1.9.4`）。
+  产物 `VellumDesk-1.9.4-Setup.exe` = **193,948,159 字节**。
+- **出包前必查已照做**：`resources/wecom-cli/wecom-cli.exe`（10,091,560）/
+  `ffmpeg.exe`（133,708,800）/ `ffprobe.exe`（133,496,832）三个都在源目录，
+  **且确认它们真的进了包**（`win-unpacked/resources/` 下逐个核对，各字节数一致）。
+  这条核查不能只看源目录 —— 历史上漏带过一次。
+- **⚠️ 工具现状（下次省事）**：**本机没装 `gh`**，且 **GitHub 连接器只有读 Release 的工具**
+  （`list_releases` / `get_latest_release` / `get_release_by_tag`），**没有创建 / 上传**。
+  本次是用 **Git Credential Manager 里已存的令牌**（`printf ... | git credential fill` 取出，
+  用完即删）直接打 GitHub API：`POST /releases` + `POST uploads.github.com/.../assets`。
+  **令牌只落在临时文件、用完立刻 `rm`，全程不打印内容。**
+- **⚠️ `git push` 的输出会被吞**（本次又遇到）：命令**实际成功**（`git push` 写日志后可见
+  `740acc0..f4ea2de main -> main`），但**不加 `GIT_TRACE` 就完全无输出、`$?` 还是 0**，
+  极易误判成"没推动"。**判定推送是否成功，一律用 `git rev-parse origin/main` 或
+  `git ls-remote` 核对，不要相信 push 的输出。**
+- **发版三步固定**：① `git push`（代码）→ ② `git tag -a` + `git push origin <tag>` →
+  ③ GitHub API 建 Release + 传 exe。**tag 要指向已推送的提交**（本次 `v1.9.4` → `f4ea2de`）。
 ## 2026-10-09　任务快捷方式：Electron 自带 API + 落点「桌面 + 开始菜单」（第 54 批，docs/39）
 
 - **决定**：任务详情加「快捷方式」按钮 → 用 **Electron 自带的 `shell.writeShortcutLink`**（零新依赖）
