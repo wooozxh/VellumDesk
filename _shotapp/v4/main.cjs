@@ -1228,7 +1228,10 @@ app.whenReady().then(async () => {
        })()`
     )
     ok(editBox.title.includes(COPY.editPack.title), `弹窗标题：${editBox.title.trim()}`)
-    ok(editBox.fields === 4, `四块可改：名称 / 所属项目 / 物料类别 / 使用场景（${editBox.fields} 块）`)
+    ok(
+      editBox.fields === 5,
+      `五块可改：名称 / 所属项目 / 物料类别 / 使用场景 / 扫描临时文件（${editBox.fields} 块）`
+    )
     ok(
       editBox.selects === 3,
       `项目 / 物料类别 / 使用场景 三个下拉（第 23 批起类别与场景由按钮改下拉；${editBox.selects} 个）`
@@ -1776,6 +1779,143 @@ app.whenReady().then(async () => {
       q9('SELECT COUNT(*) AS c FROM assets WHERE missing_at IS NOT NULL').c === 1,
       '库里只剩 1 条真丢失的'
     )
+
+    // ============================================================
+    // 第 47 批（docs/33）：假丢失治理 —— 忽略 / 已忽略入口 / 撤销
+    // 此时还剩 1 条待处理的丢失（海报终稿.png，文件确实不在）
+    // ============================================================
+
+    // (7) 行尾「忽略」→ 从丢失列表消失、进左栏「已忽略」
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
+    await wait(600)
+    await js(
+      `(() => {
+         const e = [...document.querySelectorAll('.side .item')].find(x => x.innerText.includes(${JSON.stringify(COPY.side.missing)}))
+         if (e) e.click()
+         return 'ok'
+       })()`
+    )
+    await wait(900)
+    const ignoreBtn = await js(
+      `(() => {
+         const b = [...document.querySelectorAll('.main-scroll .file-row .act .icon-btn')]
+           .find(x => (x.getAttribute('title') || '').startsWith('忽略'))
+         if (!b) return 'no-btn'
+         b.click(); return 'ok'
+       })()`
+    )
+    ok(ignoreBtn === 'ok', `丢失行行尾有「忽略」按钮（${ignoreBtn}）`)
+    await wait(1600)
+    const afterIgnore = await js(
+      `(() => {
+         const items = [...document.querySelectorAll('.side .item')]
+         const miss = items.find(x => x.innerText.includes(${JSON.stringify(COPY.side.missing)}))
+         const ign = items.find(x => x.innerText.includes(${JSON.stringify(COPY.side.ignored)}))
+         return {
+           miss: miss ? ((miss.querySelector('.n') || {}).innerText || '').trim() : null,
+           ign: ign ? ((ign.querySelector('.n') || {}).innerText || '').trim() : null,
+           rows: document.querySelectorAll('.main-scroll .file-row').length
+         }
+       })()`
+    )
+    ok(
+      afterIgnore.miss === null && afterIgnore.ign === '1',
+      `忽略后：丢失入口消失（${afterIgnore.miss}）、「已忽略」入口 = ${afterIgnore.ign}`
+    )
+    ok(afterIgnore.rows === 0, '当前"只看丢失"的列表里已经没有它了（空态）')
+    ok(q9('SELECT COUNT(*) AS c FROM assets').c === 3, '【铁律①】记录还是 3 条（忽略不删记录）')
+    ok(
+      q9('SELECT COUNT(*) AS c FROM assets WHERE missing_ignored_at IS NOT NULL').c === 1,
+      '库里记下了忽略时刻'
+    )
+    await shot('shot-b47-1-ignored.png')
+
+    // (8) 点「已忽略」入口 → 真列出 1 条、带灰色角标、整行压暗
+    const clickIgn = await js(
+      `(() => {
+         const e = [...document.querySelectorAll('.side .item')].find(x => x.innerText.includes(${JSON.stringify(COPY.side.ignored)}))
+         if (!e) return 'no-el'
+         e.click(); return 'ok'
+       })()`
+    )
+    ok(clickIgn === 'ok', `点「${COPY.side.ignored}」入口（${clickIgn}）`)
+    await wait(900)
+    const ignRows = await js(
+      `(() => {
+         const rs = [...document.querySelectorAll('.main-scroll .file-row')]
+         return {
+           n: rs.length,
+           badges: rs.filter(r => r.querySelector('.miss-badge.ignored')).length,
+           dim: rs.filter(r => r.classList.contains('ignored')).length
+         }
+       })()`
+    )
+    ok(ignRows.n === 1, `【一致】点开真列出 ${ignRows.n} 条，与左栏数字 1 相等`)
+    ok(ignRows.badges === 1, '行上带「已忽略」角标（灰色版，与红色"文件已丢失"区分）')
+    ok(ignRows.dim === 1, '整行压暗（.ignored）')
+    await shot('shot-b47-2-ignored-list.png')
+
+    // (9) 行尾「撤销忽略」→ 回到丢失待处理
+    const undoBtn = await js(
+      `(() => {
+         const b = [...document.querySelectorAll('.main-scroll .file-row .act .icon-btn')]
+           .find(x => (x.getAttribute('title') || '').startsWith('撤销忽略'))
+         if (!b) return 'no-btn'
+         b.click(); return 'ok'
+       })()`
+    )
+    ok(undoBtn === 'ok', `已忽略行行尾是「撤销忽略」（${undoBtn}）`)
+    await wait(1600)
+    ok(
+      q9('SELECT missing_ignored_at AS i FROM assets WHERE file_name = ?', '海报终稿.png').i === null,
+      '撤销后忽略标记清空'
+    )
+    ok(
+      q9('SELECT missing_at AS m FROM assets WHERE file_name = ?', '海报终稿.png').m !== null,
+      '丢失标记仍在（文件确实还没回来）'
+    )
+
+    // (10) 「编辑任务信息」里有「扫描临时文件」开关，且默认不勾（docs/33 §5.3）
+    await pickSideItem(COPY.top.viewPacks, '.tabs button')
+    await wait(800)
+    const editOpen = await js(
+      `(() => {
+         const cards = [...document.querySelectorAll('.grid .pack-card')]
+         if (!cards.length) return 'no-card'
+         // 包视图里第一张是「未归属」虚拟卡片（没有编辑按钮），要按"有编辑入口"的那张找
+         const card = cards.find(c => c.querySelector('.pact'))
+         if (!card) return 'no-edit-btn'
+         card.querySelector('.pact').click()
+         return 'ok'
+       })()`
+    )
+    ok(editOpen === 'ok', `包卡片有编辑入口（${editOpen}）`)
+    await wait(800)
+    const editModal = await js(
+      `(() => {
+         const m = document.querySelector('.modal')
+         if (!m) return null
+         const cb = [...m.querySelectorAll('input[type=checkbox]')].find(x => {
+           const lb = x.closest('label')
+           return lb && lb.innerText.includes(${JSON.stringify(COPY.editPack.scanTempLabel)})
+         })
+         return {
+           hasLabel: m.innerText.includes(${JSON.stringify(COPY.editPack.scanTempLabel)}),
+           checked: cb ? cb.checked : null
+         }
+       })()`
+    )
+    ok(!!editModal && editModal.hasLabel, `编辑任务弹窗里有「${COPY.editPack.scanTempLabel}」`)
+    ok(!!editModal && editModal.checked === false, `开关默认不勾（${editModal && editModal.checked}）`)
+    await shot('shot-b47-3-scan-temp.png')
+    await js(
+      `(() => {
+         const b = [...document.querySelectorAll('.modal .foot .btn')].find(x => x.innerText.trim() === ${JSON.stringify(COPY.common.cancel)})
+         if (b) b.click()
+         return 'ok'
+       })()`
+    )
+    await wait(400)
   } else if (SCEN === 'versions') {
     // ============================================================
     // 第 9 批 M6：版本管理（建稿 / 自动认 / 绑定 / 设为当前 / 解绑）

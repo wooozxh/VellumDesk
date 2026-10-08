@@ -77,7 +77,9 @@ export function FileRow({
   onOpen,
   onReveal,
   onDropTag,
-  onRelocate
+  onRelocate,
+  onIgnore,
+  onUnignore
 }: {
   item: AssetItem
   selected: boolean
@@ -89,20 +91,33 @@ export function FileRow({
   onDropTag?: (tagId: number) => void
   /** 第 8 批：文件已丢失 → 点这里重新定位（M8-03） */
   onRelocate?: () => void
+  /** 第 47 批（docs/33）：忽略这条丢失记录（不再提醒；记录与标签都还在，可撤销） */
+  onIgnore?: () => void
+  /** 第 47 批：撤销忽略 → 回到「丢失待处理」 */
+  onUnignore?: () => void
 }): React.JSX.Element {
-  const missing = item.missing_at !== null
+  // 第 47 批（docs/33）：三种态要分开 ——
+  //   rawMissing：文件不在磁盘上（含已忽略的）—— 压暗与角标都看它
+  //   ignored   ：用户点过「忽略」→ **不算"丢失"**，行尾只给「撤销忽略」
+  //   missing   ：还在"待处理"的丢失 → 给「重新定位」+「忽略」
+  const rawMissing = item.missing_at !== null
+  const ignored = item.missing_ignored_at !== null
+  const missing = rawMissing && !ignored
   const cls = useMemo(
-    () => `file-row${selected ? ' sel' : ''}${missing ? ' missing' : ''}`,
-    [selected, missing]
+    () =>
+      `file-row${selected ? ' sel' : ''}${rawMissing ? ' missing' : ''}${ignored ? ' ignored' : ''}`,
+    [selected, rawMissing, ignored]
   )
   const metaLine = useMemo(() => buildMetaLine(item), [item])
   const tags = item.tags ?? []
-  const lostTitle = missing
-    ? fmt(COPY.file.missingTip, { at: item.missing_at, path: item.abs_path })
-    : COPY.file.openTip
+  const lostTitle = ignored
+    ? fmt(COPY.file.ignoredTip, { at: item.missing_ignored_at, path: item.abs_path })
+    : rawMissing
+      ? fmt(COPY.file.missingTip, { at: item.missing_at, path: item.abs_path })
+      : COPY.file.openTip
 
   return (
-    <div className={cls} onDoubleClick={missing ? undefined : onOpen}>
+    <div className={cls} onDoubleClick={rawMissing ? undefined : onOpen}>
       {selectable && (
         <input
           className="cb"
@@ -116,7 +131,7 @@ export function FileRow({
         <FileThumb item={item} />
       </div>
       <div className="info">
-        <div className="fn" onClick={missing ? undefined : onOpen} title={lostTitle}>
+        <div className="fn" onClick={rawMissing ? undefined : onOpen} title={lostTitle}>
           {item.file_name}
           {item.versionSeq ? (
             <span
@@ -130,6 +145,11 @@ export function FileRow({
               V{item.versionSeq}
             </span>
           ) : null}
+          {ignored && (
+            <span className="miss-badge ignored" title={lostTitle}>
+              <Icon name="eyeOff" size={12} />  {COPY.file.ignoredBadge}
+            </span>
+          )}
           {missing && (
             <span className="miss-badge" title={lostTitle}>
               <Icon name="warning" size={12} />  {COPY.side.missing}
@@ -170,14 +190,25 @@ export function FileRow({
       </div>
       {item.role && <span className={`role ${item.role}`}>{item.role}</span>}
       <div className="act">
-        {missing ? (
-          <button
-            className="icon-btn relocate"
-            title={COPY.file.relocateTip}
-            onClick={onRelocate}
-          >
-            <Icon name="locate" size={14} />
+        {ignored ? (
+          /* 第 47 批：已忽略的行只给一个出口 —— 撤销忽略（回到"待处理"） */
+          <button className="icon-btn undo" title={COPY.file.unignoreTip} onClick={onUnignore}>
+            <Icon name="undo" size={14} />
           </button>
+        ) : missing ? (
+          <>
+            <button
+              className="icon-btn relocate"
+              title={COPY.file.relocateTip}
+              onClick={onRelocate}
+            >
+              <Icon name="locate" size={14} />
+            </button>
+            {/* 第 47 批：「丢了也不打算找回来」（临时文件等）的出口 —— 不再提醒 */}
+            <button className="icon-btn ignore" title={COPY.file.ignoreTip} onClick={onIgnore}>
+              <Icon name="eyeOff" size={14} />
+            </button>
+          </>
         ) : (
           <button className="icon-btn" title={COPY.file.openFileTip} onClick={onOpen}>
             <Icon name="external" size={13} />

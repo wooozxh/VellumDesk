@@ -75,12 +75,22 @@ export default function App(): React.JSX.Element {
   const [resizing, setResizing] = useState(false)
 
   const [packs, setPacks] = useState<PackCardType[]>([])
-  const [stats, setStats] = useState({ packs: 0, files: 0, size: 0, unassigned: 0, missing: 0 })
+  const [stats, setStats] = useState({
+    packs: 0,
+    files: 0,
+    size: 0,
+    unassigned: 0,
+    missing: 0,
+    /** 第 47 批（docs/33）：已忽略的丢失条数（左栏「🚫 已忽略」入口） */
+    ignoredMissing: 0
+  })
   const [unassignedSize, setUnassignedSize] = useState(0)
   const [assets, setAssets] = useState<AssetItem[]>([])
   const [unassignedOnly, setUnassignedOnly] = useState(false)
-  /** 第 8 批：只看文件已丢失的（左栏「⚠️ 文件已丢失」入口） */
+  /** 第 8 批：只看文件已丢失的（左栏「⚠️ 文件已丢失」入口）；第 47 批起**不含已忽略的** */
   const [missingOnly, setMissingOnly] = useState(false)
+  /** 第 47 批（docs/33）：只看已忽略丢失的（左栏「🚫 已忽略」入口） */
+  const [ignoredOnly, setIgnoredOnly] = useState(false)
   /** 第 9 批（M6）：只看当前那一稿的文件（工具栏开关） */
   const [currentOnly, setCurrentOnly] = useState(false)
 
@@ -254,6 +264,8 @@ export default function App(): React.JSX.Element {
       unassigned: boolean,
       tagIds: number[],
       missing?: boolean,
+      /** 第 47 批（docs/33）：只看已忽略丢失的 */
+      ignored?: boolean,
       /** 第 9 批（M6）：只看当前那一稿 */
       cur?: boolean
     ): Promise<void> => {
@@ -262,6 +274,7 @@ export default function App(): React.JSX.Element {
         view: unassigned ? 'unassigned' : 'all',
         tagIds,
         missingOnly: missing === true,
+        ignoredOnly: ignored === true,
         currentOnly: cur === true,
         withTags: true
       })
@@ -278,21 +291,21 @@ export default function App(): React.JSX.Element {
       if (!i.workspaceOk) return
       await loadTags()
       await loadPacks()
-      await loadAssets('', false, [], false, false)
+      await loadAssets('', false, [], false, false, false)
     })()
   }, [loadWs, loadTags, loadPacks, loadAssets])
 
   useEffect(() => {
     if (!wsLive) return
     if (view === 'packs') loadPacks()
-    else loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
+    else loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, ignoredOnly, currentOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, unassignedOnly, missingOnly, currentOnly, wsLive])
+  }, [view, unassignedOnly, missingOnly, ignoredOnly, currentOnly, wsLive])
 
   useEffect(() => {
     if (!wsLive || view !== 'files') return
     const t = setTimeout(
-      () => loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly),
+      () => loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, ignoredOnly, currentOnly),
       220
     )
     return () => clearTimeout(t)
@@ -318,7 +331,7 @@ export default function App(): React.JSX.Element {
       prev.some((t, i) => t !== selectedTagIds[i])
     prevTagIdsRef.current = selectedTagIds
     if (tagChanged && view === 'tickets') setView('packs')
-    loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
+    loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, ignoredOnly, currentOnly)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTagIds, wsLive])
 
@@ -342,7 +355,7 @@ export default function App(): React.JSX.Element {
     if (!i.workspaceOk) return
     await loadTags(tagScope(projectFilter))
     await loadPacks()
-    await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
+    await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, ignoredOnly, currentOnly)
   }, [
     loadWs,
     loadTags,
@@ -352,6 +365,7 @@ export default function App(): React.JSX.Element {
     unassignedOnly,
     selectedTagIds,
     missingOnly,
+    ignoredOnly,
     currentOnly,
     projectFilter
   ])
@@ -371,6 +385,35 @@ export default function App(): React.JSX.Element {
     await reloadAll()
   }
 
+  /**
+   * 第 47 批（docs/33 §4.4）：忽略这些丢失记录（单条 / 批量走同一条路）。
+   * **只写标记** —— 记录、标签、包内位置一个不动；随时能在「已忽略」入口里撤销。
+   */
+  const doIgnore = async (ids: number[]): Promise<void> => {
+    if (!ids.length) return
+    const r = await window.api.ignoreMissingAssets(ids)
+    if (!r.ok) {
+      toast(COPY.common.failed, 'err')
+      return
+    }
+    toast(fmt(COPY.stat.ignoreDone, { n: r.changed }), 'ok')
+    setSelected(new Set())
+    await reloadAll()
+  }
+
+  /** 第 47 批：撤销忽略 → 这条记录回到「丢失待处理」 */
+  const doUnignore = async (ids: number[]): Promise<void> => {
+    if (!ids.length) return
+    const r = await window.api.unignoreMissingAssets(ids)
+    if (!r.ok) {
+      toast(COPY.common.failed, 'err')
+      return
+    }
+    toast(fmt(COPY.stat.unignoreDone, { n: r.changed }), 'ok')
+    setSelected(new Set())
+    await reloadAll()
+  }
+
   // ---------------- 工作区不可用时的两个出口 ----------------
 
   /** 重试：丢掉缓存重新探测一次（插上移动硬盘后用） */
@@ -384,7 +427,8 @@ export default function App(): React.JSX.Element {
     await loadPacks()
     setUnassignedOnly(false)
     setMissingOnly(false)
-    await loadAssets('', false, [], false)
+    setIgnoredOnly(false)
+    await loadAssets('', false, [], false, false)
     toast(COPY.toast.wsRestored, 'ok')
   }
 
@@ -777,7 +821,7 @@ export default function App(): React.JSX.Element {
   /** 从当前勾选的素材上摘掉某个标签（在文件行上点标签的小叉） */
   const dropTag = async (assetId: number, tagId: number): Promise<void> => {
     const r = await window.api.removeTagsFrom({ assetIds: [assetId], tagIds: [tagId] })
-    if (r.ok) await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, currentOnly)
+    if (r.ok) await loadAssets(keyword, unassignedOnly, selectedTagIds, missingOnly, ignoredOnly, currentOnly)
   }
 
   // ---------------- 打开 ----------------
@@ -876,6 +920,19 @@ export default function App(): React.JSX.Element {
     const ids = new Set(packsInProject.map((p) => p.id))
     return assets.filter((a) => a.pack_id !== null && ids.has(a.pack_id))
   }, [assets, packsInProject, projectFilter])
+
+  /**
+   * 第 47 批（docs/33 §4.5）：当前勾选里「还在待处理」的丢失行数。
+   * 大于 0 才在工具栏显示「忽略丢失」—— 选 1 条是单条忽略，选多条就是批量（同一个按钮）。
+   * 已忽略的行**不算**（它们该走「撤销忽略」，不走"忽略"）。
+   */
+  const pickedMissingCount = useMemo(
+    () =>
+      shownAssets.filter(
+        (a) => selected.has(a.id) && a.missing_at !== null && a.missing_ignored_at === null
+      ).length,
+    [shownAssets, selected]
+  )
 
   const shownSize = useMemo(() => shownAssets.reduce((s, i) => s + i.size, 0), [shownAssets])
 
@@ -1136,6 +1193,7 @@ export default function App(): React.JSX.Element {
               setView('files')
               setUnassignedOnly(true)
               setMissingOnly(false)
+              setIgnoredOnly(false)
             }}
           >
             <span>
@@ -1151,6 +1209,7 @@ export default function App(): React.JSX.Element {
                 setView('files')
                 setUnassignedOnly(false)
                 setMissingOnly(true)
+                setIgnoredOnly(false)
               }}
               title={COPY.side.missingTip}
             >
@@ -1160,12 +1219,31 @@ export default function App(): React.JSX.Element {
               <span className="n">{stats.missing}</span>
             </button>
           )}
+          {/* 第 47 批（docs/33 §4.5）：已忽略的丢失 —— 能看、能撤销（不做"眼不见为净"的软删除） */}
+          {stats.ignoredMissing > 0 && (
+            <button
+              className={`item miss-entry ignored${view === 'files' && ignoredOnly ? ' on' : ''}`}
+              onClick={() => {
+                setView('files')
+                setUnassignedOnly(false)
+                setMissingOnly(false)
+                setIgnoredOnly(true)
+              }}
+              title={COPY.side.ignoredTip}
+            >
+              <span>
+                <Icon name="eyeOff" size={13} />  {COPY.side.ignored}
+              </span>
+              <span className="n">{stats.ignoredMissing}</span>
+            </button>
+          )}
           <button
-            className={`item${view === 'files' && !unassignedOnly && !missingOnly ? ' on' : ''}`}
+            className={`item${view === 'files' && !unassignedOnly && !missingOnly && !ignoredOnly ? ' on' : ''}`}
             onClick={() => {
               setView('files')
               setUnassignedOnly(false)
               setMissingOnly(false)
+              setIgnoredOnly(false)
             }}
           >
             <span>{COPY.side.allFiles}</span>
@@ -1348,7 +1426,15 @@ export default function App(): React.JSX.Element {
               <div className="empty">
                 <div className="big">
                   <Icon
-                    name={unassignedOnly ? 'fileLoose' : missingOnly ? 'check' : 'search'}
+                    name={
+                      unassignedOnly
+                        ? 'fileLoose'
+                        : missingOnly
+                          ? 'check'
+                          : ignoredOnly
+                            ? 'eyeOff'
+                            : 'search'
+                    }
                     size={34}
                     strokeWidth={1.1}
                   />
@@ -1358,9 +1444,11 @@ export default function App(): React.JSX.Element {
                     ? COPY.empty.unassigned
                     : missingOnly
                       ? COPY.empty.noMissing
-                      : keyword
-                        ? COPY.empty.noMatch
-                        : COPY.empty.noAssets}
+                      : ignoredOnly
+                        ? COPY.empty.noIgnored
+                        : keyword
+                          ? COPY.empty.noMatch
+                          : COPY.empty.noAssets}
                 </div>
                 <div className="s">
                   
@@ -1451,18 +1539,40 @@ export default function App(): React.JSX.Element {
                     
                     {COPY.stat.currentOnly}
                   </label>
-                  {/* 第 8 批：一批文件被整体挪走时的批量找回入口 */}
-                  {stats.missing > 0 && (
-                    <button
-                      className="btn"
-                      style={{ marginLeft: 'auto', padding: '2px 10px' }}
-                      onClick={() => setShowRelocate(true)}
-                      title={COPY.stat.relocateTip}
-                    >
-                      <Icon name="locate" size={12} />  {COPY.stat.relocateBtn}
-                      {missingOnly ? fmt(COPY.stat.missingCount, { n: stats.missing }) : ''}
-                    </button>
-                  )}
+                  {/* 第 47 批 + 第 8 批：丢失相关的两个批量出口（右对齐成组） */}
+                  <div
+                    style={{
+                      marginLeft: 'auto',
+                      display: 'flex',
+                      gap: 8,
+                      alignItems: 'center'
+                    }}
+                  >
+                    {/* 第 47 批（docs/33 §4.5）：勾了「待处理」的丢失行才出现 —— 单条 / 多条走同一条路 */}
+                    {pickedMissingCount > 0 && (
+                      <button
+                        className="btn primary"
+                        style={{ padding: '2px 10px' }}
+                        onClick={() => void doIgnore([...selected])}
+                        title={COPY.stat.ignoreTip}
+                      >
+                        <Icon name="eyeOff" size={12} />  {COPY.stat.ignoreBtn} (
+                        {pickedMissingCount})
+                      </button>
+                    )}
+                    {/* 第 8 批：一批文件被整体挪走时的批量找回入口 */}
+                    {stats.missing > 0 && (
+                      <button
+                        className="btn"
+                        style={{ padding: '2px 10px' }}
+                        onClick={() => setShowRelocate(true)}
+                        title={COPY.stat.relocateTip}
+                      >
+                        <Icon name="locate" size={12} />  {COPY.stat.relocateBtn}
+                        {missingOnly ? fmt(COPY.stat.missingCount, { n: stats.missing }) : ''}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {shownAssets.map((a) => (
@@ -1483,6 +1593,8 @@ export default function App(): React.JSX.Element {
                     onReveal={() => window.api.revealFile(a.abs_path)}
                     onDropTag={(tagId) => void dropTag(a.id, tagId)}
                     onRelocate={() => void doRelocate(a.id)}
+                    onIgnore={() => void doIgnore([a.id])}
+                    onUnignore={() => void doUnignore([a.id])}
                   />
                 ))}
               </>

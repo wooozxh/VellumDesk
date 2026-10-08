@@ -791,8 +791,36 @@ function detectVersions(
   return { newVersions, versionConflicts: conflicts }
 }
 
-/** 递归收集某个包文件夹下所有文件（跳过下划线 / 点开头的软件目录） */
-function collectFiles(dir: string, out: string[] = []): string[] {
+/**
+ * 第 47 批（docs/33 §3.2）：这个文件名算不算「临时文件」。
+ *
+ * 规则刻意收得很窄 —— 宁可漏放几个，也别误伤用户的真实素材：
+ *   ① `~` 开头 —— 设计软件暂存（`~S…`）/ Office 锁文件（`~$…`）/ Word 恢复文件（`~WRL…tmp`）
+ *   ② `~` 结尾 —— 编辑器的备份文件（`方案.pptx~`）
+ *   ③ 扩展名 ∈ { tmp temp crdownload part partial !ut } —— 通用临时、下载未完成
+ *   ④ 固定名 Thumbs.db / desktop.ini —— Windows 自动生成的元数据
+ * 匹配一律先转小写（Windows 文件系统不区分大小写）。
+ *
+ * 导出成纯函数：accept 直接断言"该拦的拦、不该拦的不拦"（§9.1 [35] 段）。
+ */
+const TEMP_FILE_EXTS = new Set(['tmp', 'temp', 'crdownload', 'part', 'partial', '!ut'])
+
+export function isTempFile(fileName: string): boolean {
+  const n = fileName.toLowerCase()
+  if (n.startsWith('~') || n.endsWith('~')) return true
+  if (n === 'thumbs.db' || n === 'desktop.ini') return true
+  const dot = n.lastIndexOf('.')
+  if (dot > 0) return TEMP_FILE_EXTS.has(n.slice(dot + 1))
+  return false
+}
+
+/**
+ * 递归收集某个包文件夹下所有文件（跳过下划线 / 点开头的软件目录）。
+ *
+ * `skipTemp`（第 47 批 docs/33 §5.2）：为真时跳过临时文件（见 `isTempFile`）。
+ * 是否跳过由**所属任务的 `scan_temp`** 决定，调用方（`scanAll`）负责算好传进来。
+ */
+function collectFiles(dir: string, out: string[] = [], skipTemp = false): string[] {
   let entries: string[]
   try {
     entries = readdirSync(dir)
@@ -808,14 +836,20 @@ function collectFiles(dir: string, out: string[] = []): string[] {
     } catch {
       continue
     }
-    if (st.isDirectory()) collectFiles(full, out)
-    else if (st.isFile()) out.push(full)
+    if (st.isDirectory()) collectFiles(full, out, skipTemp)
+    else if (st.isFile()) {
+      if (skipTemp && isTempFile(name)) continue
+      out.push(full)
+    }
   }
   return out
 }
 
-/** 直接躺在某个目录下的文件（不递归） */
-function filesDirectlyIn(dir: string): string[] {
+/**
+ * 直接躺在某个目录下的文件（不递归）。
+ * `skipTemp`（第 47 批）：未归属散文件不属于任何任务，调用方一律传 true。
+ */
+function filesDirectlyIn(dir: string, skipTemp = false): string[] {
   let entries: string[]
   try {
     entries = readdirSync(dir)
@@ -825,6 +859,7 @@ function filesDirectlyIn(dir: string): string[] {
   const out: string[] = []
   for (const name of entries) {
     if (name.startsWith('_') || name.startsWith('.')) continue
+    if (skipTemp && isTempFile(name)) continue
     const full = join(dir, name)
     try {
       if (statSync(full).isFile()) out.push(full)
@@ -844,6 +879,7 @@ function filesDirectlyIn(dir: string): string[] {
  *   3. 磁盘上有的包、库里没有 → 补记录
  *      （项目文件夹下的挂到该项目；游离包 `project_id` 留空 = 界面上的「待归类」）
  *   4. 收集文件 → upsert（role 深度无关判定）
+ *      （第 47 批 docs/33：默认**跳过临时文件** —— 逐包看 `packs.scan_temp`，见第 3 步）
  *   4.5 版本识别（第 9 批 M6）：磁盘上名字像 `V2` 的文件夹自动认成稿；文件挂上 version_id
  *   5. 失效检查：磁盘上已不存在的素材记录 → 打「文件已丢失」标记（第 8 批 M8-03，
  *      **不再删记录**）；文件挪回来自动清标记
@@ -890,12 +926,19 @@ export function scanAll(workspaceRoot: string): ScanResult {
   }
 
   // 3. 收集所有文件
+  //    第 47 批（docs/33 §5.2）：**按任务逐包判定** —— 包的 `scan_temp = 0`（默认）时跳过临时文件；
+  //    勾了「扫描临时文件」的任务（`scan_temp = 1`）照旧全收。
+  //    未归属散文件不属于任何任务，没地方挂"例外开关" → **永远跳过**临时文件。
+  const packScanTemp = db.prepare('SELECT scan_temp FROM packs WHERE folder_path = ?')
   const allFiles: string[] = []
-  for (const p of packPlan) collectFiles(p.dir, allFiles)
+  for (const p of packPlan) {
+    const row = packScanTemp.get(p.dir) as { scan_temp: number } | undefined
+    collectFiles(p.dir, allFiles, row?.scan_temp !== 1)
+  }
   if (rootReadable) {
     // 根目录下、项目文件夹下**直接躺着**的散文件 → 未归属池
-    allFiles.push(...filesDirectlyIn(workspaceRoot))
-    for (const pd of projectDirs) allFiles.push(...filesDirectlyIn(pd))
+    allFiles.push(...filesDirectlyIn(workspaceRoot, true))
+    for (const pd of projectDirs) allFiles.push(...filesDirectlyIn(pd, true))
   }
 
   // 4. 逐个 upsert。铁则：只登记，永不删除用户文件
@@ -1046,8 +1089,12 @@ export function markMissingAssets(rootReadable: boolean): {
   }>
 
   const markLost = db.prepare('UPDATE assets SET missing_at = ? WHERE id = ?')
+  // 第 47 批（docs/33 §4.3）：文件回来了，**两个标记一起清** ——
+  // 既清「丢失」，也清「已忽略」（这条记录又有效了，不该继续躺在"已忽略"里）。
   const markBack = db.prepare(
-    'UPDATE assets SET missing_at = NULL, size = ?, modified_at = ? WHERE id = ?'
+    `UPDATE assets
+        SET missing_at = NULL, missing_ignored_at = NULL, size = ?, modified_at = ?
+      WHERE id = ?`
   )
 
   let markedMissing = 0
@@ -2093,7 +2140,14 @@ function removeProjectToTrash(
 export function movePackTo(
   workspaceRoot: string,
   packId: number,
-  target: { projectId: number | null; name: string; category: string; channel: string }
+  target: {
+    projectId: number | null
+    name: string
+    category: string
+    channel: string
+    /** 第 47 批（docs/33 §5.1）：扫描临时文件开关。不传 = 保持原值（纯数据，不碰磁盘） */
+    scanTemp?: boolean
+  }
 ): UpdatePackResult {
   const db = getDb()
   const cur = db.prepare('SELECT * FROM packs WHERE id = ?').get(packId) as PackRow | undefined
@@ -2112,9 +2166,10 @@ export function movePackTo(
   if (!name) return { ok: false, error: COPY.packErr.nameEmpty }
   const category = target.category.trim() || UNCATEGORIZED
   const channel = target.channel.trim() || UNCATEGORIZED
+  // 第 47 批（docs/33 §5.1）：临时文件开关 —— 不传就保持原值
+  const scanTemp = target.scanTemp === undefined ? cur.scan_temp : target.scanTemp ? 1 : 0
 
-  // ---- 目标文件夹 ----
-  // 名字与父目录都没变就别加 -2 后缀（uniqueFolderPath 只认 existsSync，会误判自己）
+  // ---- 目标文件夹 ----  // 名字与父目录都没变就别加 -2 后缀（uniqueFolderPath 只认 existsSync，会误判自己）
   const want = join(parentDir, sanitizeFolderName(name))
   const to =
     want.toLowerCase() === cur.folder_path.toLowerCase()
@@ -2122,11 +2177,11 @@ export function movePackTo(
       : uniqueFolderPath(parentDir, sanitizeFolderName(name))
   const needMove = to.toLowerCase() !== cur.folder_path.toLowerCase()
 
-  // 只改类别 / 场景 → 纯数据，不碰磁盘
+  // 只改类别 / 场景 / 临时文件开关 → 纯数据，不碰磁盘
   if (!needMove) {
     db.prepare(
-      'UPDATE packs SET name = ?, category = ?, channel = ?, project_id = ?, updated_at = ? WHERE id = ?'
-    ).run(name, category, channel, target.projectId, nowIso(), packId)
+      'UPDATE packs SET name = ?, category = ?, channel = ?, scan_temp = ?, project_id = ?, updated_at = ? WHERE id = ?'
+    ).run(name, category, channel, scanTemp, target.projectId, nowIso(), packId)
     return { ok: true, pack: getPackRow(packId) }
   }
 
@@ -2147,8 +2202,8 @@ export function movePackTo(
     let paths = 0
     db.transaction(() => {
       db.prepare(
-        'UPDATE packs SET name = ?, category = ?, channel = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
-      ).run(name, category, channel, to, target.projectId, nowIso(), packId)
+        'UPDATE packs SET name = ?, category = ?, channel = ?, scan_temp = ?, folder_path = ?, project_id = ?, updated_at = ? WHERE id = ?'
+      ).run(name, category, channel, scanTemp, to, target.projectId, nowIso(), packId)
       paths = reprefixPaths(workspaceRoot, cur.folder_path, to)
     })()
     return { ok: true, pack: getPackRow(packId), moved: { from: cur.folder_path, to, paths } }
@@ -2175,6 +2230,8 @@ export interface UpdatePackPatch {
   channel?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
+  /** 第 47 批（docs/33 §5.3）：扫描时是否收临时文件（纯数据，不碰磁盘） */
+  scanTemp?: boolean
 }
 
 export interface UpdatePackResult {
@@ -2188,6 +2245,7 @@ export interface UpdatePackResult {
  * 第 7 批 ②：改包信息（名称 / 类别 / 所属项目）。
  *
  * - 只改类别 → 不碰磁盘
+ * - 只改临时文件开关（第 47 批 docs/33）→ 同上，纯数据
  * - 改名称 → **连带改文件夹名**（与项目改名一个规矩："软件里看到什么，硬盘上就是什么"）
  * - 改项目 → 搬文件夹（③ 待归类归位就是 `projectId: null → N`）
  */
@@ -2206,7 +2264,14 @@ export function updatePack(
   const channel = patch.channel === undefined ? cur.channel : patch.channel.trim() || UNCATEGORIZED
   const projectId = patch.projectId === undefined ? cur.project_id : patch.projectId
 
-  return movePackTo(workspaceRoot, packId, { projectId, name, category, channel })
+  return movePackTo(workspaceRoot, packId, {
+    projectId,
+    name,
+    category,
+    channel,
+    // 第 47 批（docs/33 §5.1）：临时文件开关；patch 没带就保持原值
+    scanTemp: patch.scanTemp
+  })
 }
 
 // ---------------------------------------------------------------- 项目解绑 / 还原
@@ -2453,7 +2518,7 @@ export function listVersions(packId: number): PackVersion[] {
   const stat = db.prepare(
     `SELECT COUNT(*) AS c,
             COALESCE(SUM(CASE WHEN missing_at IS NULL THEN size ELSE 0 END), 0) AS s,
-            COALESCE(SUM(CASE WHEN missing_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS m
+            COALESCE(SUM(CASE WHEN missing_at IS NOT NULL AND missing_ignored_at IS NULL THEN 1 ELSE 0 END), 0) AS m
        FROM assets WHERE version_id = ?`
   )
 
@@ -2838,7 +2903,7 @@ export function listPacks(): PackWithStats[] {
       .prepare(
         `SELECT COUNT(*) AS c,
                 COALESCE(SUM(CASE WHEN missing_at IS NULL THEN size ELSE 0 END), 0) AS s,
-                COALESCE(SUM(CASE WHEN missing_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS m
+                COALESCE(SUM(CASE WHEN missing_at IS NOT NULL AND missing_ignored_at IS NULL THEN 1 ELSE 0 END), 0) AS m
            FROM assets WHERE pack_id = ?`
       )
       .get(p.id) as { c: number; s: number; m: number }
@@ -2895,8 +2960,11 @@ export function listAssets(opts: {
   filterProjectIds?: number[]
   /** 是否把每条素材的标签一起带出来（tagId 数组 + 名称色块） */
   withTags?: boolean
-  /** 第 8 批：只看文件已丢失的（左栏「⚠️ 文件已丢失」入口） */
+  /** 第 8 批：只看文件已丢失的（左栏「⚠️ 文件已丢失」入口）。
+   *  第 47 批（docs/33 §4.2）：**已忽略的不算丢失**，口径与 assetTotals / listPacks 严格一致 */
   missingOnly?: boolean
+  /** 第 47 批（docs/33 §4.2）：只看已忽略丢失的（左栏「🚫 已忽略」入口） */
+  ignoredOnly?: boolean
   /** 第 9 批（M6）：只看当前那一稿的文件（工具栏「只看当前稿」开关）。
    *  未分版本的老文件**不算**当前版本的文件，开关打开时它们不出现 */
   currentOnly?: boolean
@@ -2909,7 +2977,10 @@ export function listAssets(opts: {
   where.push(`(${VISIBLE_PACK_SQL})`)
 
   // 第 8 批：只看丢了文件的（可与项目 / 标签筛选叠加 —— where 本来就是 AND）
-  if (opts.missingOnly) where.push('a.missing_at IS NOT NULL')
+  // 第 47 批（docs/33 §4.2）：两条口径严格互斥 —— 「丢失」不含已忽略的，「已忽略」只看已忽略的，
+  // 这样左栏两个数字与各自点开后的条数永远相等（第 7 批教训：筛选器数字必须与结果一致）。
+  if (opts.missingOnly) where.push('a.missing_at IS NOT NULL AND a.missing_ignored_at IS NULL')
+  if (opts.ignoredOnly) where.push('a.missing_ignored_at IS NOT NULL')
 
   // 第 9 批（M6）：只看当前那一稿的文件
   if (opts.currentOnly) {
@@ -3011,7 +3082,7 @@ export function getPackDetail(packId: number): {
     .prepare(
       `SELECT COUNT(*) AS c,
               COALESCE(SUM(CASE WHEN missing_at IS NULL THEN size ELSE 0 END), 0) AS s,
-              COALESCE(SUM(CASE WHEN missing_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS m
+              COALESCE(SUM(CASE WHEN missing_at IS NOT NULL AND missing_ignored_at IS NULL THEN 1 ELSE 0 END), 0) AS m
          FROM assets WHERE pack_id = ?`
     )
     .get(packId) as { c: number; s: number; m: number }
@@ -3059,24 +3130,67 @@ export function countUnassigned(): number {
  * 第 8 批口径（用户拍板）：**条数算上丢失的**（记录还在，界面能看到也能重新定位），
  * **容量不算**（文件已经不在本地占空间了，算进去会让"占用 X GB"虚高，误导用户去清理）。
  */
-export function assetTotals(): { count: number; size: number; missing: number } {
+export function assetTotals(): {
+  count: number
+  size: number
+  missing: number
+  ignoredMissing: number
+} {
   const db = getDb()
   const r = db
     .prepare(
       `SELECT COUNT(*) AS c,
               COALESCE(SUM(CASE WHEN a.missing_at IS NULL THEN a.size ELSE 0 END), 0) AS s,
-              COALESCE(SUM(CASE WHEN a.missing_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS m
+              COALESCE(SUM(CASE WHEN a.missing_at IS NOT NULL AND a.missing_ignored_at IS NULL
+                                THEN 1 ELSE 0 END), 0) AS m,
+              COALESCE(SUM(CASE WHEN a.missing_ignored_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS ig
          FROM assets a
          LEFT JOIN packs k ON k.id = a.pack_id
         WHERE ${VISIBLE_PACK_SQL}`
     )
-    .get() as { c: number; s: number; m: number }
-  return { count: r.c, size: r.s, missing: r.m }
+    .get() as { c: number; s: number; m: number; ig: number }
+  // 第 47 批（docs/33 §4.2）：`missing` 只算"还没被忽略"的；已忽略的单独数一个 `ignoredMissing`。
+  // 容量口径不变（`missing_at IS NULL`）—— 已忽略的文件也确实不在磁盘上，不该算进占用。
+  return { count: r.c, size: r.s, missing: r.m, ignoredMissing: r.ig }
 }
 
 /** 第 8 批：可见素材里「文件已丢失」的条数（左栏入口的角标，必须与点开后列出的条数相等） */
 export function countMissing(): number {
   return assetTotals().missing
+}
+
+/** 第 47 批（docs/33 §4.2）：可见素材里「已忽略丢失」的条数（左栏「已忽略」入口角标，口径同上） */
+export function countIgnoredMissing(): number {
+  return assetTotals().ignoredMissing
+}
+
+/**
+ * 第 47 批（docs/33 §4.4）：忽略这些丢失记录 —— **只写标记**，记录、标签、包内位置一个不动。
+ * 语义是"我不打算找回了，别再提醒我"，不是删除；随时可用 `unignoreMissingAssets` 撤销。
+ * 只对**当前确实处于丢失态**的行生效（已忽略的再点一次无副作用，时间戳不刷新）。
+ */
+export function ignoreMissingAssets(ids: number[]): { ok: boolean; changed: number } {
+  if (!ids.length) return { ok: true, changed: 0 }
+  const db = getDb()
+  const ph = ids.map(() => '?').join(',')
+  const info = db
+    .prepare(
+      `UPDATE assets SET missing_ignored_at = ?
+        WHERE id IN (${ph}) AND missing_at IS NOT NULL AND missing_ignored_at IS NULL`
+    )
+    .run(nowIso(), ...ids)
+  return { ok: true, changed: info.changes }
+}
+
+/** 第 47 批（docs/33 §4.4）：撤销忽略 → 这条记录回到「丢失待处理」 */
+export function unignoreMissingAssets(ids: number[]): { ok: boolean; changed: number } {
+  if (!ids.length) return { ok: true, changed: 0 }
+  const db = getDb()
+  const ph = ids.map(() => '?').join(',')
+  const info = db
+    .prepare(`UPDATE assets SET missing_ignored_at = NULL WHERE id IN (${ph})`)
+    .run(...ids)
+  return { ok: true, changed: info.changes }
 }
 
 // ================================================================ 第 5 批 E-01：工作区管理与迁移

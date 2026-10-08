@@ -6,11 +6,11 @@
 
 ---
 
-## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 从 GitHub 拉取最新后核对）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 第 47 批施工后核对）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| **`main`**（唯一） | `ebb7c0d`（= `origin/main`） | 第 1~28 批全部功能 + 全站改名（docs/28）；版本 **1.8.3**（已发 GitHub Release） | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
+| **`main`**（唯一） | 第 47 批提交（= `origin/main`，见 PROGRESS 第 47 次会话） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；版本 **1.8.3**（已发 GitHub Release） | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
 
 要点：
 
@@ -30,7 +30,7 @@
   **1.8.3 = 第 28 批 + 新 LOGO 图标（ico 7 尺寸 + 512 png）—— 最新已发**
   （GitHub Release `v1.8.3`，2026-10-08 00:44 发布，附 `VellumDesk-1.8.3-Setup.exe`；
   **本机 `rel_out` 里没有它，那次出包在另一台机器上做的**）；
-  **下一批从 1.8.4 起**。
+  **第 47 批（假丢失治理）= 1.9.0（带新功能）—— 代码已完工、未出包；下一批从 1.9.1 起**。
 
 ---
 
@@ -40,10 +40,11 @@
 开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
-本机现状（2026-10-08 从 GitHub 拉取最新后核对，开工前请再跑一次 git status / git log 确认）：
-- 分支只有 main（= origin/main = ebb7c0d，含第 1~28 批 + 全站改名 docs/28）。直接在 main 上开工；
+本机现状（2026-10-08 第 47 批施工后核对，开工前请再跑一次 git status / git log 确认）：
+- 分支只有 main（= origin/main，含第 1~28 批 + 第 47 批 + 全站改名 docs/28）。直接在 main 上开工；
   新功能开 feature/小写短横线，合入即删。
-- 版本 1.8.3（已发 GitHub Release）；验收基线 accept **871 项**（2026-10-08 本机实测全过，只增不减）；
+- 版本 1.8.3（已发 GitHub Release；**第 47 批代码已落地、待出包 1.9.0**）；
+  验收基线 accept **931 项**（2026-10-08 本机实测全过，只增不减）；
   界面场景 12 个（banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned）。
 - 下一个迁移号 18（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
   15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel）。
@@ -56,11 +57,11 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 4. D:\proj_media\NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
 5. D:\proj_media\README.md    —— 验收三件套与界面场景命令
 6. D:\proj_media\docs\28-全站改名方案.md —— 全站改名（软件 / 仓库 / 目录 / 图标）
-7. D:\proj_media\docs\32-打包交付尺寸与命名修正.md + D:\proj_media\docs\31-工单定时自动同步方案.md
-   —— 最近两个功能批（第 28 / 26 批）
+7. D:\proj_media\docs\33-假丢失治理方案.md + D:\proj_media\docs\32-打包交付尺寸与命名修正.md
+   —— 最近两个功能批（第 47 / 28 批）
 
 读完先向我复述三件事，等我确认后再继续：
-① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.3 · **871 项** + 12 场景）
+① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.3 · **931 项** + 12 场景）
 ② 未完成的待办（见本文件第四节：文案在线表待刷〔第 28 批 3 条〕、真表人工验收收尾、
   换机跑时 PSD 样本断言缺失待拍板 —— 见 PROGRESS 第 46 次会话「环境备注」）
 ③ 你建议的下一批方向 + 理由，等我拍板
@@ -78,7 +79,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 - 每步结束时软件必须能正常启动
 - 需求文档是唯一权威，我改主意就先改文档再改代码；文档没写到的先问我，不要自己拍板
 - 每步收尾跑验收三件套：typecheck → 重打 out/test 三个 bundle →
-  NODE_OPTIONS= node out/test/accept.cjs（当前 871 项，只许增不许减）；界面改动再跑
+  NODE_OPTIONS= node out/test/accept.cjs（当前 931 项，只许增不许减）；界面改动再跑
   NODE_OPTIONS= node _shotapp/run-verify4.cjs
   banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts

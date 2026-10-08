@@ -17,7 +17,7 @@
 
 | 分支 | 是什么 | 状态 |
 |---|---|---|
-| `main` | 第 1~22 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.8.1-Setup.exe` 待装机验收 |
+| `main` | 第 1~28 批 + 第 47 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.8.3-Setup.exe`（已发 GitHub Release） |
 
 - 2026-10-05 起**只保留 `main`**：历史功能分支（`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）全部合并进 `main` 后删除（`feature/wecom-bundle` 为 ff 合并，无信息丢失）。
 - 仓库：`https://github.com/wooozxh/VellumDesk`（2026-10-05 由 `media-lib_zxh` 重命名，旧链接自动重定向）。
@@ -83,7 +83,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 800 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 931 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -91,7 +91,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs wslist            # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs threelevel        # 界面验证：三级结构迁移提示条（第 6 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs lifecycle         # 界面验证：记录生命周期六件事（第 7 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs tagcount          # 界面验证：标签计数口径（第 7 批补）
-NODE_OPTIONS= node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs missing           # 界面验证：文件已丢失标记 + 重新定位（第 8 批）+ 忽略 / 已忽略入口 / 撤销 / 扫描开关（第 47 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：版本条 / 新建 / 绑定 / 回滚 / 解绑 / 新建包自带 V1（第 9 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（**顶栏第一格 + 启动默认**，第 22 批起 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
@@ -136,10 +136,10 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 
 ## 改文案（文案字典 + 在线表格）
 
-全软件 **637 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
+全软件 **742 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
 
 - 表：**素材管家 · 文案清单** → https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD
-  （`1-界面文案` 607 条 / `2-默认数据` 30 条，`改成（你填这列）` **留空 = 不改**）
+  （`1-界面文案` 712 条 / `2-默认数据` 30 条，`改成（你填这列）` **留空 = 不改**）
 - 完整流程与脚本说明：**`tools/copy-sheet/README.md`**
 - 一句话流程：**表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`**
   （`publish.cjs` 把 `copy.ts` 刷回同一张表、清空「改成」列，**链接不变可反复改**）
@@ -192,7 +192,8 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 - **重新定位**：丢失行尾 🔍 → 指到文件的新位置（校验：文件名 + 扩展名 + 大小全对才接受）；整批被挪走时用工具栏「批量重新定位」—— 先预览匹配结果、勾选后才落库
 - 统计口径（拍板）：**条数算、容量不算**；包卡片挂 `⚠ N` 角标
 - 四道门防误标：根目录读失败（移动硬盘没插）/ 文件真不在 / 项目未解绑 / 所属包文件夹还在（整包被删走包清理，留痕带文件清单）
-- 方案全文见 `docs/10-文件丢失标记方案.md`
+- **第 47 批（docs/33）补了两个出口**：① **忽略** —— 不打算找回的丢失（典型是设计软件生成的临时文件，软件一关就被删）可以标记忽略：不再报警、**记录与标签全留、随时可撤销**；② **临时文件默认不扫描** —— `~S` / `~$` / `*.tmp` / `Thumbs.db` 这类文件扫描时直接跳过（从源头不产生假丢失），某个任务确实要管它们时，在「编辑任务信息」里勾「扫描临时文件」
+- 方案全文见 `docs/10-文件丢失标记方案.md`；第 47 批的增量见 `docs/33-假丢失治理方案.md`
 
 ## 版本管理（第 9 批）
 

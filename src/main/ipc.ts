@@ -34,6 +34,10 @@ import {
   listUnboundProjects,
   assetTotals,
   countMissing,
+  // 第 47 批：假丢失治理（docs/33）
+  countIgnoredMissing,
+  ignoreMissingAssets,
+  unignoreMissingAssets,
   relocateAsset,
   suggestRelocateBatch,
   applyRelocateBatch,
@@ -202,7 +206,7 @@ export function registerIpc(): void {
     if (!st.ok) {
       // 工作区不可用时数据库根本打不开，直接返回空数据交给界面提示，
       // 不让异常冒到渲染进程控制台
-      return { ...base, projects: [], unassigned: 0, unboundProjects: [], missing: 0 }
+      return { ...base, projects: [], unassigned: 0, unboundProjects: [], missing: 0, ignoredMissing: 0 }
     }
     initWorkspace(st.root)
     return {
@@ -212,7 +216,9 @@ export function registerIpc(): void {
       // 第 7 批：已解绑的项目（左栏「已解绑 N 个项目」入口用）
       unboundProjects: listUnboundProjects(),
       // 第 8 批：文件已丢失的条数（左栏「⚠️ 文件已丢失」入口用）
+      // 第 47 批（docs/33 §4.2）：已忽略的**不算**丢失，单独数一个给「🚫 已忽略」入口
       missing: countMissing(),
+      ignoredMissing: countIgnoredMissing(),
       // 第 6 批：刚把目录结构升级过的话告诉界面（只提示一次，界面 ack 后不再出现）
       layoutMigrated: readLayoutNotice() ?? undefined
     }
@@ -565,7 +571,9 @@ export function registerIpc(): void {
         files: stat.count,
         size: stat.size,
         unassigned: countUnassigned(),
-        missing: stat.missing
+        // 第 47 批（docs/33 §4.2）：已忽略的不算丢失，单独数一个给左栏「🚫 已忽略」入口
+        missing: stat.missing,
+        ignoredMissing: stat.ignoredMissing
       }
     }
   })
@@ -583,8 +591,10 @@ export function registerIpc(): void {
         tagIds?: number[]
         filterProjectIds?: number[]
         withTags?: boolean
-        /** 第 8 批：只看文件已丢失的 */
+        /** 第 8 批：只看文件已丢失的（第 47 批起**不含已忽略的**） */
         missingOnly?: boolean
+        /** 第 47 批：只看已忽略丢失的 */
+        ignoredOnly?: boolean
         /** 第 9 批：只看当前那一稿的文件 */
         currentOnly?: boolean
       }
@@ -600,6 +610,7 @@ export function registerIpc(): void {
         tagIds: o.tagIds,
         filterProjectIds: o.filterProjectIds,
         missingOnly: o.missingOnly,
+        ignoredOnly: o.ignoredOnly,
         currentOnly: o.currentOnly
       })
       // 第 3 批：需要标签时一并带出（列表色块展示）
@@ -774,6 +785,24 @@ export function registerIpc(): void {
       return applyRelocateBatch(items ?? [], root)
     }
   )
+
+  /**
+   * 第 47 批（docs/33 §4.4）：忽略这些丢失记录（可一次传多条 = 批量）。
+   * **只写标记** —— 记录、标签、包内位置一个不动；随时可用下面的 unignore 撤销。
+   * 界面上的三个入口（行尾 / 工具栏批量 / 已忽略列表里的恢复）都走这两个通道。
+   */
+  ipcMain.handle('asset:ignoreMissing', (_e, ids: number[]) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return ignoreMissingAssets(ids ?? [])
+  })
+
+  /** 第 47 批：撤销忽略 → 这条记录回到「丢失待处理」 */
+  ipcMain.handle('asset:unignoreMissing', (_e, ids: number[]) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return unignoreMissingAssets(ids ?? [])
+  })
 
   // ---------- 第 3 批：标签体系（M2） ----------
   ipcMain.handle('tag:dimensions', (_e, scope?: { projectId?: number | null }) => {

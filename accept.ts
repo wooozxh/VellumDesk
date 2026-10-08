@@ -77,7 +77,14 @@ import {
   listVersionMap,
   ensureCurrentVersion,
   // 第 9 批补：新建包自带的第一稿文件夹名
-  FIRST_VERSION_FOLDER
+  FIRST_VERSION_FOLDER,
+  // 第 47 批：假丢失治理（docs/33）
+  countMissing,
+  countIgnoredMissing,
+  assetTotals,
+  ignoreMissingAssets,
+  unignoreMissingAssets,
+  isTempFile
 } from './src/main/workspace'
 // 第 15 批：交付打包（M5，docs/18）
 import { buildPackExportPlan, executePackExport, listDeliveryRecords, previewPackExport } from './src/main/exportPack'
@@ -5063,6 +5070,217 @@ async function main(): Promise<void> {
     ok(!isCompletePng(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(10), Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])])), '头对但尾部不是 IEND → 不完整，继续等')
     ok(!isCompletePng(Buffer.concat([Buffer.from('GIF89a!!'), Buffer.alloc(20), Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])])), '尾部像 IEND 但头部不是 PNG 签名 → 不完整，继续等')
   }
+
+  // ================================================================
+  log('\n[40] 第 47 批：假丢失治理 —— 忽略 / 撤销 / 计数口径（docs/33 §4）')
+
+  const w47Root = join('D:\\_accept_ws', `wstest47_${RUN_ID}`)
+  const w47Ws = join(w47Root, 'ws')
+  hardRm(w47Root)
+  mkdirSync(w47Ws, { recursive: true })
+  closeDb()
+  openDb(w47Ws)
+  initWorkspace(w47Ws)
+
+  const w47RowOf = (
+    name: string
+  ): { id: number; missing_at: string | null; missing_ignored_at: string | null } =>
+    getDb()
+      .prepare('SELECT id, missing_at, missing_ignored_at FROM assets WHERE file_name = ?')
+      .get(name) as { id: number; missing_at: string | null; missing_ignored_at: string | null }
+
+  const w47Pack = mkPack({ name: '假丢失任务', projectId: null, workspaceRoot: w47Ws })
+  const w47F1 = join(w47Pack.folder_path, '01-成品', '甲.png')
+  const w47F2 = join(w47Pack.folder_path, '02-素材', '乙.psd')
+  const w47F3 = join(w47Pack.folder_path, '03-工程', '丙.ai')
+  writeFileSync(w47F1, 'AAAA', 'utf-8')
+  writeFileSync(w47F2, 'BBBB', 'utf-8')
+  writeFileSync(w47F3, 'CCCC', 'utf-8')
+  scanAll(w47Ws)
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === 3,
+    '【布景】登记 3 个正常文件'
+  )
+
+  hardRm(w47F1)
+  hardRm(w47F2)
+  scanAll(w47Ws)
+  ok(countMissing() === 2, '【布景】删掉两个 → 丢失计数 = 2')
+  ok(countIgnoredMissing() === 0, '【布景】还没有忽略任何一条')
+
+  // ---- (1) 忽略一条：只写标记，记录与标签一个不动 ----
+  const w47Id1 = w47RowOf('甲.png').id
+  const w47TagId = createTag({ dimension: 'category', name: '假丢失标签' }).tag!.id
+  applyTags({ assetIds: [w47Id1], tagIds: [w47TagId] })
+  const w47Ignore1 = ignoreMissingAssets([w47Id1])
+  ok(w47Ignore1.ok && w47Ignore1.changed === 1, '忽略一条 → changed = 1')
+  const w47After1 = w47RowOf('甲.png')
+  ok(w47After1.id === w47Id1, '【铁律①】记录还在且 id 没变（忽略不是删除）')
+  ok(w47After1.missing_at !== null, '丢失标记仍在（忽略的是"提醒"，不是"文件丢了"这个事实）')
+  ok(w47After1.missing_ignored_at !== null, `写上忽略时刻：${w47After1.missing_ignored_at}`)
+  ok(
+    (
+      getDb().prepare('SELECT COUNT(*) AS c FROM asset_tags WHERE asset_id = ?').get(w47Id1) as {
+        c: number
+      }
+    ).c === 1,
+    '【铁律①】标签关联一条没少'
+  )
+  ok(countMissing() === 1, '【口径】丢失计数减到 1（已忽略的不算丢失）')
+  ok(countIgnoredMissing() === 1, '【口径】已忽略计数 = 1')
+
+  // ---- (2) 两套筛选互斥且不藏东西 ----
+  ok(listAssets({ missingOnly: true }).length === 1, '「只看丢失」只剩乙（甲被忽略后不再算丢失）')
+  ok(listAssets({ ignoredOnly: true }).length === 1, '「只看已忽略」正好是甲')
+  ok(listAssets({}).length === 3, '【铁律①】不加筛选时三条都在（记录没被藏掉）')
+
+  // ---- (3) 再扫描：不重复标记，也不自动取消忽略 ----
+  const w47Scan2 = scanAll(w47Ws)
+  ok(w47Scan2.markedMissing === 0, '已忽略的丢失不会再被标一次')
+  ok(countIgnoredMissing() === 1 && countMissing() === 1, '忽略状态跨扫描保持不变')
+
+  // ---- (4) 幂等：再忽略一次无副作用（时刻不刷新） ----
+  ok(ignoreMissingAssets([w47Id1]).changed === 0, '对已忽略的再点一次 → changed = 0')
+  ok(
+    w47RowOf('甲.png').missing_ignored_at === w47After1.missing_ignored_at,
+    '忽略时刻不被刷新（保住"第一次忽略"的时间）'
+  )
+
+  // ---- (5) 批量：一次传多条，只有「还没忽略的」会变 ----
+  const w47Id2 = w47RowOf('乙.psd').id
+  ok(
+    ignoreMissingAssets([w47Id1, w47Id2]).changed === 1,
+    '批量忽略 2 条 → 实际只改了 1 条（甲已忽略过，乙是新忽略）'
+  )
+  ok(countMissing() === 0 && countIgnoredMissing() === 2, '两条都进已忽略，丢失计数归零')
+
+  // ---- (6) 撤销忽略 → 回到「丢失待处理」 ----
+  ok(unignoreMissingAssets([w47Id1]).changed === 1, '撤销一条 → changed = 1')
+  ok(w47RowOf('甲.png').missing_ignored_at === null, '忽略标记清空')
+  ok(w47RowOf('甲.png').missing_at !== null, '丢失标记仍在（文件确实还没回来）')
+  ok(countMissing() === 1 && countIgnoredMissing() === 1, '计数回到两边各一条')
+
+  // ---- (7) 已忽略 + 文件回来了 → 两个标记一起清 ----
+  writeFileSync(w47F2, 'BBBBBB', 'utf-8')
+  const w47Scan3 = scanAll(w47Ws)
+  ok(w47Scan3.restored === 1, '文件放回来：扫描恢复了 1 条')
+  const w47Back = w47RowOf('乙.psd')
+  ok(
+    w47Back.missing_at === null && w47Back.missing_ignored_at === null,
+    '【核心】"丢失"与"已忽略"两个标记一起清（记录恢复正常）'
+  )
+  ok(countIgnoredMissing() === 0, '已忽略计数归零')
+
+  // ---- (8) 任务卡片角标口径与左栏一致 ----
+  const w47PackStat = listPacks().find((p) => p.id === w47Pack.id)
+  ok(w47PackStat?.missingCount === 1, '任务卡片 ⚠ N 只算没忽略的（甲还丢着，乙已回来）')
+
+  // ---- (9) 边界：只对「确实处于丢失态」的行生效 ----
+  ok(ignoreMissingAssets([w47RowOf('丙.ai').id]).changed === 0, '文件还在的记录 → 忽略无效')
+  ok(ignoreMissingAssets([999999]).changed === 0, '不存在的 id → 无效，不炸')
+  ok(ignoreMissingAssets([]).changed === 0, '空数组 → 无效，不炸')
+  ok(unignoreMissingAssets([]).changed === 0, '撤销空数组 → 无效，不炸')
+  ok(assetTotals().count === 3, 'assetTotals 三条都还在数（条数口径不受忽略影响）')
+
+  // ================================================================
+  log('\n[41] 第 47 批：临时文件默认不扫描 + 任务级例外（docs/33 §5）')
+
+  // ---- (1) 判定函数：该拦的都拦住 ----
+  ok(isTempFile('~S设计稿.psd'), '规则① 命中：~ 开头（设计软件暂存）')
+  ok(isTempFile('~$报告.docx'), '规则① 命中：~ 开头（Office 锁文件）')
+  ok(isTempFile('~WRL0001.tmp'), '规则① 命中：~ 开头（Word 恢复文件）')
+  ok(isTempFile('方案.pptx~'), '规则② 命中：~ 结尾（编辑器备份）')
+  ok(isTempFile('a.tmp'), '规则③ 命中：*.tmp')
+  ok(isTempFile('b.TEMP'), '规则③ 命中：*.TEMP（大小写不敏感）')
+  ok(isTempFile('c.CRDOWNLOAD'), '规则③ 命中：下载未完成（大小写）')
+  ok(isTempFile('d.part'), '规则③ 命中：*.part')
+  ok(isTempFile('Thumbs.db'), '规则④ 命中：Thumbs.db')
+  ok(isTempFile('DESKTOP.INI'), '规则④ 命中：desktop.ini（大小写）')
+
+  // ---- (2) 反向断言：不该拦的一个都别拦（防误伤真实素材） ----
+  ok(!isTempFile('设计稿.psd'), '不误伤：正常 .psd')
+  ok(
+    !isTempFile('培训PPT-1109x2283-营销中心-内部培训-20261006.pptx'),
+    '不误伤：正常 .pptx（用户实际踩坑的那个形状）'
+  )
+  ok(!isTempFile('预算表.tmp.xlsx'), '不误伤：tmp 不在扩展名位置（只看最后一个点之后）')
+  ok(!isTempFile('a.tmpx'), '不误伤：近似扩展名 .tmpx')
+  ok(!isTempFile('视频.mp4'), '不误伤：正常视频')
+  ok(
+    !isTempFile('temporary-report.docx'),
+    '不误伤：文件名里含 temp，但不以 ~ 开头、扩展名也不是 tmp'
+  )
+
+  // ---- (3) 默认不扫描：同包里真实素材进来、临时文件不进 ----
+  const w47tRoot = join('D:\\_accept_ws', `wstest47t_${RUN_ID}`)
+  const w47tWs = join(w47tRoot, 'ws')
+  hardRm(w47tRoot)
+  mkdirSync(w47tWs, { recursive: true })
+  closeDb()
+  openDb(w47tWs)
+  initWorkspace(w47tWs)
+
+  const w47tPack = mkPack({ name: '临时文件任务', projectId: null, workspaceRoot: w47tWs })
+  writeFileSync(join(w47tPack.folder_path, '01-成品', '正式稿.png'), 'AAAA', 'utf-8')
+  writeFileSync(join(w47tPack.folder_path, '03-工程', '~S暂存.psd'), 'BBBB', 'utf-8')
+  writeFileSync(join(w47tPack.folder_path, '03-工程', '缓存.tmp'), 'CCCC', 'utf-8')
+  scanAll(w47tWs)
+  ok(
+    (getDb().prepare('SELECT COUNT(*) AS c FROM assets').get() as { c: number }).c === 1,
+    '【核心】默认只登记 1 条 —— 临时文件（~S暂存.psd / 缓存.tmp）一个都没进库'
+  )
+  ok(
+    !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('正式稿.png'),
+    '真实素材照常登记'
+  )
+
+  // ---- (4) 未归属散文件：永远跳过（没地方挂例外开关） ----
+  writeFileSync(join(w47tWs, '~S散落.tmp'), 'DDDD', 'utf-8')
+  writeFileSync(join(w47tWs, '散落正式.png'), 'EEEE', 'utf-8')
+  scanAll(w47tWs)
+  ok(
+    !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('散落正式.png'),
+    '未归属目录下的正常文件照常进未归属池'
+  )
+  ok(
+    !getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('~S散落.tmp'),
+    '【核心】未归属的临时文件永远跳过（无例外）'
+  )
+
+  // ---- (5) 勾上「扫描临时文件」→ 该任务的临时文件收进来 ----
+  ok(updatePack(w47tPack.id, { scanTemp: true }, w47tWs).ok, '保存「扫描临时文件」开关成功')
+  scanAll(w47tWs)
+  ok(
+    !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('~S暂存.psd'),
+    '【核心】勾上后，该任务下的临时文件进来了'
+  )
+  ok(
+    !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('缓存.tmp'),
+    '同任务的另一个临时文件也进来了'
+  )
+  ok(
+    !getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('~S散落.tmp'),
+    '未归属的临时文件照旧不进（开关只管任务，管不到未归属）'
+  )
+
+  // ---- (6) 关掉开关 → 已入库的记录不动（钉住「不悄悄扔」） ----
+  ok(updatePack(w47tPack.id, { scanTemp: false }, w47tWs).ok, '关掉开关成功')
+  scanAll(w47tWs)
+  ok(
+    !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('~S暂存.psd'),
+    '【铁律①】关掉开关后，之前已入库的临时文件记录仍然在（软件永不悄悄扔东西）'
+  )
+  ok(
+    (
+      getDb().prepare('SELECT scan_temp FROM packs WHERE id = ?').get(w47tPack.id) as {
+        scan_temp: number
+      }
+    ).scan_temp === 0,
+    '开关值落库为 0'
+  )
+
+  // ---- (7) 开关是纯数据：磁盘结构一个字节没动 ----
+  ok(existsSync(join(w47tPack.folder_path, '03-工程')), '任务文件夹结构原样（开关不碰磁盘）')
 
 // ============ 汇总 ============
   log('\n' + '='.repeat(62))

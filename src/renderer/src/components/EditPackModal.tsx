@@ -38,11 +38,14 @@ export function EditPackModal({
   )
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // 第 47 批（docs/33 §5.3）：扫描临时文件开关（纯数据，不碰磁盘）
+  const [scanTemp, setScanTemp] = useState(pack.scan_temp === 1)
 
   const nameChanged = name.trim() !== pack.name
   const projectChanged = projectId !== pack.project_id
   const categoryChanged = category !== pack.category
   const channelChanged = channel !== pack.channel
+  const scanTempChanged = scanTemp !== (pack.scan_temp === 1)
   const willMove = nameChanged || projectChanged
 
   const targetProject = projects.find((p) => p.id === projectId) ?? null
@@ -59,7 +62,8 @@ export function EditPackModal({
       name: name.trim(),
       category,
       channel,
-      projectId
+      projectId,
+      scanTemp
     })
     setBusy(false)
     if (!r.ok) setErr(r.error ?? COPY.editPack.saveFailed)
@@ -164,6 +168,19 @@ export function EditPackModal({
             </div>
           </div>
 
+          {/* 第 47 批（docs/33 §5.3）：临时文件扫描开关 —— 默认不扫描 */}
+          <div className="field">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={scanTemp}
+                onChange={(e) => setScanTemp(e.target.checked)}
+              />
+              {COPY.editPack.scanTempLabel}
+            </label>
+            <div className="hint">{COPY.editPack.scanTempHint}</div>
+          </div>
+
           <div
             style={{
               fontSize: 12,
@@ -180,7 +197,7 @@ export function EditPackModal({
             <br />
             {willMove
               ? COPY.editPack.saveHintMove
-              : categoryChanged || channelChanged
+              : categoryChanged || channelChanged || scanTempChanged
                 ? COPY.editPack.saveHintCategory
                 : COPY.editPack.noChange}
           </div>

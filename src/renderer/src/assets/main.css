@@ -2068,6 +2068,41 @@ body:has(.side-resizer.dragging) {
   color: var(--warn);
 }
 
+/* ---- 第 47 批（docs/33）：假丢失治理 ---- */
+
+/* 已忽略的丢失行：比"丢失行"更沉一档，且不报警 */
+.file-row.ignored {
+  opacity: 0.5;
+}
+.file-row.ignored:hover {
+  opacity: 0.82;
+}
+
+/* 已忽略角标：灰色版（与红色「文件已丢失」明显区分） */
+.miss-badge.ignored {
+  color: var(--text-3);
+  background: transparent;
+  border-color: var(--line);
+}
+
+/* 行尾「忽略」按钮：中性色，别跟红色的"丢失"抢注意力 */
+.icon-btn.ignore {
+  color: var(--text-3);
+}
+.icon-btn.ignore:hover {
+  color: var(--warn);
+}
+
+/* 行尾「撤销忽略」按钮 */
+.icon-btn.undo {
+  color: var(--accent);
+}
+
+/* 左栏「已忽略」入口：与「文件已丢失」同一格，但灰一档 */
+.miss-entry.ignored {
+  color: var(--text-2);
+}
+
 /* 包卡片封面右上角的 ⚠ N */
 .thumb .miss-flag {
   position: absolute;

@@ -26,6 +26,8 @@ export interface PackCard {
   category: string
   /** 第 23 批（docs/29）：任务的「使用场景」（标签名字） */
   channel: string
+  /** 第 47 批（docs/33 §5.1）：扫描时是否收临时文件（0 = 不收，**默认**；1 = 收） */
+  scan_temp: number
   folder_path: string
   created_at: string
   updated_at: string
@@ -67,6 +69,9 @@ export interface AssetItem {
   modified_at: string
   /** 第 8 批：null = 正常；有值 = 该时刻发现文件已丢失（M8-03） */
   missing_at: string | null
+  /** 第 47 批（docs/33）：null = 没忽略；有值 = 用户在该时刻点了「忽略」
+   *  ——记录与标签全部保留，只是界面不再把它当"丢失"报警（可撤销） */
+  missing_ignored_at: string | null
   /** 第 9 批：属于哪一稿（pack_versions.id）；null = 未分版本（老包 / 包根散文件） */
   version_id: number | null
   /** 第 9 批：这一稿的编号（IPC 层带上来的派生字段，界面直接用；未分版本为 null） */
@@ -96,8 +101,11 @@ export interface WsInfo {
   projectColors: string[]
   subFolders: string[]
   unassigned: number
-  /** 第 8 批：可见素材里文件已丢失的条数（左栏「⚠️ 文件已丢失」入口用） */
+  /** 第 8 批：可见素材里文件已丢失的条数（左栏「⚠️ 文件已丢失」入口用）。
+   *  第 47 批（docs/33 §4.2）：**不含已忽略的** —— 口径与 countMissing / listAssets 严格一致 */
   missing: number
+  /** 第 47 批（docs/33 §4.2）：可见素材里「已忽略丢失」的条数（左栏「🚫 已忽略」入口用） */
+  ignoredMissing: number
   /**
    * 第 6 批：刚把目录结构升级到三级时才有值 —— 界面弹一次提示条，
    * 调 wsAckLayout 之后就没了。
@@ -123,6 +131,8 @@ export interface UpdatePackPatch {
   channel?: string
   /** 传 null = 变成「待归类」（搬回工作区根目录） */
   projectId?: number | null
+  /** 第 47 批（docs/33 §5.3）：扫描时是否收临时文件（纯数据，不碰磁盘） */
+  scanTemp?: boolean
 }
 
 export interface UpdatePackResult {
@@ -184,7 +194,16 @@ export interface MigrateWorkspaceResult {
 
 export interface PacksView {
   packs: PackCard[]
-  total: { packs: number; files: number; size: number; unassigned: number; missing: number }
+  total: {
+    packs: number
+    files: number
+    size: number
+    unassigned: number
+    /** 第 47 批（docs/33 §4.2）：**不含已忽略的** */
+    missing: number
+    /** 第 47 批：已忽略的丢失条数（左栏「🚫 已忽略」入口） */
+    ignoredMissing: number
+  }
 }
 
 export interface PackDetail {
@@ -755,6 +774,12 @@ export interface Api {
     items: Array<{ assetId: number; newAbsPath: string }>
   ) => Promise<{ moved: number; errors: string[] }>
 
+  // ---------------- 第 47 批：假丢失治理（docs/33） ----------------
+  /** 忽略这些丢失记录（可一次传多条 = 批量）；**只写标记，记录与标签全保留**，随时可撤销 */
+  ignoreMissingAssets: (ids: number[]) => Promise<{ ok: boolean; changed: number }>
+  /** 撤销忽略 → 这条记录回到「丢失待处理」 */
+  unignoreMissingAssets: (ids: number[]) => Promise<{ ok: boolean; changed: number }>
+
   // ---------------- 第 9 批：版本管理（M6） ----------------
   /** 某包的全部稿（含文件数 / 占用 / 文件夹是否还在） */
   listVersions: (packId: number) => Promise<PackVersion[]>
@@ -800,6 +825,8 @@ export interface Api {
     withTags?: boolean
     /** 第 8 批：只看文件已丢失的（M8-03） */
     missingOnly?: boolean
+    /** 第 47 批（docs/33 §4.2）：只看已忽略丢失的（左栏「🚫 已忽略」入口） */
+    ignoredOnly?: boolean
     /** 第 9 批（M6）：只看当前那一稿的文件（工具栏「只看当前稿」开关）。
      *  未分版本的老文件**不算**当前版本的文件，开关打开时它们不显示 */
     currentOnly?: boolean

@@ -48,6 +48,10 @@ const api = {
   relocateApply: (items: Array<{ assetId: number; newAbsPath: string }>) =>
     ipcRenderer.invoke('asset:relocateApply', items),
 
+  // 第 47 批：假丢失治理（docs/33）
+  ignoreMissingAssets: (ids: number[]) => ipcRenderer.invoke('asset:ignoreMissing', ids),
+  unignoreMissingAssets: (ids: number[]) => ipcRenderer.invoke('asset:unignoreMissing', ids),
+
   // 第 9 批：版本管理（M6，docs/11）
   listVersions: (packId: number) => ipcRenderer.invoke('version:list', packId),
   createVersion: (input: {

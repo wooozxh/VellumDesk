@@ -37,6 +37,8 @@ export interface PackRow {
   category: string
   /** 第 23 批（docs/29）：任务的「使用场景」，与 category 完全对称 */
   channel: string
+  /** 第 47 批（docs/33 §5.1）：扫描时是否收临时文件（0 = 不收，**默认**；1 = 收） */
+  scan_temp: number
   folder_path: string
   created_at: string
   updated_at: string
@@ -74,6 +76,10 @@ export interface AssetRow {
   // ---- 第 8 批新增：失效检查（M8-03）----
   /** null = 正常；有值 = 这个时刻发现文件已丢失（原路径见 abs_path） */
   missing_at: string | null
+  // ---- 第 47 批新增：假丢失治理（docs/33）----
+  /** null = 没忽略；有值 = 用户在这个时刻点了「忽略」——
+   *  记录与标签全部保留，只是界面不再把它当"丢失"报警（可撤销） */
+  missing_ignored_at: string | null
   // ---- 第 9 批新增：版本管理（M6）----
   /** 属于哪一稿（pack_versions.id）；null = 未分版本（老包 / 包根散文件） */
   version_id: number | null
@@ -666,6 +672,27 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
   const packCols17 = d.prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
   if (!packCols17.some((c) => c.name === 'channel')) {
     d.exec("ALTER TABLE packs ADD COLUMN channel TEXT NOT NULL DEFAULT '未分类'")
+  }
+
+  // ---- 迁移 18：假丢失治理（第 47 批 docs/33）----
+  // 用户实测：设计软件在工作目录里生成的临时文件（`~S…`）被扫描登记成素材，软件关闭后
+  // 临时文件自行消失 → 被判「文件已丢失」，左栏 +1、任务面板挂 ⚠ N —— 全是假警报。
+  // 两条对策各加一列（不做任何数据搬运，老库升级后行为即刻生效）：
+  //   · `assets.missing_ignored_at` —— 用户点「忽略」后记下时刻；界面据此不再把这条当"丢失"
+  //     （**记录与标签全部保留**，可随时撤销 —— 守铁律①：永不静默丢弃用户数据）
+  //   · `packs.scan_temp` —— 任务级「扫描临时文件」开关，默认 0 = 扫描时跳过临时文件
+  // 幂等：缺列才 ALTER（迁移 8/9/13/17 同一模式）；索引必须放在 ALTER 之后（迁移 8 踩过的坑）。
+  const assetCols18 = d.prepare('PRAGMA table_info(assets)').all() as Array<{ name: string }>
+  if (!assetCols18.some((c) => c.name === 'missing_ignored_at')) {
+    d.exec('ALTER TABLE assets ADD COLUMN missing_ignored_at TEXT')
+  }
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_assets_missing_ignored ON assets(missing_ignored_at)
+     WHERE missing_ignored_at IS NOT NULL
+  `)
+  const packCols18 = d.prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+  if (!packCols18.some((c) => c.name === 'scan_temp')) {
+    d.exec('ALTER TABLE packs ADD COLUMN scan_temp INTEGER NOT NULL DEFAULT 0')
   }
 
   // ---- 迁移 3：首次使用（空库）→ 落预制项目 ----

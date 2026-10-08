@@ -105,6 +105,10 @@ export const COPY = {
     missing: '文件已丢失',
     missingTip:
       '这些素材的原文件被删除或挪走了。软件不会因此删掉记录 —— 点行尾的定位按钮指到文件的新位置就能找回来',
+    // 第 47 批（docs/33 §4.5）：已忽略的丢失（可查看、可恢复）
+    ignored: '已忽略',
+    ignoredTip:
+      '你看过并忽略掉的丢失记录。软件不会删它们 —— 点行尾的回转按钮就能撤销忽略，回到「文件已丢失」',
     allFiles: '全部文件',
     workspace: '工作区',
     wsSwitchTip: '{root}\n点一下切到这个工作区',
@@ -136,6 +140,8 @@ export const COPY = {
     createFirstB: '软件会自动在工作区建好文件夹和三个子文件夹。',
     unassigned: '未归属池是空的',
     noMissing: '没有文件丢失，全都在',
+    /** 第 47 批（docs/33）：左栏「已忽略」入口点开后的空态 */
+    noIgnored: '还没有忽略过任何丢失记录',
     noMatch: '没找到匹配的文件',
     noAssets: '还没有登记任何文件',
     dropHint: '往工作区里的任务文件夹丢文件，然后点右上角「刷新扫描」。'
@@ -161,6 +167,11 @@ export const COPY = {
     relocateBtn: '批量重新定位',
     relocateTip: '一批文件被整体挪走了？选它现在所在的文件夹，软件按原目录结构替你先配一遍，你确认后才改',
     missingCount: '（共 {n} 条丢失）',
+    // 第 47 批（docs/33 §4.5）：工具栏「忽略丢失」（选中 N 条 → 批量）
+    ignoreBtn: '忽略丢失',
+    ignoreTip: '选中的这些文件不打算找回了？忽略后不再提醒 —— 记录和标签都留着，随时能撤销',
+    ignoreDone: '已忽略 {n} 条丢失',
+    unignoreDone: '已恢复 {n} 条',
     packsCount: '共 {n} 个任务',
     assetsCount: '共 {n} 条素材',
     missingPart: '其中 {n} 条文件已丢失',
@@ -275,7 +286,13 @@ export const COPY = {
     removeTagTip: '摘掉这个标签',
     relocateTip: '重新定位：文件被删掉或挪走了，指到它的新位置',
     openFileTip: '打开文件',
-    revealTip: '打开所在文件夹'
+    revealTip: '打开所在文件夹',
+    // 第 47 批（docs/33）：假丢失治理 —— 忽略 / 撤销 / 已忽略角标
+    ignoreTip: '忽略这条丢失：不再提醒它。记录和标签都留着，随时能撤销',
+    unignoreTip: '撤销忽略：这条回到「文件已丢失」列表',
+    ignoredBadge: '已忽略',
+    ignoredTip:
+      '已忽略的丢失（{at} 忽略）：{path}\n原文件确实不在，但你已经标记过「不用管它」。点行尾按钮可撤销。'
   },
 
   // ==================== 包详情弹窗 ====================
@@ -323,7 +340,11 @@ export const COPY = {
       '跟左栏筛选里的「使用场景」是同一套清单（左栏「管理」里增删，这里跟着变；改名 / 删除会连带改到已有任务）',
     currentFolder: '当前文件夹：',
     saveHintMove: '保存后文件夹会立刻改名 / 搬家（本地磁盘上的操作，不复制、不删除）。',
-    saveHintCategory: '只改类别，磁盘上的文件夹一个字节都不动。',
+    saveHintCategory: '只改类别 / 使用场景 / 扫描开关，磁盘上的文件夹一个字节都不动。',
+    // 第 47 批（docs/33 §5.3）：临时文件扫描开关（纯数据，不碰磁盘）
+    scanTempLabel: '扫描临时文件',
+    scanTempHint:
+      '勾选后，「刷新 / 扫描」会把本任务下的临时文件（~$ / ~S / *.tmp 这类）也收进任务包。默认不扫描 —— 这些多是软件生成的中间产物，扫描后很快会消失，会被误报「文件已丢失」。',
     noChange: '还没有改动。'
   },
 
