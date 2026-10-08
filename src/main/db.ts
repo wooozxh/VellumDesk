@@ -790,6 +790,42 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
       })
     }
   }
+
+  // ---- 迁移 20：物料分级改名（第 52 批 docs/37）—— S/A/B/C → S-核心 / A-重要 / B-常规 / C-待办 ----
+  // 为什么需要单独的迁移：第 49 批的补灌门槛是「该维度一条标签都没有」，
+  // **老库既不会重灌、也不会自动改名** —— 不改的话老库标签仍叫 `S`，
+  // 而新代码的种子叫 `S-核心`，两边对不上。
+  //
+  // ⚠️ 名字在库里存了**两处**，都要改：
+  //   ① `tags.name`（dimension='grade'）
+  //   ② **`packs.grade`** —— 第 49 批起它是**存标签名字符串**，不是外键！
+  //      （漏了这条，老库里 `grade='B'` 的包会变成"认不出的分级"）
+  //
+  // 三条硬约束：
+  //   · **只认精确旧名** —— 用户若已自己改过（如 `S-紧急`），一个字节都不动
+  //   · **防撞名** —— `tags` 有 `UNIQUE(dimension, name)`；目标名已存在就**跳过该条**，
+  //     否则 UPDATE 抛唯一约束错误会把整个迁移带崩
+  //   · **幂等** —— 第二遍旧名已不存在，匹配 0 行
+  {
+    const renames: Array<[string, string]> = [
+      ['S', COPY.seed.gradeS],
+      ['A', COPY.seed.gradeA],
+      ['B', COPY.seed.gradeB],
+      ['C', COPY.seed.gradeC]
+    ]
+    const nameExists = d.prepare(
+      "SELECT 1 FROM tags WHERE dimension = 'grade' AND name = ? LIMIT 1"
+    )
+    const renameTag = d.prepare("UPDATE tags SET name = ? WHERE dimension = 'grade' AND name = ?")
+    // grade 列同时改：只改恰好等于旧名的（'未分级' 等其它值不受影响）
+    const renamePackGrade = d.prepare('UPDATE packs SET grade = ? WHERE grade = ?')
+    for (const [oldName, newName] of renames) {
+      if (oldName === newName) continue
+      if (nameExists.get(newName)) continue // 目标名已在 → 跳过（防撞唯一约束）
+      renameTag.run(newName, oldName)
+      renamePackGrade.run(newName, oldName)
+    }
+  }
 }
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义

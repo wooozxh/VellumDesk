@@ -314,8 +314,8 @@ app.whenReady().then(async () => {
     addPack.run('计数游离包', '海报', packDirLoose, null, now, now)
     // 第 49 批（docs/34）：给「甲包」标 S 级、「乙包」标 A 级、游离包留未分级 ——
     // 用来验分级标签的数字也统计任务数，且**跟随左栏当前项目范围**（甲/乙/待归类各不同）。
-    d.prepare("UPDATE packs SET grade = 'S' WHERE name = '计数甲包'").run()
-    d.prepare("UPDATE packs SET grade = 'A' WHERE name = '计数乙包'").run()
+    d.prepare('UPDATE packs SET grade = ? WHERE name = ?').run(COPY.seed.gradeS, '计数甲包')
+    d.prepare('UPDATE packs SET grade = ? WHERE name = ?').run(COPY.seed.gradeA, '计数乙包')
     d.close()
 
     wsm.scanAll(ws)
@@ -1419,14 +1419,23 @@ app.whenReady().then(async () => {
       ) || {}
     ).c
     ok(pkOfTarget === 3, `【前置】这个项目名下挂着 3 个包（归位进来的也在里面）：${pkOfTarget}`)
-    await hoverProjectRow(projIdx)
-    const delClick = await js(
-      `(() => {
-        const b = document.querySelector('.side .proj-acts .mini.danger')
-        if (!b) return 'no-btn'
-        b.click(); return 'ok'
-      })()`
-    )
+    // ⚠️ 2026-10-08 第 53 批：原来只 hover 一次就找按钮，批量连跑（12 个 Electron 前后相接、
+    //    机器变慢）时悬停事件偶尔没生效 → 按钮压根没渲染出来 → 假失败「点开删除项目弹窗（no-btn）」。
+    //    改成**重试几次**（不削弱断言：真坏了照样报错，只是给它几次机会）。
+    let delClick = 'no-btn'
+    for (let i = 0; i < 5; i++) {
+      await hoverProjectRow(projIdx)
+      await wait(450)
+      delClick = await js(
+        `(() => {
+           const b = document.querySelector('.side .proj-acts .mini.danger')
+           if (!b) return 'no-btn'
+           b.click(); return 'ok'
+         })()`
+      )
+      if (delClick === 'ok') break
+      await wait(450)
+    }
     ok(delClick === 'ok', `点开删除项目弹窗（${delClick}）`)
     await wait(500)
     const delModal = await js(
@@ -1462,10 +1471,15 @@ app.whenReady().then(async () => {
     await clickModalOk()
     // 删项目 = 把整个项目文件夹搬进 _回收站 + 清库 + 左栏重新加载，冷启动磁盘操作偶尔要几秒。
     // 2026-10-05 第 25 批实测：只等 DB 落库还不够 —— 库已经干净了、左栏 DOM 可能还没重渲染
-    //（会误报「被删的项目从左栏消失了」）。所以直接等**左栏那一行**消失，最多 10s。
-    for (let i = 0; i < 40; i++) {
+    //（会误报「被删的项目从左栏消失了」）。
+    // ⚠️ 2026-10-08 第 53 批再修：原来**只等左栏**（等 DOM 消失就往下走），批量连跑时磁盘慢，
+    //    左栏可能先于库更新（或上一次渲染的旧 DOM 恰好不含该行）→ 立刻 break → 库其实还没删完，
+    //    紧接着的「【库】项目记录已删」就假失败（本批连跑两次都撞到，单独跑 3/3 通过）。
+    //    **正解：两个条件都等到**（库真的没有了 且 左栏行也没了），预算放宽到 15s。
+    for (let i = 0; i < 60; i++) {
+      const dbGone = q('SELECT COUNT(*) AS c FROM projects WHERE name = ?', '海南升学集训营').c === 0
       const names = await projRowNames()
-      if (!names.includes('海南升学集训营')) break
+      if (dbGone && !names.includes('海南升学集训营')) break
       await wait(250)
     }
 
@@ -1645,19 +1659,20 @@ app.whenReady().then(async () => {
       Array.isArray(gradeTags) && gradeTags.length === 4,
       `【核心】左栏「物料分级」维度有 4 个预制标签（实际 ${Array.isArray(gradeTags) ? gradeTags.length : 0}）`
     )
-    const gS = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'S') : null
-    const gA = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'A') : null
-    const gC = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === 'C') : null
+    // 第 52 批：分级名从文案字典取（不再硬编码 S/A/B/C，改名时这里自动跟着变）
+    const gS = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === COPY.seed.gradeS) : null
+    const gA = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === COPY.seed.gradeA) : null
+    const gC = Array.isArray(gradeTags) ? gradeTags.find((x) => x.name === COPY.seed.gradeC) : null
     ok(
-      !!gS && Number(gS.n) === packOfGrade('S'),
-      `【核心】「S」的数字 = ${gS && gS.n}（应等于 ${packOfGrade('S')} 个任务；文件没贴分级所以文件那一半是 0）`
+      !!gS && Number(gS.n) === packOfGrade(COPY.seed.gradeS),
+      `【核心】「${COPY.seed.gradeS}」的数字 = ${gS && gS.n}（应等于 ${packOfGrade(COPY.seed.gradeS)} 个任务；文件没贴分级所以文件那一半是 0）`
     )
     ok(
-      !!gA && Number(gA.n) === packOfGrade('A'),
-      `【核心】「A」的数字 = ${gA && gA.n}（应等于 ${packOfGrade('A')} 个任务）`
+      !!gA && Number(gA.n) === packOfGrade(COPY.seed.gradeA),
+      `【核心】「${COPY.seed.gradeA}」的数字 = ${gA && gA.n}（应等于 ${packOfGrade(COPY.seed.gradeA)} 个任务）`
     )
     // 0 条标签要压暗 —— `zero` 类只有共享的 tagNum() 会读，所以这条走它
-    const gCNum = await tagNum('C')
+    const gCNum = await tagNum(COPY.seed.gradeC)
     ok(
       !!gCNum && gCNum.n === 0 && gCNum.zero,
       `没人用的「C」数字 0 且压暗（实际 ${gCNum && gCNum.n}，zero=${gCNum && gCNum.zero}）`
@@ -1675,7 +1690,7 @@ app.whenReady().then(async () => {
          const d = [...document.querySelectorAll('.tp-dim')]
            .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
          if (!d) return null
-         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === 'S')
+         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === ${JSON.stringify(COPY.seed.gradeS)})
          return b ? ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim() : null
        })()`
     )
@@ -1690,7 +1705,7 @@ app.whenReady().then(async () => {
          const d = [...document.querySelectorAll('.tp-dim')]
            .find(x => ((x.querySelector('.tp-dim-label')||{}).innerText||'').trim() === ${JSON.stringify(COPY.dim.grade)})
          if (!d) return null
-         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === 'S')
+         const b = [...d.querySelectorAll('.tp-tag')].find(x => ((x.querySelector('.tp-tag-name')||{}).innerText||'').trim() === ${JSON.stringify(COPY.seed.gradeS)})
          return b ? ((b.querySelector('.tp-tag-n')||{}).innerText||'').trim() : null
        })()`
     )
@@ -2827,13 +2842,15 @@ app.whenReady().then(async () => {
          return [...d.querySelectorAll('.tp-tag-name')].map(x => x.innerText.trim())
        })()`
     )
+    // 第 52 批：分级名从文案字典取（不再硬编码，改名时自动跟着变）
+    const GRADE_ORDER = [COPY.seed.gradeS, COPY.seed.gradeA, COPY.seed.gradeB, COPY.seed.gradeC].join(',')
     ok(
       Array.isArray(panelGrades) && panelGrades.length === 4,
-      `【布景】左栏「物料分级」有 ${Array.isArray(panelGrades) ? panelGrades.length : 0} 个预制标签（应为 4：S/A/B/C）`
+      `【布景】左栏「物料分级」有 ${Array.isArray(panelGrades) ? panelGrades.length : 0} 个预制标签（应为 4）`
     )
     ok(
-      Array.isArray(panelGrades) && panelGrades.join(',') === 'S,A,B,C',
-      `【核心】预制分级顺序 = S,A,B,C（实际：${Array.isArray(panelGrades) ? panelGrades.join(',') : String(panelGrades)}）`
+      Array.isArray(panelGrades) && panelGrades.join(',') === GRADE_ORDER,
+      `【核心】预制分级顺序 = ${GRADE_ORDER}（实际：${Array.isArray(panelGrades) ? panelGrades.join(',') : String(panelGrades)}）`
     )
 
     await openNewPack()

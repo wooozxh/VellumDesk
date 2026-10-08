@@ -18,7 +18,7 @@
  */
 import { COPY, fmt } from '../shared/copy'
 import { getDb, getMeta, setMeta } from './db'
-import { createPack } from './workspace'
+import { createPack, findCoverFile } from './workspace'
 import { clampIntervalMin } from './ticketScheduler'
 import { join } from 'path'
 import { mkdirSync, writeFileSync } from 'fs'
@@ -1379,6 +1379,17 @@ export async function completeTicketTask(
       packId
     )
   }
+  // 第 53 批（docs/38）：一个成品都没有时，仍可退到包里的「封面文件」——
+  // 只放了个 PPT、没有可抓图的情形下，用户明确指定了封面就该用它
+  if (assets.length === 0) {
+    const cov = findCoverFile(packId)
+    if (cov) {
+      assets = pick(
+        `SELECT abs_path, size, ext, modified_at FROM assets WHERE abs_path = ?`,
+        cov
+      )
+    }
+  }
   if (assets.length === 0) return { ok: false, msg: COPY.ticket.completeNoAsset }
 
   const thumbPaths: string[] = []
@@ -1393,6 +1404,31 @@ export async function completeTicketTask(
     )
     if (rel) thumbPaths.push(join(workspaceRoot, rel))
     else thumbFail += 1
+  }
+  // 第 53 批（docs/38）：成品**取不出缩略图**（PPT/AI/ZIP 这类 sharp 抓不了的格式）时，
+  // 退到用户指定/放置的「封面文件」。这是本批的核心场景 ——
+  // 以前这种包点「完成任务」只会得到 completeNoThumb，工单「缩略图」列永远是空的。
+  if (thumbPaths.length === 0) {
+    const cov = findCoverFile(packId)
+    if (cov) {
+      const row = pick(
+        `SELECT abs_path, size, ext, modified_at FROM assets WHERE abs_path = ?`,
+        cov
+      )[0]
+      if (row) {
+        const rel = await ensureAnyThumb(
+          workspaceRoot,
+          row.abs_path,
+          row.size,
+          row.ext,
+          new Date(row.modified_at).getTime()
+        )
+        if (rel) {
+          thumbPaths.push(join(workspaceRoot, rel))
+          thumbFail = 0 // 兜底成功 → 之前那些抓不出来的不再算"缺张"
+        }
+      }
+    }
   }
   if (thumbPaths.length === 0) return { ok: false, msg: COPY.ticket.completeNoThumb }
 

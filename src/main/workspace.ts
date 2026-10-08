@@ -820,6 +820,36 @@ export function isTempFile(fileName: string): boolean {
   return false
 }
 
+// ================================================================ 第 53 批（docs/38）：封面文件
+
+/**
+ * 封面文件的文件名词根（不含扩展名）。**精确匹配** —— 名字越独特越不会误伤普通素材。
+ *
+ * 动机：PPT / AI / ZIP 这类任务包**取不出缩略图**（sharp 抓不了这些格式），
+ * 包卡片封面和工单「缩略图」列就一直是空的。用户提的做法：
+ * 允许在包里放一个**约定文件名**的图片当封面（**只在没有可抓取的文件时**才用）。
+ *
+ * ⚠️ 它本身仍是**正常素材**：进文件列表、可打标签、算进文件数 —— 只是**顺带**能当封面。
+ *
+ * ⚠️⚠️ **它以下划线开头**，而扫描器原本**跳过所有 `_` 开头的东西**（那是软件自己的
+ * `_thumbs` / `_system` 目录的约定）。所以 `collectFiles` 里为它开了**唯一一个例外** ——
+ * 不加那个例外，文件根本进不了库，整个功能形同虚设（第 53 批施工时实测踩到）。
+ */
+export const COVER_BASENAME = '_封面'
+
+/** 认的扩展名（用户要 jpg/png；jpeg 只是 jpg 的另一种后缀写法，一并收） */
+const COVER_EXTS = new Set(['jpg', 'jpeg', 'png'])
+
+/** 文件名是不是「封面文件」（`_封面.jpg` / `_封面.jpeg` / `_封面.png`，扩展名不分大小写） */
+export function isCoverFileName(fileName: string): boolean {
+  const dot = fileName.lastIndexOf('.')
+  if (dot <= 0) return false
+  return (
+    fileName.slice(0, dot) === COVER_BASENAME &&
+    COVER_EXTS.has(fileName.slice(dot + 1).toLowerCase())
+  )
+}
+
 /**
  * 递归收集某个包文件夹下所有文件（跳过下划线 / 点开头的软件目录）。
  *
@@ -834,7 +864,13 @@ function collectFiles(dir: string, out: string[] = [], skipTemp = false): string
     return out
   }
   for (const name of entries) {
-    if (name.startsWith('_') || name.startsWith('.')) continue // _thumbs / _system 等
+    // `_` / `.` 开头 = 软件自己的目录（`_thumbs` / `_system`）或系统隐藏项 → 跳过。
+    // 第 53 批（docs/38）**唯一例外**：封面文件（`_封面.jpg` 等）。
+    // 它虽然也以下划线开头，但那是**用户放的正常素材**，必须收进来 ——
+    // 否则文件进不了库，整个封面功能形同虚设。
+    // 边界安全：`isCoverFileName` 要求"词根恰为 `_封面` + 扩展名是图片"，而
+    // `_thumbs` / `_system` 永远不满足 → 原有跳过行为一个字节没变。
+    if ((name.startsWith('_') || name.startsWith('.')) && !isCoverFileName(name)) continue
     const full = join(dir, name)
     let st: ReturnType<typeof statSync>
     try {
@@ -2898,6 +2934,26 @@ export interface PackWithStats extends PackRow {
 }
 
 /** A-06：包视图数据 —— 包卡片（含条数、总容量、封面、项目名与配色） */
+/**
+ * 找一个任务包里的「封面文件」绝对路径；没有则 null。
+ *
+ * 排序与包封面口径一致（成品 > 素材 > 工程 > 其它），
+ * 同一个包里若有多张（比如成品放一张、素材又放一张），取更靠前的那张。
+ */
+export function findCoverFile(packId: number): string | null {
+  const r = getDb()
+    .prepare(
+      `SELECT abs_path, file_name FROM assets
+        WHERE pack_id = ? AND missing_at IS NULL
+          AND file_name LIKE '\\_封面.%' ESCAPE '\\'
+        ORDER BY CASE role WHEN '成品' THEN 0 WHEN '素材' THEN 1 WHEN '工程' THEN 2 ELSE 3 END, id`
+    )
+    .all(packId) as Array<{ abs_path: string; file_name: string }>
+  // SQL 那层只做"前缀像"，扩展名交给 JS 精确判（SQL 里判大小写很啰嗦）
+  const hit = r.find((x) => isCoverFileName(x.file_name))
+  return hit ? hit.abs_path : null
+}
+
 export function listPacks(): PackWithStats[] {
   const db = getDb()
   // 第 7 批：解绑项目（archived = 1）名下的包在软件里彻底隐身 —— 用户拍板
@@ -2910,6 +2966,12 @@ export function listPacks(): PackWithStats[] {
         ORDER BY k.updated_at DESC`
     )
     .all() as Array<PackRow & { projectName: string | null; projectColor: string | null }>
+
+  // 第 53 批（docs/38）**刻意不在这里动封面**：
+  // 原有封面查询的候选条件已经包含 `ext IN (jpg,jpeg,png,webp,gif,bmp)`，
+  // 而本批的封面文件只可能是 jpg/jpeg/png —— **本来就抓得到**，
+  // 再加一段"兜底"是永远走不到的死代码（还会多一次查询）。
+  // 唯一真正缺的是「完成任务」那条路：它只看 role='成品'，封面文件在 02/03 就够不着。
 
   return packs.map((p) => {
     // 第 8 批口径（用户拍板）：**条数算上丢失的**（记录还在），

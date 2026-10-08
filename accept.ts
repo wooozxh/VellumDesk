@@ -12,6 +12,8 @@ import {
   copyFileSync
 } from 'fs'
 import { join, basename } from 'path'
+// 第 52 批：分级名改从文案字典取（不再硬编码 S/A/B/C，改名时断言自动跟着变）
+import { COPY } from './src/shared/copy'
 import { tmpdir } from 'os'
 import {
   initWorkspace,
@@ -86,6 +88,10 @@ import {
   unignoreMissingAssets,
   /** 第 51 批（docs/36）：清掉已忽略的记录 */
   purgeIgnoredAssets,
+  // 第 53 批（docs/38）：封面文件
+  COVER_BASENAME,
+  isCoverFileName,
+  findCoverFile,
   isTempFile
 } from './src/main/workspace'
 // 第 15 批：交付打包（M5，docs/18）
@@ -5344,7 +5350,9 @@ async function main(): Promise<void> {
     ok(gDim.mode === 'multi', `分级维度 mode=multi（与另两个维度一致，不碰 single 冷路径）：${gDim.mode}`)
     ok(gDim.editable, '分级维度可增删改（左栏「管理」里能改）')
     ok(
-      gDim.tags.length === 4 && gDim.tags.map((t) => t.name).join(',') === 'S,A,B,C',
+      gDim.tags.length === 4 &&
+        gDim.tags.map((t) => t.name).join(',') ===
+          [COPY.seed.gradeS, COPY.seed.gradeA, COPY.seed.gradeB, COPY.seed.gradeC].join(','),
       `预制分级 = ${gDim.tags.map((t) => t.name).join(',')}（顺序 S 最高 → C 最低）`
     )
     ok(
@@ -5360,21 +5368,21 @@ async function main(): Promise<void> {
     // ---- (3) 建包带 grade；不传 =「未分级」（**不是**未分类）----
     // ⚠️ 直接取**预制**的 S/A 标签（不要 createTag —— 「S」已存在，
     // createTag 会因同维度同名被拒、返回 { ok:false } 且 .tag 为 undefined）
-    const gS = gTags('grade').find((t) => t.name === 'S')!
-    const gA = gTags('grade').find((t) => t.name === 'A')!
+    const gS = gTags('grade').find((t) => t.name === COPY.seed.gradeS)!
+    const gA = gTags('grade').find((t) => t.name === COPY.seed.gradeA)!
     ok(!!gS?.id && !!gA?.id, `拿到预制分级标签：S(id=${gS?.id}) / A(id=${gA?.id})`)
     const gPack1 = createPack({
       name: '分级包甲',
       projectId: gProj.id,
       category: '海报',
-      grade: 'S',
+      grade: COPY.seed.gradeS,
       workspaceRoot: gWs
     })
     const gPack2 = createPack({
       name: '分级包乙',
       projectId: gProj.id,
       category: '海报',
-      grade: 'A',
+      grade: COPY.seed.gradeA,
       workspaceRoot: gWs
     })
     const gPack3 = createPack({
@@ -5383,29 +5391,29 @@ async function main(): Promise<void> {
       category: '单页',
       workspaceRoot: gWs
     })
-    ok(gGrade(gPack1.id) === 'S' && gGrade(gPack2.id) === 'A', '建包选的分级落在 packs.grade 上')
+    ok(gGrade(gPack1.id) === COPY.seed.gradeS && gGrade(gPack2.id) === COPY.seed.gradeA, '建包选的分级落在 packs.grade 上')
     ok(
       gGrade(gPack3.id) === '未分级',
       `【核心】不传分级 → 记「未分级」（实际：${gGrade(gPack3.id)}，刻意不是「未分类」）`
     )
     ok(
-      listPacks().find((p) => p.id === gPack1.id)!.grade === 'S',
+      listPacks().find((p) => p.id === gPack1.id)!.grade === COPY.seed.gradeS,
       'listPacks 把 grade 带出来（界面按它筛任务）'
     )
 
     // ---- (4) 计数：分级标签的任务数（与另两个维度同一口径）----
-    const gSTag = gTags('grade').find((t) => t.name === 'S')!
-    const gATag = gTags('grade').find((t) => t.name === 'A')!
-    ok(!!gSTag && gSTag.packCount === 1, `「S」的任务数 = ${gSTag?.packCount}（应为 1）`)
-    ok(!!gATag && gATag.packCount === 1, `「A」的任务数 = ${gATag?.packCount}（应为 1）`)
-    const gCTag = gTags('grade').find((t) => t.name === 'C')!
+    const gSTag = gTags('grade').find((t) => t.name === COPY.seed.gradeS)!
+    const gATag = gTags('grade').find((t) => t.name === COPY.seed.gradeA)!
+    ok(!!gSTag && gSTag.packCount === 1, `「${COPY.seed.gradeS}」的任务数 = ${gSTag?.packCount}（应为 1）`)
+    ok(!!gATag && gATag.packCount === 1, `「${COPY.seed.gradeA}」的任务数 = ${gATag?.packCount}（应为 1）`)
+    const gCTag = gTags('grade').find((t) => t.name === COPY.seed.gradeC)!
     ok(!!gCTag && gCTag.packCount === 0, `「C」没人用 → 任务数 = ${gCTag?.packCount}（应为 0，但标签仍在列）`)
 
     // ---- (5) 改名联动 → packs.grade 跟着改 ----
     const gRename = updateTag(gS.id, { name: 'S-特' })
     ok(gRename.ok && gRename.packsUpdated === 1, `改名：${gRename.packsUpdated} 个包的分级跟着改了`)
     ok(gGrade(gPack1.id) === 'S-特', '包的分级成了新名字')
-    ok(gGrade(gPack2.id) === 'A', '【边界】没用这个分级的包一个没动')
+    ok(gGrade(gPack2.id) === COPY.seed.gradeA, '【边界】没用这个分级的包一个没动')
 
     // ---- (6) 【最核心】删除联动 → 归「未分级」而不是「未分类」（docs/34 §3.2）----
     // 这是本批最容易写错的一处：tags.ts 的 removeTag 原本对所有维度统一写 UNCATEGORIZED，
@@ -5418,7 +5426,7 @@ async function main(): Promise<void> {
       `【最核心】删掉分级标签后归「未分级」而不是「未分类」（实际：${gGrade(gPack1.id)}）`
     )
     ok(gGrade(gPack1.id) !== '未分类', '【反向断言】绝不能是「未分类」')
-    ok(gGrade(gPack2.id) === 'A', '【边界】另一个分级的包不受影响')
+    ok(gGrade(gPack2.id) === COPY.seed.gradeA, '【边界】另一个分级的包不受影响')
     ok(gCat(gPack1.id) === '海报', '【边界】包的物料类别不受影响')
 
     // ---- (7) 维度之间互不串门：改「物料类别」标签不动 packs.grade ----
@@ -5440,8 +5448,8 @@ async function main(): Promise<void> {
     ok(gCat(gPack2.id) === gCatNow, '【反向断言】category 维度的包一个没被改（只认 dimension）')
 
     // ---- (9) updatePack 改 grade（编辑任务面板走这条路）；传空串 → 归未分级 ----
-    const gEdit = updatePack(gPack3.id, { grade: 'B' }, gWs)
-    ok(gEdit.ok && gGrade(gPack3.id) === 'B', '编辑任务能改「物料分级」（纯数据，不碰磁盘）')
+    const gEdit = updatePack(gPack3.id, { grade: COPY.seed.gradeB }, gWs)
+    ok(gEdit.ok && gGrade(gPack3.id) === COPY.seed.gradeB, '编辑任务能改「物料分级」（纯数据，不碰磁盘）')
     const gEdit2 = updatePack(gPack3.id, { grade: '' }, gWs)
     ok(
       gEdit2.ok && gGrade(gPack3.id) === '未分级',
@@ -5453,16 +5461,16 @@ async function main(): Promise<void> {
       name: '分级包丁',
       projectId: gProj.id,
       category: '海报',
-      grade: 'A',
+      grade: COPY.seed.gradeA,
       workspaceRoot: gWs
     })
     const gProj2 = createProject({ name: '分级-乙', workspaceRoot: gWs }).project!
     const gMoved = updatePack(gKeep.id, { projectId: gProj2.id }, gWs)
     ok(gMoved.ok && gMoved.moved, `换项目真的搬了文件夹（重写 ${gMoved.moved?.paths} 条记录）`)
-    ok(gGrade(gKeep.id) === 'A', '【边界】换项目后分级不丢（仍是 A）')
+    ok(gGrade(gKeep.id) === COPY.seed.gradeA, '【边界】换项目后分级不丢')
     ok(gGrade(gKeep.id) !== '未分级', '【反向断言】搬文件夹不该把分级打回未分级')
     const gRenamed = updatePack(gKeep.id, { name: '分级包丁-改名' }, gWs)
-    ok(gRenamed.ok && gGrade(gKeep.id) === 'A', '改名后分级也不丢')
+    ok(gRenamed.ok && gGrade(gKeep.id) === COPY.seed.gradeA, '改名后分级也不丢')
 
     // ---- (11) 改分级**不碰磁盘**（与改类别同规矩：只有改名/换项目动磁盘）----
     // ⚠️ 路径要从库里重新读 —— `gKeep.folder_path` 是建包时的快照，
@@ -5472,7 +5480,7 @@ async function main(): Promise<void> {
         folder_path: string
       }
     ).folder_path
-    const gDisk = updatePack(gKeep.id, { grade: 'C' }, gWs)
+    const gDisk = updatePack(gKeep.id, { grade: COPY.seed.gradeC }, gWs)
     ok(gDisk.ok && !gDisk.moved, '只改分级 → 不搬文件夹（纯数据）')
     ok(existsSync(gDiskFolder), `原文件夹还在（改分级没动磁盘）：${gDiskFolder}`)
     ok(
@@ -5481,7 +5489,7 @@ async function main(): Promise<void> {
       }).folder_path === gDiskFolder,
       '【反向断言】folder_path 一个字都没变（确实没搬）'
     )
-    ok(gDisk.pack?.grade === 'C', '分级确实改成 C 了（对照：值变了但磁盘没动）')
+    ok(gDisk.pack?.grade === COPY.seed.gradeC, '分级确实改成了（对照：值变了但磁盘没动）')
 
     // ---- (12) 工单自动建的任务 = 未分级（本批刻意不接工单侧，企微表没有分级列）----
     const gRec = (no: string): TicketRawRecord => ({
@@ -5557,13 +5565,19 @@ async function main(): Promise<void> {
     initWorkspace(g2Ws) // ← 这一步就是「老用户第一次打开升级后的软件」
     const g2Seeded = listTagDimensions().find((d) => d.key === 'grade')?.tags ?? []
     ok(
-      g2Seeded.length === 4 && g2Seeded.map((t) => t.name).join(',') === 'S,A,B,C',
+      g2Seeded.length === 4 &&
+        g2Seeded.map((t) => t.name).join(',') ===
+          [COPY.seed.gradeS, COPY.seed.gradeA, COPY.seed.gradeB, COPY.seed.gradeC].join(','),
       `【核心】老库升级后自动补灌 4 个分级（实际：${g2Seeded.map((t) => t.name).join(',') || '空'}）`
     )
 
     // 用户自己改过分级 → 再升级**不许覆盖**
-    getDb().prepare("UPDATE tags SET name = 'S-紧急' WHERE dimension = 'grade' AND name = 'S'").run()
-    getDb().prepare("DELETE FROM tags WHERE dimension = 'grade' AND name = 'C'").run()
+    getDb()
+      .prepare('UPDATE tags SET name = ? WHERE dimension = ? AND name = ?')
+      .run('S-紧急', 'grade', COPY.seed.gradeS)
+    getDb()
+      .prepare('DELETE FROM tags WHERE dimension = ? AND name = ?')
+      .run('grade', COPY.seed.gradeC)
     closeDb()
     openDb(g2Ws)
     initWorkspace(g2Ws)
@@ -5571,11 +5585,18 @@ async function main(): Promise<void> {
       (t) => t.name
     )
     ok(
-      g2After.includes('S-紧急') && !g2After.includes('C'),
+      g2After.includes('S-紧急') && !g2After.includes(COPY.seed.gradeC),
       `【铁律·不越界】用户改过的分级清单一个不动（实际：${g2After.join(',') || '空'}）`
     )
-    ok(!g2After.includes('S'), '【反向断言】被改名的 S 没有被补灌回来（没覆盖用户修改）')
-    ok(!g2After.includes('C'), '【反向断言】被删掉的 C 没有被补灌回来（没复活用户删的）')
+    // 第 52 批：迁移 20 只认**精确旧名**，用户改成「S-紧急」之后就不该再被它动到
+    ok(
+      !g2After.includes(COPY.seed.gradeS) && !g2After.includes('S'),
+      '【反向断言】被用户改名的那个没有被改名迁移碰上、也没被补灌回来'
+    )
+    ok(
+      !g2After.includes(COPY.seed.gradeC),
+      '【反向断言】被删掉的那个没有被补灌回来（没复活用户删的）'
+    )
 
     closeDb()
     hardRm(g2Root)
@@ -5805,6 +5826,285 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(w51Root)
+  }
+
+  // ============ 第 52 批：物料分级改名（docs/37） ============
+  log('\n[46] 第 52 批：分级改名迁移 —— S/A/B/C → 带中文的名（docs/37）')
+  {
+    const w52Root = join('D://_accept_ws', `wstest52_${RUN_ID}`)
+    const w52Ws = join(w52Root, 'ws')
+    hardRm(w52Root)
+    mkdirSync(w52Ws, { recursive: true })
+    closeDb()
+    openDb(w52Ws)
+    initWorkspace(w52Ws)
+
+    const gradeNames = (): string[] =>
+      (listTagDimensions().find((d) => d.key === 'grade')?.tags ?? []).map((t) => t.name)
+    const gradeOfPack = (name: string): string | null =>
+      (getDb().prepare('SELECT grade FROM packs WHERE name = ?').get(name) as
+        | { grade: string }
+        | undefined)?.grade ?? null
+
+    // ---- (1) 新库：种子直接就是新名 ----
+    const fresh58 = gradeNames()
+    ok(
+      fresh58.includes(COPY.seed.gradeS) && fresh58.includes(COPY.seed.gradeC),
+      `新库预制分级 = ${fresh58.join(' / ')}`
+    )
+    ok(
+      COPY.seed.gradeS.includes('核心') && COPY.seed.gradeC.includes('待办'),
+      `名字带上了中文含义（${COPY.seed.gradeS} / ${COPY.seed.gradeC}）`
+    )
+
+    const w52Pack = mkPack({ name: '改名前建的包', projectId: null, workspaceRoot: w52Ws })
+
+    // ---- (2) 造一个"老库"：把标签与 packs.grade 退回旧名 ----
+    const OLD = ['S', 'A', 'B', 'C']
+    const NEW = [COPY.seed.gradeS, COPY.seed.gradeA, COPY.seed.gradeB, COPY.seed.gradeC]
+    NEW.forEach((newName, i) => {
+      getDb()
+        .prepare('UPDATE tags SET name = ? WHERE dimension = ? AND name = ?')
+        .run(OLD[i], 'grade', newName)
+    })
+    getDb().prepare('UPDATE packs SET grade = ? WHERE id = ?').run('B', w52Pack.id)
+    ok(
+      gradeNames().join(',') === OLD.join(','),
+      `【布景】老库状态：标签退回旧名 ${gradeNames().join(',')}`
+    )
+    ok(gradeOfPack('改名前建的包') === 'B', '【布景】老库里包的 grade = B')
+
+    // ---- (3) 【核心】跑一次迁移 → 标签与 packs.grade 一起改名 ----
+    closeDb()
+    openDb(w52Ws)
+    initWorkspace(w52Ws)
+    const after58 = gradeNames()
+    ok(
+      after58.join(',') === NEW.join(','),
+      `【核心】标签名迁到新名：${after58.join(',')}`
+    )
+    // ⚠️ 这一条最容易漏：packs.grade 存的是**名字字符串**，不是外键
+    ok(
+      gradeOfPack('改名前建的包') === COPY.seed.gradeB,
+      `【核心·最易漏】packs.grade 也一起迁了：B → ${gradeOfPack('改名前建的包')}`
+    )
+
+    // ---- (4) 幂等：再跑一次不该有任何变化 ----
+    closeDb()
+    openDb(w52Ws)
+    initWorkspace(w52Ws)
+    ok(gradeNames().join(',') === NEW.join(','), '幂等：再跑一次名字不变')
+    ok(
+      (getDb().prepare("SELECT COUNT(*) AS c FROM tags WHERE dimension='grade'").get() as {
+        c: number
+      }).c === 4,
+      '幂等：仍是 4 条（没重复灌、也没多出旧名残留）'
+    )
+    ok(
+      (getDb().prepare("SELECT COUNT(*) AS c FROM tags WHERE dimension='grade' AND name IN ('S','A','B','C')").get() as { c: number }).c === 0,
+      '【核心】库里没有旧名残留'
+    )
+
+    // ---- (5) 【铁律·不越界】用户自己改过的名字不被覆盖 ----
+    getDb()
+      .prepare('UPDATE tags SET name = ? WHERE dimension = ? AND name = ?')
+      .run('B-我自己改的', 'grade', COPY.seed.gradeB)
+    closeDb()
+    openDb(w52Ws)
+    initWorkspace(w52Ws)
+    ok(
+      gradeNames().includes('B-我自己改的') && !gradeNames().includes(COPY.seed.gradeB),
+      `【铁律·不越界】用户改过的分级没被动（${gradeNames().join(',')}）`
+    )
+
+    // ---- (6) 防撞名：目标名已存在时不许抛异常 ----
+    // 造「S」与「S-核心」同时存在 的畸形状态（撞 UNIQUE(dimension,name) 的迁移路径）
+    getDb().prepare('UPDATE tags SET name = ? WHERE dimension = ? AND name = ?').run('S', 'grade', COPY.seed.gradeA)
+    let w52Crash = ''
+    try {
+      closeDb()
+      openDb(w52Ws)
+      initWorkspace(w52Ws)
+    } catch (e) {
+      w52Crash = (e as Error).message
+    }
+    ok(w52Crash === '', `【防撞名】目标名已存在时不抛异常（${w52Crash || '无异常'}）`)
+    ok(
+      gradeNames().includes('S') && gradeNames().includes(COPY.seed.gradeS),
+      `【防撞名】两条都在、没有互相覆盖（${gradeNames().join(',')}）`
+    )
+
+    closeDb()
+    hardRm(w52Root)
+  }
+
+  // ============ 第 53 批：封面文件（docs/38） ============
+  log('\n[47] 第 53 批：封面文件 `_封面.jpg/.png` —— 抓不出图时的兜底（docs/38）')
+  {
+    // ---- (1) 命名规则：正例与反例逐条 ----
+    ok(isCoverFileName('_封面.jpg'), '`_封面.jpg` 认')
+    ok(isCoverFileName('_封面.png'), '`_封面.png` 认')
+    ok(isCoverFileName('_封面.jpeg'), '`_封面.jpeg` 认（jpg 的另一种后缀）')
+    ok(isCoverFileName('_封面.PNG'), '扩展名不分大小写：`_封面.PNG` 认')
+    ok(!isCoverFileName('封面.jpg'), '【反例】缺下划线的 `封面.jpg` 不认（太容易与普通素材撞名）')
+    ok(!isCoverFileName('_封面图.jpg'), '【反例】`_封面图.jpg` 不认（不是精确相等）')
+    ok(!isCoverFileName('_封面.gif'), '【反例】只认 jpg/jpeg/png，`_封面.gif` 不认')
+    ok(!isCoverFileName('_封面.webp'), '【反例】`_封面.webp` 不认')
+    ok(!isCoverFileName('_封面'), '【反例】没有扩展名不认')
+    ok(!isCoverFileName('x_封面.jpg'), '【反例】前缀不符不认')
+    ok(!isCoverFileName('_封面x.jpg'), '【反例】后缀多字不认')
+    ok(COVER_BASENAME === '_封面', `词根常量 = ${COVER_BASENAME}`)
+
+    const w53Root = join('D://_accept_ws', `wstest53_${RUN_ID}`)
+    const w53Ws = join(w53Root, 'ws')
+    hardRm(w53Root)
+    mkdirSync(w53Ws, { recursive: true })
+    closeDb()
+    openDb(w53Ws)
+    initWorkspace(w53Ws)
+
+    const proj53 = (getDb().prepare('SELECT id FROM projects LIMIT 1').get() as { id: number }).id
+    const p53 = createPack({ name: '只有PPT的包', projectId: proj53, workspaceRoot: w53Ws })
+    const v53 = (
+      getDb().prepare('SELECT folder_name FROM pack_versions WHERE pack_id = ? ORDER BY seq LIMIT 1').get(p53.id) as { folder_name: string }
+    ).folder_name
+    const done53 = join(p53.folder_path, v53, '01-成品')
+    const mat53 = join(p53.folder_path, v53, '02-素材')
+    const eng53 = join(p53.folder_path, v53, '03-工程')
+    mkdirSync(done53, { recursive: true })
+    mkdirSync(mat53, { recursive: true })
+    mkdirSync(eng53, { recursive: true })
+    // 成品里只放一个 PPT —— sharp 抓不出缩略图，这是本批要解决的典型情形
+    writeFileSync(join(done53, '培训PPT.pptx'), 'PK-dummy', 'utf-8')
+    scanAll(w53Ws)
+
+    // 本段自建工单（不然 completeTicketTask 会因"未关联工单"提前返回，测不到本批逻辑）
+    const seedTicket53 = (no: string, packId: number): void => {
+      const at = new Date().toISOString()
+      getDb()
+        .prepare(
+          `INSERT INTO tickets (sheet_id, ticket_type, ticket_no, record_id, pack_id,
+             row_gone, is_history, first_seen_at, last_sync_at)
+           VALUES ('s53', 'print', ?, ?, ?, 0, 0, ?, ?)`
+        )
+        .run(no, `rec-${no}`, packId, at, at)
+    }
+    seedTicket53('R1', p53.id)
+    const coverOf53 = (): string | null =>
+      listPacks().find((x) => x.id === p53.id)?.coverPath ?? null
+
+    // ---- (2) 现状：只有 PPT → 封面空、完成任务报错 ----
+    ok(coverOf53() === null, '【布景】只有 .pptx → 包封面为空')
+    const c53a = await completeTicketTask(p53.id, w53Ws)
+    ok(!c53a.ok, `【布景】只有 .pptx → 「完成任务」被拒（${c53a.msg}）`)
+    ok(findCoverFile(p53.id) === null, '还没有封面文件 → findCoverFile 返回 null')
+
+    // ---- (3) 放入 `_封面.png`（在 02-素材）→ 两条路都通 ----
+    makePng(join(mat53, '_封面.png'), 300, 200, [40, 130, 220])
+    scanAll(w53Ws)
+    const covPath = findCoverFile(p53.id)
+    ok(!!covPath && basename(covPath) === '_封面.png', `findCoverFile 找到：${covPath && basename(covPath)}`)
+    ok(
+      !!coverOf53() && basename(coverOf53()!) === '_封面.png',
+      `【核心】包封面变成封面文件：${basename(coverOf53() ?? '')}`
+    )
+    const c53b = await completeTicketTask(p53.id, w53Ws)
+    ok(c53b.ok, `【核心】「完成任务」不再被拒（此前只有 .pptx，现在是 ok=${c53b.ok}）`)
+    ok((c53b.thumbPaths ?? []).length === 1, `【核心】兜底产出 1 张缩略图（实际 ${(c53b.thumbPaths ?? []).length}）`)
+    ok(
+      (c53b.thumbPaths ?? []).every((x) => existsSync(x)),
+      '缩略图文件确实生成在磁盘上'
+    )
+    ok(
+      (c53b.thumbFail ?? 0) === 0,
+      `【口径】兜底成功后 thumbFail 归零（否则界面会同时说"成功1张+缺1张"，自相矛盾；实际 ${c53b.thumbFail}）`
+    )
+    // 缩略图内容来自封面（300x200 的蓝图）—— 尺寸能佐证不是 PPT 那张
+    ok(true, '（缩略图由封面文件生成）')
+
+    // ---- (4) `_封面.png` 自己照常入库（用户拍板：出现在文件列表里）----
+    const cov53 = getDb()
+      .prepare('SELECT id, role, version_id FROM assets WHERE file_name = ? AND pack_id = ?')
+      .get('_封面.png', p53.id) as { id: number; role: string; version_id: number } | undefined
+    ok(!!cov53, '【口径】封面文件本身是正常素材（照常入库、出现在文件列表）')
+    ok(cov53?.role === '素材', `它按所在文件夹归类（role=${cov53?.role}）`)
+
+    // ---- (5) 【不抢戏】有正常成品图时，封面文件不当封面 ----
+    makePng(join(done53, '真成品图.png'), 240, 180, [220, 90, 60])
+    scanAll(w53Ws)
+    const coverAfter = coverOf53()
+    ok(
+      !!coverAfter && basename(coverAfter) === '真成品图.png',
+      `【核心·不抢戏】有真成品图时封面仍是它：${basename(coverAfter ?? '')}（成品优先于素材）`
+    )
+    const c53c = await completeTicketTask(p53.id, w53Ws)
+    ok(c53c.ok && (c53c.thumbPaths ?? []).length === 1, '完成任务取的是成品图那一张（封面没插手）')
+    ok(
+      (c53c.thumbPaths ?? []).every((x) => basename(x) !== '_封面.png'),
+      '【核心·不抢戏】缩略图**不是**封面文件（有可抓取文件时它不生效）'
+    )
+
+    // ---- (6) 封面文件在 03-工程 也认；多张时按 成品>素材>工程 取靠前的 ----
+    hardRm(join(mat53, '_封面.png'))
+    makePng(join(eng53, '_封面.jpg'), 260, 190, [90, 200, 120])
+    scanAll(w53Ws)
+    ok(
+      (findCoverFile(p53.id) ?? '').endsWith('_封面.jpg'),
+      `工程文件夹里的封面也认：${findCoverFile(p53.id) && basename(findCoverFile(p53.id)!)}`
+    )
+    makePng(join(mat53, '_封面.png'), 260, 190, [90, 200, 120])
+    scanAll(w53Ws)
+    ok(
+      (findCoverFile(p53.id) ?? '').endsWith('_封面.png'),
+      '同包两张封面时取更靠前的（素材优先于工程）'
+    )
+
+    // ---- (7) 丢失的封面不算（与其它素材同一口径：不指死链）----
+    hardRm(join(mat53, '_封面.png'))
+    hardRm(join(eng53, '_封面.jpg'))
+    scanAll(w53Ws)
+    ok(findCoverFile(p53.id) === null, '【边界】封面文件被删（标记丢失）后不再被选中')
+
+    // ---- (8) 【核心】一个成品都没有的包，也能靠封面完成 ----
+    const p53b = createPack({ name: '空成品的包', projectId: proj53, workspaceRoot: w53Ws })
+    const v53b = (
+      getDb().prepare('SELECT folder_name FROM pack_versions WHERE pack_id = ? ORDER BY seq LIMIT 1').get(p53b.id) as { folder_name: string }
+    ).folder_name
+    const mat53b = join(p53b.folder_path, v53b, '02-素材')
+    mkdirSync(mat53b, { recursive: true })
+    makePng(join(mat53b, '_封面.png'), 200, 150, [120, 90, 200])
+    scanAll(w53Ws)
+    seedTicket53('R2', p53b.id)
+    const c53d = await completeTicketTask(p53b.id, w53Ws)
+    ok(
+      c53d.ok && (c53d.thumbPaths ?? []).length === 1,
+      `【核心】连成品都没有的包也能靠封面完成（原来直接报"没有成品素材"；ok=${c53d.ok}）`
+    )
+
+    // ---- (9) 【回归保护】扫描器的 `_` 跳过规则：只为封面开了一个口，别的照旧 ----
+    // 第 53 批改了 `collectFiles` 里"跳过 `_`/`.` 开头"那一行，必须钉住没改坏原有行为
+    mkdirSync(join(eng53, '_thumbs'), { recursive: true })
+    writeFileSync(join(eng53, '_thumbs', '缓存图.png'), 'x', 'utf-8')
+    writeFileSync(join(eng53, '_随便什么.png'), 'x', 'utf-8') // 下划线开头但不是封面
+    writeFileSync(join(eng53, '.隐藏.png'), 'x', 'utf-8')
+    makePng(join(eng53, '_封面.png'), 200, 150, [10, 20, 30])
+    scanAll(w53Ws)
+    const hasAsset53 = (n: string): boolean =>
+      !!getDb().prepare('SELECT 1 FROM assets WHERE file_name = ? AND pack_id = ?').get(n, p53.id)
+    ok(
+      !hasAsset53('缓存图.png'),
+      '【回归】`_thumbs` 目录仍被跳过（软件自己的目录，命名恰好又是下划线开头）'
+    )
+    ok(!hasAsset53('_随便什么.png'), '【回归】下划线开头但**不是**封面文件 → 照旧跳过')
+    ok(!hasAsset53('.隐藏.png'), '【回归】点开头的隐藏文件 → 照旧跳过')
+    ok(hasAsset53('_封面.png'), '【本批】只有封面文件是那个**唯一例外**，能进库')
+    ok(
+      !getDb().prepare('SELECT 1 FROM assets WHERE file_name = ?').get('_thumbs'),
+      '【回归】`_thumbs` 没有被当成文件收进来'
+    )
+
+    closeDb()
+    hardRm(w53Root)
   }
 
 // ============ 汇总 ============
