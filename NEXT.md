@@ -6,11 +6,11 @@
 
 ---
 
-## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 第 47 批施工后核对）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-08 第 48 次会话复核）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
-| **`main`**（唯一） | `b469e5b`（= `origin/main`） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；版本 **1.9.0** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
+| **`main`**（唯一） | `acebc0e`（= `origin/main`） | 第 1~28 批 + 第 47 批全部功能 + 全站改名（docs/28）；代码版本 **1.9.0** | 唯一开发分支，直接在它上面开工；旧功能分支已全部合入并删除 |
 
 要点：
 
@@ -41,39 +41,43 @@
 开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
-本机现状（2026-10-08 第 47 批施工后核对，开工前请再跑一次 git status / git log 确认）：
-- 分支只有 main（= origin/main，含第 1~28 批 + 第 47 批 + 全站改名 docs/28）。直接在 main 上开工；
+本机现状（2026-10-08 第 48 次会话复核，开工前请再跑一次 git status / git log 确认）：
+- 分支只有 main（= origin/main = `acebc0e`，含第 1~28 批 + 第 47 批 + 全站改名 docs/28）。直接在 main 上开工；
   新功能开 feature/小写短横线，合入即删。
-- 版本 **1.9.0**（代码版本；第 47 批已出本地包 `D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`，
-  192.1 MB；**GitHub Release 仍停在 v1.8.3** —— 发 Release = 对外发布，要发先问用户）；
-  验收基线 accept **931 项**（2026-10-08 本机实测全过，只增不减）；
-  界面场景 12 个（banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned）。
-- 下一个迁移号 18（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
-  15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel）。
-- 下一批版本号从 1.8.4 起（1.8.3 已发 GitHub Release）。
+- 版本号 **1.9.0**（代码版本）；验收基线 accept **931 项**（只增不减）；界面场景 12 个。
+- 出包现状：**1.9.0 已出本地包** —— `D:\_accept_ws\rel_out\v1.9.0\VellumDesk-1.9.0-Setup.exe`（192.1 MB），
+  **未发 GitHub Release**；GitHub Release 最新 = **v1.8.3**（185 MB 附件已确认上传成功）。
+  ⚠️ 发 Release = 对外发布（仓库 PUBLIC），要发先问我。
+- 下一个迁移号 **19**（10 tickets / 11 砍状态维度 / 12 交付记录 / 13 指派四列 / 14 ticket_designers /
+  15 ticket_metrics + thumb_url / 16 sheet_title / 17 packs.channel / 18 假丢失治理〔assets.missing_ignored_at + packs.scan_temp〕）。
+- 下一批版本号从 **1.9.1** 起；下一个 docs 编号 **34**（33 = 第 47 批假丢失治理）。
 
 先读这七份，读完再动手（只读，不改文件）：
 1. D:\proj_media\PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
-2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 46 次）
+2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 48 次）
 3. D:\proj_media\DECISIONS.md —— 历史决策，不要推翻已验证的结论
 4. D:\proj_media\NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
 5. D:\proj_media\README.md    —— 验收三件套与界面场景命令
-6. D:\proj_media\docs\28-全站改名方案.md —— 全站改名（软件 / 仓库 / 目录 / 图标）
-7. D:\proj_media\docs\33-假丢失治理方案.md + D:\proj_media\docs\32-打包交付尺寸与命名修正.md
-   —— 最近两个功能批（第 47 / 28 批）
+6. D:\proj_media\docs\33-假丢失治理方案.md —— 最近一次功能批（第 47 批）
+7. D:\proj_media\docs\32-打包交付尺寸与命名修正.md —— 第 28 批（已随 1.8.3 发出）
 
 读完先向我复述三件事，等我确认后再继续：
-① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.8.3 · **931 项** + 12 场景）
-② 未完成的待办（见本文件第四节：文案在线表待刷〔第 28 批 3 条〕、真表人工验收收尾、
-  换机跑时 PSD 样本断言缺失待拍板 —— 见 PROGRESS 第 46 次会话「环境备注」）
+① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.9.0 · **931 项** + 12 场景）
+② 未完成的待办（见本文件第四节：1.9.0 未发 Release；文案在线表待 pull 复核〔第 28 批 3 条可能已随
+  第 47 批一次刷上〕；第 17~20 批真表 / 真机人工验收收尾；第 2 批 PSD 样本断言在 17736 机器上缺失待拍板
+  —— 见 PROGRESS 第 46 次会话「环境备注」）
 ③ 你建议的下一批方向 + 理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
 - 工单二期最后一项：印刷状态写回企微表（写回管路 / CLI 内置 / 通知链路 / 定时同步都已就绪，只剩这一项）
+- 三项已讨论过的新需求（方案与 UI mock 已出、**尚未拍板**）：
+  ① 物料分级 S/A/B/C（照搬「使用场景」范式，最轻，建议先做）
+  ② 系统托盘驻留（中低；需拍板「点 × = 缩到托盘」）
+  ③ 建任务时文件入库（最重，约 2 个会话；需拍板「复制而非移动」）
 - 审核平台（大模块，方案 docs/21 已存档，卡点＝公司微盘使用规范待与同事对齐）
 - 连接 WorkBuddy 审稿（docs/23 已存档待细化，倾向「本地目录 + 自研审稿 Skill + automation」最轻闭环）
 - M6-06 版本对比（图片并排 + 视频双窗同步播放）/ M8-02 重复文件检测 / 报表口径完善
-- 文案在线表刷新（第 28 批 3 条待刷）+ 第 17~20 批真表人工验收收尾
+- 出 1.9.0 的 Release + 文案在线表刷新 + 第 17~20 批真表人工验收收尾
 - 或者我临时想到的新需求（我会直接说）
 
 铁律（PROJECT.md 有完整版）：
@@ -85,8 +89,8 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
   NODE_OPTIONS= node _shotapp/run-verify4.cjs
   banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
-- **跑测试/场景前必须清空 `NODE_OPTIONS=`**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，导致第 4/5 批假失败）；
-  跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
+- **跑测试/场景前必须清空 NODE_OPTIONS=**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，
+  导致第 4/5 批假失败）；跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
 - 出包 / 发版拆两步（`npm run build` → `npx electron-builder --win --config.directories.output=<项目外全新空目录>`）；
   出包前必查 `resources/ffmpeg/*.exe` 与 `resources/wecom-cli/wecom-cli.exe` 存在（两者都 gitignore 不入库，已经丢过两次）
 
@@ -194,6 +198,11 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 **第 19 批「导出报表」已代码完工**（2026-10-04，typecheck 0 错 + accept 746 OK + tickets/export 场景全绿，方案 `docs/22`）——**待办**：① 回到有 mcporter 的机器跑 `node tools/copy-sheet/publish.cjs` 刷在线文案表（累计 8 条新文案：第 18 批 4 条 + 本批 4 条）；② 真表人工验收前，用户在工单队列手动加「缩略图」image 列；③ 出包 1.6.0（两步法 + 项目外全新空目录）；④ 真表人工验收（完成任务 → 工单队列「缩略图」列真出图 → 同步后导出 → 「工单报表」按起止日期新建子表、字段齐全、图正确、本地字段带出、绩效金额列为空待手填）。
 **第 20 批「清理已禁用子表工单」已代码完工**（2026-10-04，typecheck 0 错 + accept 772 OK + tickets 场景全绿，方案 `docs/24`）——起因是用户实测「关掉两个生产子表、只留测试子表，同步后仍是 200+ 条」→ 排查确认**不是 bug 是设计缺口**（关闭子表只停止后续同步，已同步的工单永久留存，且此前没有清理入口）。**待办**：① 真机点一次「清理这些工单」验证（会删掉那两个生产子表的 259 条，备份落 `_system/backup/tickets-*.json`）；② 文案 publish（本批新增约 12 条）；③ 出包 1.7.0。
 **下一批做什么等用户点名**，候选：
+
+- **三项已讨论过的新需求（2026-10-08 出过 mock 与成本评估，尚未拍板）**：
+  ① **物料分级**（新标签维度 S/A/B/C，可增删改，绑定任务 + 筛选面板同步）—— 与「使用场景」同构的第三次复用，约 1 个会话，建议先做；
+  ② **系统托盘驻留**（关窗缩托盘 + 右键「刷新任务 / 同步工单 / 退出」）—— 复用第 26 批 `doTicketSync()`，约 1 个会话；需拍板关闭语义；
+  ③ **建任务时文件入库**（建任务面板加「添加文件」→ 清单 → 逐文件归组 + 改名）—— 约 2 个会话，最重；需拍板复制而非移动。
 
 - **1.3.0 / 1.4.0 装机反馈收尾**：同事装完报的问题（无签名会撞 SmartScreen 蓝条 → 「更多信息 → 仍要运行」；本轮拍板**不做代码签名**，证书路线存 `docs/17` §B）
 - **工单二期余项**：状态写回企微表 / 定时自动同步 / ~~wecom-cli 打进安装包~~（**第 21 批已完成**；方案 `docs/16` 存档，**写回管路 + 通知链路已在第 17 批落地、CLI 内置已在第 21 批落地**，二期只剩「状态写回 + 定时同步」两件事）
