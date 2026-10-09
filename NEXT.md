@@ -81,8 +81,14 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 环境（两条开工前必看，都是踩过的）：
 - **`git push` 的输出会被吞**：本机 push 经常完全无输出、`$?` 还是 0，但**其实已经成功**。
   判定推送一律用 `git rev-parse origin/main` / `git ls-remote origin main`，别信 push 的输出。
-- **Git Credential Manager 会挂起**（`git push` 卡住不动、`git credential fill` 也超时）→ 写操作推不上去。
-  此时 **fetch / pull 仍然正常**（仓库 PUBLIC，读不需要认证）。真要推，先确认 GCM 能正常读凭据。
+- **写了代理变量时 Git Credential Manager 会挂起 → `git push` 推不上去**（卡住不动 / `git credential fill` 也超时）。
+  **根因不是 GCM 坏了，是代理**（2026-10-09 实测：带 `http_proxy`/`https_proxy` 时 GCM 卡死；
+  **去掉代理变量后 6 秒就取到凭据**）。而 **github.com 直连本身是通的**（同时实测直连 200、代理也 200，
+  代理还会间歇性 `CONNECT tunnel failed, response 502`）。
+  **✅ 正解：git 操作把代理变量摘掉再跑** ——
+  `env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY git push origin main`
+  （**不要**为了绕开 GCM 去手写令牌喂给 credential.helper：实测那样仍会撞上代理的 502）。
+  另注：**fetch / pull 不带凭据也能过**（仓库 PUBLIC），所以"能 fetch 不能 push"是正常现象。
 
 先读这七份，读完再动手（只读，不改文件）：
 1. D:/proj_media/PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
