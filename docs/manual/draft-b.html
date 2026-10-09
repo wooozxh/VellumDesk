@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>方向 B · 印刷编辑 —— Vellum工作台 使用手册</title>
+<style>
+  :root{
+    --ink:#20201d; --ink-2:#4a4741; --ink-3:#8a857c;
+    --paper:#faf8f4; --card:#fffefb; --line:#ded8cc;
+    --accent:#9a4a2f; --accent-2:#3f5c46;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#e8e4dc; color:var(--ink);
+    font:15.5px/1.85 "PingFang SC","Microsoft YaHei","Hiragino Sans GB",system-ui,sans-serif;
+  }
+  .sheet{
+    max-width:1120px; margin:0 auto; background:var(--paper);
+    box-shadow:0 1px 0 #d5cfc4, 0 24px 60px rgba(0,0,0,.10);
+  }
+  /* 书眉 */
+  .runhead{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 56px; border-bottom:1px solid var(--line);
+    font-size:11.5px; letter-spacing:.16em; color:var(--ink-3); text-transform:uppercase;
+    position:sticky; top:0; background:var(--paper); z-index:5;
+  }
+  .runhead b{color:var(--ink); letter-spacing:.1em; font-weight:600}
+
+  .cols{display:grid; grid-template-columns:210px minmax(0,1fr) 210px; gap:40px; padding:0 56px}
+  /* 左：目录 */
+  .toc{padding-top:64px; font-size:13px; position:sticky; top:60px; align-self:start; height:calc(100vh - 80px); overflow:auto}
+  .toc .cap{font-size:11px; letter-spacing:.18em; color:var(--ink-3); margin-bottom:14px}
+  .toc a{display:block; color:var(--ink-2); text-decoration:none; padding:4px 0}
+  .toc a:hover{color:var(--accent)}
+  .toc .g{margin-top:16px; font-size:12px; color:var(--accent); letter-spacing:.08em}
+  .toc .sub{padding-left:16px; color:var(--ink-3)}
+
+  /* 中：正文 */
+  main{padding:64px 0 120px; min-width:0}
+  .cover{padding-bottom:40px; border-bottom:3px double var(--ink); margin-bottom:52px}
+  .cover .kicker{font-size:12px; letter-spacing:.3em; color:var(--accent)}
+  .cover h1{
+    font-family:"Songti SC","SimSun","Source Han Serif SC",Georgia,serif;
+    font-size:52px; line-height:1.2; margin:20px 0 0; font-weight:600; letter-spacing:.01em;
+  }
+  .cover .lede{font-size:16.5px; color:var(--ink-2); margin:22px 0 0; max-width:34em}
+  .cover .meta{margin-top:30px; font-size:13px; color:var(--ink-3)}
+  .cover .meta span+span::before{content:"　·　"}
+
+  h2{
+    font-family:"Songti SC","SimSun","Source Han Serif SC",Georgia,serif;
+    font-size:29px; margin:58px 0 4px; font-weight:600;
+  }
+  h2 .no{display:block; font-family:inherit; font-size:12px; letter-spacing:.24em; color:var(--accent); margin-bottom:8px}
+  .opener{border-top:1px solid var(--ink); margin-bottom:22px}
+  h3{font-size:16.5px; margin:34px 0 8px; font-weight:700}
+  h3::before{content:"§ "; color:var(--accent); font-weight:400}
+  p{margin:11px 0}
+  ul,ol{padding-left:20px; margin:10px 0}
+  li{margin:5px 0}
+  code{font-family:Consolas,monospace; background:#f0ece4; padding:1px 5px; font-size:13px}
+
+  .lead{font-size:17px; color:var(--ink-2)}
+  .lead::first-letter{font-family:"Songti SC","SimSun",serif; font-size:44px; float:left; line-height:.86; margin:4px 8px 0 0; color:var(--accent)}
+
+  table{width:100%; border-collapse:collapse; margin:20px 0; font-size:13.5px}
+  th,td{text-align:left; padding:9px 10px 9px 0; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:11.5px; letter-spacing:.1em; color:var(--ink-3); font-weight:600; border-bottom:1px solid var(--ink)}
+  td:first-child{white-space:nowrap}
+
+  figure{margin:26px 0}
+  figure img{width:100%; display:block; border:1px solid var(--line); background:#fff}
+  figcaption{font-size:12.5px; color:var(--ink-3); margin-top:10px; font-style:italic}
+
+  /* 右：旁注 */
+  .note{font-size:12.5px; line-height:1.7; color:var(--ink-2); padding-top:64px; position:sticky; top:60px; align-self:start}
+  .note .item{margin-bottom:26px; padding-left:12px; border-left:2px solid var(--line)}
+  .note .item.acc{border-color:var(--accent)}
+  .note .item.grn{border-color:var(--accent-2)}
+  .note .h{display:block; font-size:11px; letter-spacing:.16em; color:var(--ink-3); margin-bottom:4px}
+
+  .figure-svg{border:1px solid var(--line); background:var(--card); padding:24px; margin:26px 0}
+  footer{margin-top:80px; border-top:3px double var(--ink); padding-top:18px; font-size:12.5px; color:var(--ink-3)}
+
+  @media print{
+    body{background:#fff}
+    .sheet{box-shadow:none; max-width:none}
+    .toc,.note{display:none}
+    .cols{display:block; padding:0}
+    .runhead{position:static; padding:0 0 10px}
+    main{padding:0}
+    h2{page-break-after:avoid} figure,table{page-break-inside:avoid}
+    @page{size:A4; margin:18mm 16mm}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="runhead"><span>第二部分 · 三大模块</span><b>Vellum工作台 使用手册</b><span>2.2　任务管理</span></div>
+
+  <div class="cols">
+    <nav class="toc">
+      <div class="cap">目录</div>
+      <a href="#">封面</a>
+      <div class="g">第一部分　认识它</div>
+      <a href="#">1.1　它解决什么问题</a>
+      <a href="#">1.2　三种人、三件事</a>
+      <div class="g">第二部分　三大模块</div>
+      <a href="#">2.1　工单队列</a>
+      <a href="#" style="color:#9a4a2f">2.2　任务管理</a>
+      <a href="#" class="sub">任务详情与版本</a>
+      <a href="#" class="sub">打包交付</a>
+      <a href="#">2.3　文件管理</a>
+      <div class="g">第三部分　参考</div>
+      <a href="#">3.1　全部按钮速查</a>
+      <a href="#">3.2　下载与更新</a>
+    </nav>
+
+    <main>
+      <header class="cover">
+        <div class="kicker">USER MANUAL</div>
+        <h1>Vellum工作台<br>用户使用手册</h1>
+        <p class="lede">一份给内部设计师与运营的手册：从装好它，到用好它，再到知道边界在哪。</p>
+        <div class="meta"><span>软件版本 1.9.5</span><span>Windows 10 / 11（64 位）</span><span>2026-10-09</span></div>
+      </header>
+
+      <h2 id="a"><span class="no">2.2</span>任务详情与版本管理</h2>
+      <div class="opener"></div>
+      <p class="lead">点任意任务卡片打开。这一屏是日常干活停留最久的地方：确认信息、切稿、丢文件、交付。任务在磁盘上就是一个文件夹，所以在这一屏做的每一个改动，都能在资源管理器里立刻看到结果。</p>
+
+      <figure>
+        <img src="images/07-任务详情.png" alt="任务详情弹窗" />
+        <figcaption>图 2-1　任务详情 —— 顶部信息与按钮、中间版本条、下面四组文件</figcaption>
+      </figure>
+
+      <h3>顶部五个按钮</h3>
+      <table>
+        <thead><tr><th>按钮</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td>✎ 编辑任务信息</td><td>改名称、所属项目、类别。改名称 = 文件夹改名；改项目 = 文件夹搬家</td></tr>
+          <tr><td>📁 打开文件夹</td><td>用资源管理器打开这个任务的文件夹</td></tr>
+          <tr><td>🔗 快捷方式</td><td>在桌面和开始菜单各建一个指向任务文件夹的快捷方式</td></tr>
+          <tr><td>📦 打包交付</td><td>把这一稿按分组打成 zip，按规则自动命名</td></tr>
+          <tr><td>✓ 完成任务</td><td>把成品图缩略图写回工单队列，供绩效与报表取用</td></tr>
+        </tbody>
+      </table>
+
+      <h3>怎么用「快捷方式」</h3>
+      <ol>
+        <li>在任务详情点 <code>快捷方式</code>；</li>
+        <li>桌面和开始菜单各出现一个图标 —— 以后不开软件，双击就能进这个任务的文件夹；</li>
+        <li>同名已存在时软件会先问一句，不会静默覆盖。</li>
+      </ol>
+
+      <h2 id="b"><span class="no">1.1</span>四层结构</h2>
+      <div class="opener"></div>
+      <p>整个软件只有四个概念，理清它们就能看懂任何一个界面。</p>
+
+      <div class="figure-svg">
+        <svg viewBox="0 0 640 280" width="100%" height="280" role="img" aria-label="四层结构图">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#8a857c"/>
+            </marker>
+          </defs>
+          <g font-size="13" fill="#20201d" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+            <!-- 三级横向 -->
+            <rect x="8" y="20" width="184" height="64" fill="#fffefb" stroke="#9a4a2f"/>
+            <text x="100" y="46" text-anchor="middle" font-weight="700">工单</text>
+            <text x="100" y="66" text-anchor="middle" font-size="11" fill="#4a4741">企微表格里的一条申请</text>
+
+            <line x1="192" y1="52" x2="228" y2="52" stroke="#8a857c" marker-end="url(#ar2)"/>
+
+            <rect x="232" y="20" width="184" height="64" fill="#fffefb" stroke="#20201d" stroke-width="1.5"/>
+            <text x="324" y="46" text-anchor="middle" font-weight="700">任务</text>
+            <text x="324" y="66" text-anchor="middle" font-size="11" fill="#4a4741">磁盘上的一个文件夹</text>
+
+            <line x1="416" y1="52" x2="452" y2="52" stroke="#8a857c" marker-end="url(#ar2)"/>
+
+            <rect x="456" y="20" width="176" height="64" fill="#fffefb" stroke="#20201d" stroke-width="1.5"/>
+            <text x="544" y="46" text-anchor="middle" font-weight="700">稿 / 素材</text>
+            <text x="544" y="66" text-anchor="middle" font-size="11" fill="#4a4741">V1、V2… 与里面的文件</text>
+
+            <!-- 磁盘树 -->
+            <line x1="8" y1="118" x2="632" y2="118" stroke="#ded8cc"/>
+            <text x="8" y="146" font-size="11" letter-spacing="1.4" fill="#8a857c">磁盘上就是这个样子</text>
+            <g font-family="Consolas,monospace" font-size="12.5">
+              <text x="8" y="178">工作区\海南升学集训营\海南招生海报-2026秋季\V2\</text>
+              <text x="34" y="202">├─ 01-成品　├─ 02-素材　└─ 03-工程</text>
+            </g>
+            <text x="8" y="244" font-size="12.5" fill="#4a4741">软件里看到什么，资源管理器里就是什么；本地磁盘是唯一真相。</text>
+          </g>
+        </svg>
+      </div>
+
+      <p>工单只负责起头和回写，从不替你搬文件；活的中间部分 —— 放文件、改稿、打包 —— 全在「任务」这一侧。</p>
+
+      <footer>Vellum工作台 · 用户使用手册　|　软件版本 1.9.5　|　下载与更新：github.com/wooozxh/VellumDesk</footer>
+    </main>
+
+    <aside class="note">
+      <div class="item acc">
+        <span class="h">为什么要有任务</span>
+        要让「规矩」落在目录结构上，而不是靠培训。
+      </div>
+      <div class="item">
+        <span class="h">改名会怎样</span>
+        任务改名 → 文件夹一起改名，里面文件一个不动。
+      </div>
+      <div class="item grn">
+        <span class="h">快捷方式</span>
+        同名时会先问一句；文件夹不在时会提示，不会建死链。
+      </div>
+      <div class="item">
+        <span class="h">别这么干</span>
+        不要在资源管理器里手改任务文件夹的名字 —— 用「编辑任务信息」。
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

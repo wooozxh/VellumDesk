@@ -25,6 +25,16 @@ def data_uri(rel):
 
 out = re.sub(r'(src|href)="(images/[^"]+)"', lambda m: '%s="%s"' % (m.group(1), data_uri(m.group(2))), html)
 
+# 样式表也要内联 —— 样式现在在 manual.css 里（单一来源），但单文件版必须自包含
+CSS = os.path.join(BASE, "manual.css")
+if os.path.isfile(CSS):
+    css = open(CSS, encoding="utf-8").read()
+    out = out.replace('<link rel="stylesheet" href="manual.css" />', "<style>\n" + css + "</style>")
+    print("样式已内联：manual.css（%d 行）" % (css.count("\n") + 1))
+else:
+    print("!! 找不到 manual.css —— 单文件版会丢样式")
+print("仍指向外部的样式:", len(re.findall(r'href="manual\.css"', out)), "(应为 0)")
+
 # 单文件版加一句提示（只在文件版里出现）
 out = out.replace(
     "<title>Vellum工作台 · 用户使用手册</title>",

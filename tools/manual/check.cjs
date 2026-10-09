@@ -30,6 +30,8 @@ const HTML_PATH = join(MAN, 'index.html')
 const SINGLE_PATH = join(MAN, 'Vellum工作台-使用手册（单文件）.html')
 const PDF_PATH = join(MAN, 'Vellum工作台-使用手册.pdf')
 const IMG_DIR = join(MAN, 'images')
+const CSS_PATH = join(MAN, 'manual.css')
+const SG_PATH = join(MAN, 'styleguide.html')
 const COPY_TS = join(ROOT, 'src', 'shared', 'copy.ts')
 const PKG_JSON = join(ROOT, 'package.json')
 const IGNORE_JSON = join(__dirname, 'check-ignore.json')
@@ -172,25 +174,45 @@ head('④', 'HTML 结构：标签配对')
 }
 
 // ---------------------------------------------------------------- ⑤ 类名白名单
-head('⑤', '类名白名单：正文用的 class 得有样式')
+head('⑤', '类名白名单：正文用的 class 都得有样式')
 {
-  const styleSeg = (html.match(/<style>([\s\S]*?)<\/style>/) || [, ''])[1]
-  const defined = new Set([...styleSeg.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((x) => x[1]))
+  // 样式是**一份**（manual.css），手册与样板页共用 —— 改样式只改那一处
+  const linked = /<link[^>]+href="manual\.css"/.test(html)
+  if (!existsSync(CSS_PATH)) {
+    fail('没有 manual.css —— 样式表丢了（手册会退化成裸 HTML）')
+  } else if (!linked) {
+    fail('index.html 没有引用 manual.css（是不是又写回内联 <style> 了？）')
+  } else {
+    pass('样式表 manual.css 就位，且被 index.html 引用')
+  }
+
+  const cssText = existsSync(CSS_PATH)
+    ? readFileSync(CSS_PATH, 'utf8')
+    : (html.match(/<style>([\s\S]*?)<\/style>/) || [, ''])[1]
+  const defined = new Set([...cssText.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((x) => x[1]))
   // 纯结构性 / 只做 hook 用的类，允许没有可见样式
   const ALLOW = new Set([
     'in', 'tx', 'n', 'h', 'grp', 'lv3', 'on', 'cap', 'right', 'left',
-    'badge', 'warn', 'danger', 'info', 'ok', 'anchor', 'fig2', 'grid2', 'grid3'
+    'badge', 'warn', 'danger', 'info', 'ok', 'anchor'
   ])
-  const body = html.replace(styleSeg, '').replace(/<script>[\s\S]*?<\/script>/g, '')
-  const used = new Set()
-  for (const m of body.matchAll(/class="([^"]+)"/g)) {
-    for (const c of m[1].split(/\s+/).filter(Boolean)) used.add(c)
-  }
-  const orphan = [...used].filter((c) => !defined.has(c) && !ALLOW.has(c))
-  if (orphan.length) {
-    fail(`正文用了样式段里没有的 class（写错了就静默丢样式）：${orphan.join(', ')}`)
-  } else {
-    pass(`正文用的 ${used.size} 个 class 全部有定义（或属允许的结构类）`)
+
+  // 手册 + 样板页都要干净 —— 样板页是模具，自己用错类名就没有说服力
+  const pages = [['index.html', html]]
+  if (existsSync(SG_PATH)) pages.push(['styleguide.html', readFileSync(SG_PATH, 'utf8')])
+  for (const [name, src] of pages) {
+    const body = src
+      .replace(/<style>[\s\S]*?<\/style>/g, '')
+      .replace(/<script>[\s\S]*?<\/script>/g, '')
+    const used = new Set()
+    for (const m of body.matchAll(/class="([^"]+)"/g)) {
+      for (const c of m[1].split(/\s+/).filter(Boolean)) used.add(c)
+    }
+    const orphan = [...used].filter((c) => !defined.has(c) && !ALLOW.has(c))
+    if (orphan.length) {
+      fail(`${name} 用了样式表里没有的 class（打错了就静默丢样式，界面悄悄跑偏）：${orphan.join(', ')}`)
+    } else {
+      pass(`${name} 用的 ${used.size} 个 class 全部有定义（或属允许的结构类）`)
+    }
   }
 }
 

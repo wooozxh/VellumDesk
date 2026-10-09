@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>手册样式样板 · 内部开发用</title>
+<link rel="icon" href="images/logo-128.png" />
+<link rel="stylesheet" href="manual.css" />
+</head>
+<body>
+<div class="sg-wrap">
+
+  <h1>手册样式样板</h1>
+  <p class="lede">这是**模具**，不是交付物。写新章节时照这里抄 —— 类名、结构、图号规则都在。页面本身和手册共用同一份 <code>manual.css</code>，所以这里看到的就是手册里会长的样子。</p>
+
+  <div class="sg-rule">
+    <b>一条硬规则：</b>正文里只用这一页列出来的类。需要新样式时，先去 <code>manual.css</code> 加定义，再回这里补一个示例 ——
+    顺序别反，反了就会出现"没有样式的类"，界面悄悄跑偏。<br>
+    <code>node tools/manual/check.cjs</code> 会同时体检本页和手册，专门抓这种问题。
+  </div>
+
+  <div class="sg-idx">
+    <a href="#sg-skel">页面骨架</a>
+    <a href="#sg-text">文字</a>
+    <a href="#sg-call">提示条</a>
+    <a href="#sg-media">图</a>
+    <a href="#sg-table">表格</a>
+    <a href="#sg-card">卡片与步骤</a>
+    <a href="#sg-faq">问答</a>
+    <a href="#sg-cover">封面元信息</a>
+    <a href="#sg-new">新章节骨架（复制用）</a>
+  </div>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-skel">
+    <div class="kick">STRUCTURE</div>
+    <h2 class="ct">页面骨架</h2>
+    <p>手册是「章 → 小节 → 三级标题」三层。章头用 <code>chapterhead</code>（没有白底卡片），小节用 <code>section</code>（白底卡片）。</p>
+  </section>
+
+  <section id="sg-skel-1">
+    <h2><span class="n">S.1</span>章头</h2>
+    <p>每章开头一个。三件套：<code>kick</code>（英文栏目名）+ <code>h2.ct</code>（章标题）+ 一句导语。</p>
+    <div class="demo">
+      <div class="chapterhead" style="padding-top:0">
+        <div class="kick">PART THREE</div>
+        <h2 class="ct">任务管理</h2>
+        <p>从「接单」到「交付」的主战场：把一堆散文件变成一个能被验收的成品。</p>
+      </div>
+    </div>
+<pre>&lt;section class="chapterhead" id="ch3"&gt;
+  &lt;div class="kick"&gt;PART THREE&lt;/div&gt;
+  &lt;h2 class="ct"&gt;任务管理&lt;/h2&gt;
+  &lt;p&gt;一句导语，说清这一章解决什么问题。&lt;/p&gt;
+&lt;/section&gt;</pre>
+    <div class="call warn"><span class="h">编号规则</span>章头 id 固定为 <code>ch1</code>…<code>ch6</code>；小节 id 为 <code>s&lt;章&gt;-&lt;节&gt;</code>（如 <code>s3-5</code>）。<b>新增小节必须同时加进目录页</b>，否则体检 ② 会报。</div>
+  </section>
+
+  <section id="sg-skel-2">
+    <h2><span class="n">S.2</span>小节</h2>
+    <p>一节一张白底卡片。标题用 <code>h2</code> + <code>&lt;span class="n"&gt;</code>（那个小方框里的编号）；节内分层用 <code>h3</code>（自带虚线分隔）。</p>
+    <div class="demo">
+      <h2><span class="n">3.5</span>任务详情弹窗</h2>
+      <p>点任务卡片打开，是操作最集中的地方。</p>
+      <h3>顶部按钮组</h3>
+      <p>从左到右：编辑任务信息 / 打开文件夹 / 打包交付 / 完成任务。</p>
+    </div>
+<pre>&lt;section id="s3-5"&gt;
+  &lt;h2&gt;&lt;span class="n"&gt;3.5&lt;/span&gt;任务详情弹窗&lt;/h2&gt;
+  &lt;p&gt;点任务卡片打开。&lt;/p&gt;
+  &lt;h3&gt;顶部按钮组&lt;/h3&gt;
+  &lt;p&gt;从左到右…&lt;/p&gt;
+&lt;/section&gt;</pre>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-text">
+    <div class="kick">TEXT</div>
+    <h2 class="ct">文字元素</h2>
+    <p>正文能用的只有这几样，够用。</p>
+  </section>
+
+  <section id="sg-text-1">
+    <h2><span class="n">T.1</span>段落、列表、行内标记</h2>
+    <div class="demo">
+      <p>普通段落。提到界面上的东西用 <span class="btnchip">打包交付</span> 这种胶囊标记，让读者一眼知道"这是个能点的东西"。</p>
+      <p>路径和字段名用 <code>02-素材</code> 这样标出来；按键用 <kbd>Esc</kbd>。外部链接可以放 <a href="https://github.com/wooozxh/VellumDesk">下载地址</a>。</p>
+      <ul>
+        <li>无序列表项</li>
+        <li>第二项，<b>粗体</b>只用来强调关键动作
+          <ul><li>可以嵌一层</li></ul>
+        </li>
+      </ul>
+    </div>
+    <div class="use"><b>用在哪</b>　正文默认就是段落；<code>btnchip</code> 只给"界面上真实存在的按钮/开关"用</div>
+<pre>&lt;p&gt;点 &lt;span class="btnchip"&gt;打包交付&lt;/span&gt; 生成 zip。&lt;/p&gt;
+&lt;p&gt;成品放进 &lt;code&gt;01-成品&lt;/code&gt;，按 &lt;kbd&gt;Esc&lt;/kbd&gt; 关窗。&lt;/p&gt;</pre>
+    <div class="call info"><span class="h">为什么按钮要单独标记</span>体检脚本会拿这些胶囊里的文字去比软件的文案字典 —— 软件把「打开文件夹」改名叫「打开所在文件夹」时，这一处会被自动标红。所以<b>按钮名一定要用 btnchip，别混在正文里手写</b>。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-call">
+    <div class="kick">CALLOUT</div>
+    <h2 class="ct">提示条</h2>
+    <p>四种颜色，含义固定，别混用。</p>
+  </section>
+
+  <section id="sg-call-1">
+    <h2><span class="n">C.1</span>四色各自管什么</h2>
+    <div class="demo">
+      <div class="call info"><span class="h">信息</span>补充说明、设计意图。读者跳过也不影响操作。</div>
+      <div class="call ok"><span class="h">好消息 / 已修复</span>某个坑已经不存在了，或者"这样做就是对的"。</div>
+      <div class="call warn"><span class="h">注意</span>容易踩的坑、容易误解的地方。看一眼能省一次返工。</div>
+      <div class="call danger"><span class="h">危险</span>可能造成<b>数据丢失</b>的操作。动手前必须读。</div>
+    </div>
+<pre>&lt;div class="call info"&gt;&lt;span class="h"&gt;信息&lt;/span&gt;补充说明。&lt;/div&gt;
+&lt;div class="call ok"&gt;&lt;span class="h"&gt;已修复&lt;/span&gt;…&lt;/div&gt;
+&lt;div class="call warn"&gt;&lt;span class="h"&gt;注意&lt;/span&gt;…&lt;/div&gt;
+&lt;div class="call danger"&gt;&lt;span class="h"&gt;危险&lt;/span&gt;…&lt;/div&gt;</pre>
+    <div class="call warn"><span class="h">克制</span>一节里超过两个提示条，就该考虑把内容并进正文 —— 满屏色块会让真正危险的那条被忽略。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-media">
+    <div class="kick">MEDIA</div>
+    <h2 class="ct">图</h2>
+    <p>三种：单图、双图并排、自绘示意图。截图统一由 <code>manual</code> 场景脚本重拍，风格自然一致。</p>
+  </section>
+
+  <section id="sg-media-1">
+    <h2><span class="n">M.1</span>单图与图号</h2>
+    <p>图号格式固定为 <code>图 &lt;章&gt;-&lt;序号&gt;</code>，后面接一句说清"这图在讲什么"的说明。<code>alt</code> 写图的用途（读屏用）。</p>
+    <div class="demo">
+      <figure><img src="images/07-任务详情.png" alt="任务详情弹窗" /><figcaption>图 M-1　任务详情弹窗：顶部是按钮组，下面按稿分块</figcaption></figure>
+    </div>
+<pre>&lt;figure&gt;
+  &lt;img src="images/07-任务详情.png" alt="任务详情弹窗" /&gt;
+  &lt;figcaption&gt;图 3-5　任务详情弹窗：顶部是按钮组&lt;/figcaption&gt;
+&lt;/figure&gt;</pre>
+  </section>
+
+  <section id="sg-media-2">
+    <h2><span class="n">M.2</span>双图并排</h2>
+    <div class="demo">
+      <div class="fig2">
+        <figure><img src="images/07-任务详情.png" alt="任务详情" /><figcaption>图 M-2　左：任务详情</figcaption></figure>
+        <figure><img src="images/16-项目行悬浮按钮.png" alt="悬浮按钮" /><figcaption>图 M-3　右：悬停才出现的按钮</figcaption></figure>
+      </div>
+    </div>
+<pre>&lt;div class="fig2"&gt;
+  &lt;figure&gt;&lt;img src="images/a.png" alt="" /&gt;&lt;figcaption&gt;图 3-6　左：…&lt;/figcaption&gt;&lt;/figure&gt;
+  &lt;figure&gt;&lt;img src="images/b.png" alt="" /&gt;&lt;figcaption&gt;图 3-7　右：…&lt;/figcaption&gt;&lt;/figure&gt;
+&lt;/div&gt;</pre>
+    <div class="call warn"><span class="h">双图只适合同尺寸</span>两张图宽高比差太多会一高一矮，很难看。竖长图和横图别配对。</div>
+  </section>
+
+  <section id="sg-media-3">
+    <h2><span class="n">M.3</span>自绘示意图（流程图 / 结构图）</h2>
+    <p>放在 <code>figure-svg</code> 容器里，里面内联 <code>svg</code>。配色只用两三种，线条细一点（1px），字体跟正文一致。</p>
+    <div class="demo">
+      <div class="figure-svg">
+        <svg viewBox="0 0 620 90" width="100%" height="90" role="img" aria-label="示例流程">
+          <rect x="8" y="24" width="120" height="42" rx="8" fill="#eef2ff" stroke="#1a56db" stroke-width="1"/>
+          <text x="68" y="50" text-anchor="middle" font-size="13" fill="#1e3a8a">工单同步</text>
+          <path d="M132 45 L196 45" stroke="#7b8494" stroke-width="1" fill="none"/>
+          <path d="M190 40 L198 45 L190 50" stroke="#7b8494" stroke-width="1" fill="none"/>
+          <rect x="202" y="24" width="120" height="42" rx="8" fill="#ecfdf5" stroke="#0f7b52" stroke-width="1"/>
+          <text x="262" y="50" text-anchor="middle" font-size="13" fill="#065f46">自动建任务</text>
+          <path d="M326 45 L390 45" stroke="#7b8494" stroke-width="1" fill="none"/>
+          <path d="M384 40 L392 45 L384 50" stroke="#7b8494" stroke-width="1" fill="none"/>
+          <rect x="396" y="24" width="120" height="42" rx="8" fill="#eef2ff" stroke="#1a56db" stroke-width="1"/>
+          <text x="456" y="50" text-anchor="middle" font-size="13" fill="#1e3a8a">落到工单队列</text>
+        </svg>
+      </div>
+    </div>
+<pre>&lt;div class="figure-svg"&gt;
+  &lt;svg viewBox="0 0 620 90" width="100%" height="90"&gt;
+    &lt;rect x="8" y="24" width="120" height="42" rx="8"
+          fill="#eef2ff" stroke="#1a56db" stroke-width="1"/&gt;
+    &lt;text x="68" y="50" text-anchor="middle" font-size="13" fill="#1e3a8a"&gt;工单同步&lt;/text&gt;
+  &lt;/svg&gt;
+&lt;/div&gt;</pre>
+    <div class="use"><b>配色速查</b>　中性块 <code>#eef2ff</code>/<code>#1a56db</code>（文字 <code>#1e3a8a</code>）；成功块 <code>#ecfdf5</code>/<code>#0f7b52</code>（文字 <code>#065f46</code>）；警示块 <code>#fffbeb</code>/<code>#a16207</code>；危险块 <code>#fef2f2</code>/<code>#b91c1c</code>；连接线与箭头 <code>#7b8494</code></div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-table">
+    <div class="kick">TABLE</div>
+    <h2 class="ct">表格</h2>
+    <p>两种用法：逐条对照（左边是界面元素，右边是说明），或者参数速查。</p>
+  </section>
+
+  <section id="sg-table-1">
+    <h2><span class="n">B.1</span>对照表</h2>
+    <div class="demo">
+      <table>
+        <thead><tr><th style="width:168px">元素</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><span class="btnchip">打开文件夹</span></td><td>用资源管理器打开这个任务的文件夹</td></tr>
+          <tr><td><span class="btnchip">打包交付</span></td><td>把成品打成一个 zip，发给申请人</td></tr>
+        </tbody>
+      </table>
+    </div>
+<pre>&lt;table&gt;
+  &lt;thead&gt;&lt;tr&gt;&lt;th style="width:168px"&gt;元素&lt;/th&gt;&lt;th&gt;作用&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;&lt;td&gt;&lt;span class="btnchip"&gt;打开文件夹&lt;/span&gt;&lt;/td&gt;&lt;td&gt;说明…&lt;/td&gt;&lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;</pre>
+    <div class="use"><b>宽度</b>　第一列固定 168px（放按钮胶囊刚好），其余自适应。列多时给每列写宽度，避免挤在一起。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-card">
+    <div class="kick">CARD &amp; STEP</div>
+    <h2 class="ct">卡片与步骤</h2>
+    <p>用来压缩篇幅：并列的三件事、按顺序的一串动作。</p>
+  </section>
+
+  <section id="sg-card-1">
+    <h2><span class="n">G.1</span>并列卡片（grid2 / grid3）</h2>
+    <div class="demo">
+      <div class="grid3">
+        <div class="mini"><div class="t">只想马上干活</div><div class="d">读第一部分的「安装」与「第一次启动」。</div></div>
+        <div class="mini"><div class="t">想搞懂为什么</div><div class="d">从「四层结构」开始读。</div></div>
+        <div class="mini"><div class="t">想查一个按钮</div><div class="d">直接看对应章节的对照表。</div></div>
+      </div>
+    </div>
+<pre>&lt;div class="grid3"&gt;
+  &lt;div class="mini"&gt;&lt;div class="t"&gt;标题&lt;/div&gt;&lt;div class="d"&gt;说明&lt;/div&gt;&lt;/div&gt;
+  &lt;div class="mini"&gt;…&lt;/div&gt;
+  &lt;div class="mini"&gt;…&lt;/div&gt;
+&lt;/div&gt;</pre>
+    <div class="use"><b>grid2 / grid3</b>　两列用 <code>grid2</code>，三列用 <code>grid3</code>。卡片里只能放 <code>.t</code>（标题）和 <code>.d</code>（说明）两个元素。</div>
+  </section>
+
+  <section id="sg-card-2">
+    <h2><span class="n">G.2</span>编号步骤（steps）</h2>
+    <div class="demo">
+      <ol class="steps">
+        <li>打开任务详情，点 <span class="btnchip">打包交付</span>。</li>
+        <li>勾掉不需要进包的分组，选压缩质量。</li>
+        <li>点「生成」，等进度条走完 —— 完成后会直接把 zip 所在文件夹打开。</li>
+      </ol>
+    </div>
+<pre>&lt;ol class="steps"&gt;
+  &lt;li&gt;第一步…&lt;/li&gt;
+  &lt;li&gt;第二步…&lt;/li&gt;
+&lt;/ol&gt;</pre>
+    <div class="call warn"><span class="h">别和普通有序列表混用</span>讲"操作顺序"用 <code>steps</code>（带圆点和竖线的）；只是列举几条并列事项，用普通 <code>&lt;ol&gt;</code>。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-faq">
+    <div class="kick">FAQ</div>
+    <h2 class="ct">问答</h2>
+    <p>折叠块。用于「现象 → 怎么办」的排查，每条一问一答。</p>
+  </section>
+
+  <section id="sg-faq-1">
+    <h2><span class="n">F.1</span>折叠问答</h2>
+    <div class="demo">
+      <details class="faq"><summary>顶部出现黄条「工作区『xxx』连不上」？</summary>
+        <p>说明工作区所在的位置这次没能读到（移动硬盘拔了、网络盘断了）。软件<b>不会</b>自动换位置，里面一件东西都没动。把盘接上，然后点黄条右边的「重试」。</p>
+      </details>
+      <details class="faq"><summary>按钮点了没反应？</summary>
+        <p>先看右下角有没有红色提示条 —— 软件把失败原因都写在那里。</p>
+      </details>
+    </div>
+<pre>&lt;details class="faq"&gt;&lt;summary&gt;现象是什么？&lt;/summary&gt;
+  &lt;p&gt;怎么办。&lt;/p&gt;
+&lt;/details&gt;</pre>
+    <div class="use"><b>summary 写法</b>　直接写读者看到的现象（带疑问语气），不要写"关于 xx 的说明"这种。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-cover">
+    <div class="kick">COVER</div>
+    <h2 class="ct">封面元信息</h2>
+    <p>封面只在手册开头用一次。<code>kv</code> 那一行是版本信息的横排。</p>
+  </section>
+
+  <section id="sg-cover-1">
+    <h2><span class="n">V.1</span>kv 信息行</h2>
+    <div class="demo">
+      <div class="kv">
+        <div><b>1.9.6</b>软件版本</div>
+        <div><b>47</b>小节</div>
+        <div><b>44</b>张截图</div>
+      </div>
+    </div>
+<pre>&lt;div class="kv"&gt;
+  &lt;div&gt;&lt;b&gt;1.9.6&lt;/b&gt;软件版本&lt;/div&gt;
+  &lt;div&gt;&lt;b&gt;47&lt;/b&gt;小节&lt;/div&gt;
+&lt;/div&gt;</pre>
+    <div class="call warn"><span class="h">版本号要一致</span>封面那个 <code>1.9.6</code> 必须和 <code>package.json</code> 的 <code>version</code> 一样 —— 体检 ① 专门查这个。每批出包后记得改封面（连同打印页脚那两处）。</div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="chapterhead" id="sg-new">
+    <div class="kick">TEMPLATE</div>
+    <h2 class="ct">新章节骨架（复制用）</h2>
+    <p>直接把下面这段改一改：改编号、改标题、填内容。别忘了两件事 —— <b>加进目录页</b>、<b>新增图要重新生成 PDF 和单文件版</b>。</p>
+  </section>
+
+  <section id="sg-new-1">
+    <h2><span class="n">N.1</span>骨架</h2>
+<pre><span class="c">&lt;!-- 章头（只有一章的第一节需要）--&gt;</span>
+&lt;section class="chapterhead" id="ch7"&gt;
+  &lt;div class="kick"&gt;PART SEVEN&lt;/div&gt;
+  &lt;h2 class="ct"&gt;章标题&lt;/h2&gt;
+  &lt;p&gt;一句导语。&lt;/p&gt;
+&lt;/section&gt;
+
+<span class="c">&lt;!-- 小节 --&gt;</span>
+&lt;section id="s7-1"&gt;
+  &lt;h2&gt;&lt;span class="n"&gt;7.1&lt;/span&gt;小节标题&lt;/h2&gt;
+  &lt;p&gt;先说这一节解决什么问题。&lt;/p&gt;
+
+  &lt;h3&gt;第一个子话题&lt;/h3&gt;
+  &lt;p&gt;正文，提到按钮用 &lt;span class="btnchip"&gt;按钮名&lt;/span&gt;。&lt;/p&gt;
+  &lt;div class="call warn"&gt;&lt;span class="h"&gt;注意&lt;/span&gt;容易踩的坑。&lt;/div&gt;
+
+  &lt;figure&gt;
+    &lt;img src="images/xx-图名.png" alt="" /&gt;
+    &lt;figcaption&gt;图 7-1　说明&lt;/figcaption&gt;
+  &lt;/figure&gt;
+
+  &lt;h3&gt;第二个子话题&lt;/h3&gt;
+  &lt;ol class="steps"&gt;
+    &lt;li&gt;第一步&lt;/li&gt;
+    &lt;li&gt;第二步&lt;/li&gt;
+  &lt;/ol&gt;
+&lt;/section&gt;</pre>
+    <div class="use"><b>改完必做</b>　① 把新小节加进目录页（<code>tocfull</code>，体检 ② 会查）　② 重新生成 <code>Vellum工作台-使用手册（单文件）.html</code> 与 PDF（体检 ⑦ 会查）　③ 跑 <code>node tools/manual/check.cjs</code></div>
+  </section>
+
+  <div class="call info" style="margin-top:22px"><span class="h">这一页怎么用</span>别通读 —— 写新章节时开着它，需要哪个组件就抄哪一段。<code>manual.css</code> 是唯一的样式来源，改样式只改它，这一页和手册会一起变。</div>
+
+</div>
+</body>
+</html>
