@@ -1,4 +1,10 @@
 import { COPY, fmt } from '../../shared/copy'
+// 第 54 批（docs/40）：首次配置引导的规则（纯逻辑，accept 直接单测）
+import {
+  shouldShowSetupWizard,
+  wizardWritesDoneFlag,
+  type WizardDismissReason
+} from '../../shared/setupWizard'
 import { Rich } from './components/Rich'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
@@ -7,6 +13,7 @@ import type {
   PackCard as PackCardType,
   ProjectWithCount,
   ScanProgress,
+  TicketStatus,
   UnboundProject,
   UpdatePackPatch,
   WorkspaceEntry,
@@ -28,8 +35,10 @@ import { TagManagerModal } from './components/TagManagerModal'
 import { TagPickerModal } from './components/TagPickerModal'
 // 第 13 批：工单视图（自包含组件 —— 新视图不再往本文件堆状态，给 App 减负）
 import { TicketsView } from './components/TicketsView'
-// 第 21 批：企微连接引导（首次启动弹一次）
-import { WecomAuthModal } from './components/WecomAuthModal'
+// 第 54 批（docs/40）：首次配置引导（取代第 21 批「首次启动弹一次授权引导」）
+import { SetupWizardModal } from './components/SetupWizardModal'
+// 第 54 批：向导 S3 里要打开已有的「工单同步设置」（不重造一套）
+import { TicketSettingsModal } from './components/TicketSettingsModal'
 
 type ViewMode = 'packs' | 'files' | 'tickets'
 
@@ -141,21 +150,20 @@ export default function App(): React.JSX.Element {
       .catch(() => {})
   }, [])
 
-  // ---- 第 21 批（docs/16 §4）：首次启动的企微连接引导 ----
+  // ---- 第 54 批（docs/40）：首次配置引导 ----
   /**
-   * 只在「内置组件在、但还没授权」时自动弹一次（这次扫码就能解决，弹了有意义）。
-   * 组件缺失 / 状态未知都不弹 —— 免得每次开机都挡路；入口常驻在「工单队列 → 齿轮」里。
-   * 弹过就写 meta（wecom_onboard_seen），以后不再自动弹。
+   * 什么时候弹：**本次启动时这个库是现场新建的**（= 真正的新装 / 换 Windows 账号 / 换电脑），
+   * 且没走过向导。老用户升级**不弹**（库里 media.db 早就在 —— 判据刻意不用"配置文件在不在"，
+   * 第 28 批 userData 改名后老用户升级时配置文件本来就是空的，拿它判会把老用户全弹一遍）。
+   *
+   * 本会话内关掉之后不再自动重开（`wizardShownRef`）—— 否则每次数据刷新都会再弹一次。
+   * 关窗口不写标记（下次启动再弹）；点「完成」/「我以后再说」才写。
    */
-  const [showWecom, setShowWecom] = useState(false)
-  useEffect(() => {
-    void window.api
-      .wecomCliInfo()
-      .then((i) => {
-        if (i.available && i.auth === 'unauthorized' && !i.onboardSeen) setShowWecom(true)
-      })
-      .catch(() => {})
-  }, [])
+  const [showWizard, setShowWizard] = useState(false)
+  const wizardShownRef = useRef(false)
+  /** 向导 S3 打开「工单同步设置」用（这个弹窗平时由 TicketsView 自己管） */
+  const [wzSettingsOpen, setWzSettingsOpen] = useState(false)
+  const [wzSettingsInitial, setWzSettingsInitial] = useState<TicketStatus | null>(null)
 
   const toastId = useRef(0)
   const toast = useCallback((text: string, kind: 'ok' | 'err' | 'info' = 'info'): void => {
@@ -163,6 +171,45 @@ export default function App(): React.JSX.Element {
     setToasts((prev) => [...prev, { id, text, kind }])
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3600)
   }, [])
+
+  /**
+   * 向导收尾（三种原因，规则在 `shared/setupWizard.ts` 里，可单测）：
+   * - `done`  点「完成」→ 写标记 + 跳到工单队列 + 提示点「同步工单」（用户拍板 W11）
+   * - `later` 点「我以后再说」→ 写标记，但**不跳转**（人家说了以后再说，不硬拽）
+   * - `dismiss` 关窗口（✕ / Esc / 点弹窗外）→ **不写标记**，下次启动还会弹
+   */
+  const closeWizard = useCallback(
+    (reason: WizardDismissReason): void => {
+      setShowWizard(false)
+      setWzSettingsOpen(false)
+      if (wizardWritesDoneFlag(reason)) {
+        void window.api.setupWizardDone().catch(() => {})
+      }
+      if (reason !== 'done') return
+      setView('tickets')
+      toast(fmt(COPY.wz.syncHint, { btn: COPY.ticket.syncBtn }), 'info')
+    },
+    [toast]
+  )
+
+  /**
+   * 首次配置引导：判定只跑一次（`wizardShownRef`）—— 之后每次数据刷新都不该再弹。
+   * 具体规则见 `shouldShowSetupWizard`。
+   */
+  useEffect(() => {
+    if (!info) return
+    if (
+      shouldShowSetupWizard({
+        workspaceOk: info.workspaceOk,
+        firstRunThisSession: info.firstRunThisSession,
+        setupWizardDone: info.setupWizardDone,
+        alreadyShownThisSession: wizardShownRef.current
+      })
+    ) {
+      wizardShownRef.current = true
+      setShowWizard(true)
+    }
+  }, [info])
 
   // ---------------- 数据加载 ----------------
 
@@ -1077,6 +1124,7 @@ export default function App(): React.JSX.Element {
             <TicketsView
               onToast={(m) => toast(m)}
               onUnassignedCount={(n) => setTkUnassigned(n)}
+              onOpenWizard={() => setShowWizard(true)}
             />
           </div>
         ) : (
@@ -1818,15 +1866,32 @@ export default function App(): React.JSX.Element {
         />
       )}
 
-      {/* 第 21 批（docs/16 §4）：首次启动的企微连接引导 —— 只在「内置组件在、但还没授权」时弹一次 */}
-      {showWecom && (
-        <WecomAuthModal
-          onboard
-          onClose={() => {
-            setShowWecom(false)
-            void window.api.wecomOnboardSeen().catch(() => {})
+      {/* 第 54 批（docs/40）：首次配置引导 —— 库本次新建且没走过向导时才自动弹 */}
+      {showWizard && (
+        <SetupWizardModal
+          workspaceRoot={info?.workspaceRoot ?? ''}
+          escDisabled={wzSettingsOpen}
+          onClose={() => closeWizard('dismiss')}
+          onFinish={(r) => closeWizard(r)}
+          onOpenTicketSettings={() => {
+            // 复用已有的「工单同步设置」弹窗（不重造一套连接 / 选子表 UI）
+            void window.api
+              .ticketStatus()
+              .then((s) => setWzSettingsInitial(s))
+              .catch(() => setWzSettingsInitial(null))
+              .finally(() => setWzSettingsOpen(true))
           }}
           onToast={toast}
+        />
+      )}
+
+      {/* 向导 S3 里打开的「工单同步设置」（与 TicketsView 里那个是同一个组件） */}
+      {wzSettingsOpen && (
+        <TicketSettingsModal
+          initial={wzSettingsInitial}
+          onOpenWizard={() => setWzSettingsOpen(false)}
+          onClose={() => setWzSettingsOpen(false)}
+          onSaved={() => setWzSettingsOpen(false)}
         />
       )}
 

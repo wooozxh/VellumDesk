@@ -114,6 +114,14 @@ app.setPath('userData', userDataDir)
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.vellumdesk')
 
+  /**
+   * 第 54 批（docs/40 §4.1）：首次配置引导的判据 —— **本次启动时工作区里有没有现成的库**。
+   * ⚠️ 必须在 `initWorkspace` 之前探（那一步就是把库建出来的），而且只能探这一次。
+   * 判据刻意是"库在没在"而不是"配置文件在不在"：第 28 批 userData 改名后，
+   * 老用户升级时配置文件本来就是空的 —— 拿它判会把老用户全弹一遍。
+   */
+  let firstRunThisSession = false
+
   // 启动即初始化工作区（A-02）：建目录 + 建库，避免界面首次查询时表还不存在
   try {
     // B-02：FFmpeg 路径注入（随软件打包；找不到也不影响启动，只是视频功能降级）
@@ -128,6 +136,8 @@ app.whenReady().then(() => {
     if (!cliExe) console.warn('[wecom-cli] 未找到内置 resources/wecom-cli/wecom-cli.exe')
 
     const root = getWorkspaceRoot(app.getPath('userData'))
+    // 第 54 批：建库**之前**探一次（见上面 firstRunThisSession 的说明）
+    firstRunThisSession = !existsSync(join(root, '_system', 'media.db'))
     initWorkspace(root)
     // B-01/B-02/B-04：后台补一次图片尺寸 / 色彩模式 + 视频时长 / 编码 + PSD 尺寸，
     // 让界面一打开就有信息（不阻塞窗口显示）
@@ -151,7 +161,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpc()
+  // 第 54 批（docs/40）：把"启动时有没有现成的库"传下去 —— 首次配置引导的触发判据
+  registerIpc({ firstRunThisSession })
 
   createWindow()
 

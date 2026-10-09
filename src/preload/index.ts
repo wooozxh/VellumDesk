@@ -14,6 +14,8 @@ const api = {
   wsOpenRoot: () => ipcRenderer.invoke('ws:openRoot'),
   // 第 6 批：目录结构升级提示条已被界面看到
   wsAckLayout: () => ipcRenderer.invoke('ws:ackLayout'),
+  // 第 54 批（docs/40）：首次配置引导已走过
+  setupWizardDone: () => ipcRenderer.invoke('setup:wizardDone'),
 
   // 第 5 批：工作区管理与迁移
   wsList: () => ipcRenderer.invoke('ws:list'),
@@ -166,6 +168,8 @@ const api = {
   reportStatus: () => ipcRenderer.invoke('report:status'),
   reportExport: (input: { link: string; start: string; end: string }) =>
     ipcRenderer.invoke('report:export', input),
+  // 第 54 批（docs/40 S4）：只记住报表表格链接
+  reportSaveLink: (link: string) => ipcRenderer.invoke('report:saveLink', link),
 
   // 第 20 批：清理已禁用子表工单（docs/24）
   ticketPurgePreview: () => ipcRenderer.invoke('ticket:purgePreview'),
@@ -183,6 +187,9 @@ const api = {
   openFile: (absPath: string) => ipcRenderer.invoke('file:open', absPath),
   revealFile: (absPath: string) => ipcRenderer.invoke('file:reveal', absPath),
   openFolder: (p: string) => ipcRenderer.invoke('shell:openPath', p),
+  // 第 54 批（docs/39）：任务文件夹的桌面 / 开始菜单快捷方式
+  packCreateShortcut: (packId: number, overwrite?: boolean) =>
+    ipcRenderer.invoke('pack:createShortcut', { packId, overwrite: overwrite === true }),
 
   // 第 15 批：交付打包（M5，docs/18）
   packExport: (input: PackExportInput) => ipcRenderer.invoke('pack:export', input),

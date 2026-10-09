@@ -83,7 +83,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 931 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 1097 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -96,6 +96,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（**顶栏第一格 + 启动默认**，第 22 批起 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5 交付打包（包详情 → 打包交付 → 生成 zip，第 16 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs wizard           # 界面验证：首次配置引导六步走完 + 完成/不再弹（第 54 批）
 ```
 
 注意：
@@ -136,10 +137,10 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 
 ## 改文案（文案字典 + 在线表格）
 
-全软件 **742 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
+全软件 **805 条**文案集中在 **`src/shared/copy.ts`**，**不用改组件代码**。改文案走在线表格：
 
 - 表：**素材管家 · 文案清单** → https://docs.qq.com/sheet/DVEZIY0R6V1F6ZEJD
-  （`1-界面文案` 712 条 / `2-默认数据` 30 条，`改成（你填这列）` **留空 = 不改**）
+  （`1-界面文案` 771 条 / `2-默认数据` 34 条，`改成（你填这列）` **留空 = 不改**）
 - 完整流程与脚本说明：**`tools/copy-sheet/README.md`**
 - 一句话流程：**表上改 → `pull` → `diff` → `apply --write` → 验收 → `publish`**
   （`publish.cjs` 把 `copy.ts` 刷回同一张表、清空「改成」列，**链接不变可反复改**）
@@ -221,6 +222,28 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
 - **删除联动**：删类别前先弹确认「目前有 N 个包正在使用这个类别，删除后这些包的类别也会一并去掉」，确认后这些包归「未分类」；联动手只认「物料类别」这一个维度，渠道 / 状态维度就算撞了同名标签也跟包无关
 - 类别被删光也能建包（记「未分类」），重新扫描不会重置包的类别；手工建的包文件夹被扫进来时类别记「未分类」
 - 方案全文见 `docs/12-物料类别同源方案.md`
+
+## 任务快捷方式 + 首次配置引导（第 54 批）
+
+**任务快捷方式**（`docs/39`）：任务详情弹窗顶部多一个「快捷方式」按钮 —— 点一下在**桌面 + 开始菜单**给该任务文件夹各建一个 `.lnk`，以后不开软件也能直接进文件夹干活。
+
+- 用 Electron 自带的 `shell.writeShortcutLink`，零新依赖；**不碰任务文件夹里的任何文件**
+- 三条边界来自实测（探针结论写在 `src/main/shortcut.ts` 文件头，别改成"想当然"的写法）：
+  ① 指向**文件夹**可用；② 目标已有同名 `.lnk` 时 API **不报错、直接覆盖** → 所以要弹确认；
+  ③ 目标**不存在**也照样建成功 → 所以建之前必须自己查任务文件夹还在不在
+- 纯逻辑（命名 / 计划 / 执行）在 `src/main/shortcut.ts`，**writer 注入** —— 单测注入假 writer，真写 `.lnk` 只在 Electron 里做
+- 任务改名会连带改文件夹 → 旧快捷方式失效。本批**不自动跟随**（不去翻用户桌面），只提示
+
+**首次配置引导**（`docs/40`）：装完第一次打开，弹一个六步向导 —— 欢迎 → 工作区 → 连接企业微信 → 工单表 → 报表表 → 完成，**每步都能跳过**。
+
+- 触发判据 = **本次启动时库是不是现场新建的**（真正的新装 / 换 Windows 账号 / 换电脑），
+  且没走过向导。**老用户升级不弹**——判据刻意不用"配置文件在不在"（第 28 批 userData 改过名，拿它判会把老用户全弹一遍）
+- 点「完成」→ 写 `setup_wizard_done`（meta）+ 自动跳到工单队列并提示点「同步工单」；
+  点「我以后再说」→ 只写标记、不跳转；**直接关窗口（✕ / Esc）→ 不写**，下次启动还会弹
+- 原来「首次启动自动弹一次」的企微扫码引导**被收编进向导 S2**；引导弹窗本体保留（工单设置常驻入口 + 同步失败自动弹），
+  扫码区抽成共用组件 `WecomConnectPanel`
+- 向导 S3 直接复用已有的「工单同步设置」弹窗（不重造一套）；S4 用新开的 `report:saveLink` 只记链接、不导出
+- ⚠️ **视觉样式本批不定稿**（用户：「欢迎窗口后续我可能会改样式」）：文案全走字典、样式收在 `main.css` 的 `.wz-*` 一段，将来换皮只动那段
 
 ## 已知环境坑（踩过别再踩）
 

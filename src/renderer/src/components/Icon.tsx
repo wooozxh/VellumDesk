@@ -46,6 +46,8 @@ export type IconName =
   // 第 47 批（docs/33）：假丢失治理 —— 忽略 / 撤销忽略
   | 'eyeOff'
   | 'undo'
+  // 第 54 批（docs/39）：任务快捷方式
+  | 'shortcut'
 
 const ICONS: Record<IconName, React.JSX.Element> = {
   /** 放大镜（搜索素材名 / 标签） */
@@ -170,6 +172,19 @@ const ICONS: Record<IconName, React.JSX.Element> = {
     <>
       <path d="M4.2 10.2h9.3a4.9 4.9 0 0 1 0 9.8H8.6" />
       <path d="M8 6.2 4.2 10.2 8 14.2" />
+    </>
+  ),
+  /**
+   * 第 54 批：快捷方式。
+   * 形：一台显示器（桌面）+ 屏内右上角一个「外跳」小箭头 —— 读起来就是"点一下进那个地方"。
+   */
+  shortcut: (
+    <>
+      <rect x="2.6" y="3.6" width="18.8" height="12.8" rx="2" />
+      <path d="M8.6 20.4h6.8" />
+      <path d="M12 16.4v4" />
+      <path d="M13.2 12.8l3.6-3.6" />
+      <path d="M13.6 9.2h3.2v3.2" />
     </>
   ),
   /** 右向三角（折叠面板） */

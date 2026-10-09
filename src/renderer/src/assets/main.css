@@ -3539,3 +3539,143 @@ svg {
 .tk-wecom .spacer {
   flex: 1;
 }
+
+/* ============================================================================
+   第 54 批（docs/40）：首次配置引导（SetupWizardModal）
+
+   ⚠️ 样式**刻意收在这独立一段**里、类名一律 `wz-` 前缀 ——
+   用户 2026-10-09 明确「欢迎窗口后续我可能会改样式，现在还没想好」，
+   所以本批只做「能用、不难看」的占位；将来换皮只动这一段，不牵连别处。
+   ============================================================================ */
+.wz-modal {
+  width: 540px;
+}
+.wz-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.wz-stepbar {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.wz-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+.wz-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 2px;
+}
+.wz-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wz-text {
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-2);
+  /* 文案里用 \n 分段；这里照原样换行，不压成一行 */
+  white-space: pre-line;
+}
+.wz-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+}
+.wz-path .k {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.wz-path code {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wz-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.wz-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wz-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+  background-color: var(--bg-mute);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+.wz-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-in);
+}
+.wz-okline {
+  font-size: 12px;
+  color: var(--ok);
+}
+.wz-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+}
+.wz-sum-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wz-sum-item .k {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.wz-sum-item .v {
+  flex-shrink: 0;
+  padding: 1px 9px;
+  font-size: 11.5px;
+  border-radius: var(--r-pill);
+}
+.wz-sum-item .v.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.wz-sum-item .v.skip {
+  color: var(--text-3);
+  background: var(--bg-hover);
+}
+.wz-sum-item .v.unset {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.wz-where {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.wz-actions {
+  margin-top: 4px;
+}

@@ -113,6 +113,33 @@ export interface WsInfo {
    * 调 wsAckLayout 之后就没了。
    */
   layoutMigrated?: { at: string; packs: number }
+  /**
+   * 第 54 批（docs/40 §4.1）：**本次启动时这个工作区的库是不是现场新建的**。
+   * 首次配置引导据此判断"这台机器还没配过"。
+   *
+   * 判据刻意选「库在没在」而不是「配置文件在不在」：第 28 批 userData 目录改过名，
+   * 老用户升级时配置文件本来就是空的 —— 拿它当判据会把老用户全弹一遍。
+   */
+  firstRunThisSession: boolean
+  /** 第 54 批（docs/40 §4.2）：首次配置引导是否已走过（点过「完成」或「我以后再说」） */
+  setupWizardDone: boolean
+}
+
+// ==================== 第 54 批（docs/39 / docs/40） ====================
+
+/**
+ * 建任务快捷方式的结果。
+ * - `conflict` = 目标位置已有同名 `.lnk`，**什么都没做**，界面应弹确认后带 overwrite 再来一次
+ * - `skipped` = 用户选择不覆盖（同样什么都没做）
+ * - `msg` = 失败时给用户看的一句话（走文案字典）
+ */
+export interface CreateShortcutResult {
+  ok: boolean
+  /** 快捷方式落到的位置（桌面那份） */
+  path?: string
+  conflict?: boolean
+  skipped?: boolean
+  msg?: string
 }
 
 // ==================== 第 7 批：记录生命周期（docs/09） ====================
@@ -715,6 +742,8 @@ export interface Api {
   wsOpenRoot: () => Promise<{ ok: boolean; error?: string }>
   /** 第 6 批：界面提示过目录结构升级后调用，保证提示条只出现一次 */
   wsAckLayout: () => Promise<void>
+  /** 第 54 批（docs/40 §4.2）：标记「首次配置引导已走过」—— 点过「完成」或「我以后再说」才写 */
+  setupWizardDone: () => Promise<{ ok: boolean }>
 
   // ---------------- 第 5 批：工作区管理 ----------------
   /** 工作区列表（含当前活动 id） */
@@ -861,6 +890,11 @@ export interface Api {
   openFile: (absPath: string) => Promise<{ ok: boolean; error?: string }>
   revealFile: (absPath: string) => Promise<{ ok: boolean; error?: string }>
   openFolder: (p: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * 第 54 批（docs/39）：给任务文件夹在**桌面 + 开始菜单**建快捷方式。
+   * 目标位置已有同名 `.lnk` 且没传 `overwrite` 时，回 `conflict: true` 且**什么都不做**。
+   */
+  packCreateShortcut: (packId: number, overwrite?: boolean) => Promise<CreateShortcutResult>
 
   // ---------------- 第 3 批：标签 ----------------
   /** 各维度 + 每个维度的标签（带使用计数）。
@@ -954,6 +988,8 @@ export interface Api {
   reportStatus: () => Promise<ReportStatus>
   /** 导出报表：起止日期 → 建子表 → 写记录 */
   reportExport: (input: { link: string; start: string; end: string }) => Promise<ExportReportResult>
+  /** 第 54 批（docs/40 S4）：只记住报表表格链接（不导出）—— 向导里「配置报表表」用 */
+  reportSaveLink: (link: string) => Promise<{ ok: boolean; docid?: string; kind?: 'bad-link' }>
 
   // ---------------- 第 20 批：清理已禁用子表工单（docs/24） ----------------
   /** 只算不删：已关闭子表的工单里，多少条可清理 / 多少条因有任务包会跳过 */

@@ -102,6 +102,14 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_unassigned'),
     workspaceRoot: join(BASE, 'shot_wsu'),
     shot: 'shot-b25-4-unassigned-final.png'
+  },
+  // 第 54 批（docs/40）：首次配置引导（初装向导）
+  // ⚠️ 这个场景的布景**故意不建库** —— 得让软件自己把 media.db 建出来，
+  //    `firstRunThisSession` 才会是 true（向导的触发判据 = 库是不是本次新建的）
+  wizard: {
+    userData: join(BASE, 'shot4_wizard'),
+    workspaceRoot: join(BASE, 'shot_wswz'),
+    shot: 'shot-b54-9-wizard-after-reload.png'
   }
 }
 
@@ -221,6 +229,14 @@ app.whenReady().then(async () => {
           ? '包已进项目文件夹 ✅'
           : '❌ 包没被搬进项目文件夹')
     )
+  }
+
+  // ---- 第 54 批（docs/40）：首次配置引导 ----
+  // 只建空目录、**不建库**：让软件启动时自己把 media.db 建出来，
+  // 这样主进程的 `firstRunThisSession` 才是 true（= 向导该弹）。
+  if (SCEN === 'wizard') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
   }
 
   // ---- 第 7 批：记录生命周期场景 ----
@@ -3451,6 +3467,14 @@ app.whenReady().then(async () => {
       !!wecomBlock && wecomBlock.btn === plain(COPY.wecom.openGuide),
       `区块有「${plain(COPY.wecom.openGuide)}」按钮（授权入口常驻，不依赖首次自动弹）`
     )
+    // 第 54 批（docs/40 §4.3）：同一行还有「重新打开配置向导」入口（排在连接引导之后）
+    const wzEntry = await js(
+      `(() => { const w = document.querySelector('.tk-wecom'); if (!w) return null; return { bs: [...w.querySelectorAll('.btn')].map((b) => b.innerText.trim()) } })()`
+    )
+    ok(
+      !!wzEntry && wzEntry.bs.includes(plain(COPY.wz.openWizard)),
+      `区块还有「${plain(COPY.wz.openWizard)}」入口（第 54 批：以后想重配随时能打开）`
+    )
     await js(
       `(() => { const b = document.querySelector('.tk-wecom .btn'); if (b) b.click(); return 'ok' })()`
     )
@@ -3579,6 +3603,31 @@ app.whenReady().then(async () => {
     })()`)
     ok(clickedCard === 'ok', '找到并点击「' + exportPackName + '」任务卡片')
     await wait(900)
+
+    // (1b) 第 54 批（docs/39）：详情顶部按钮组里多了「快捷方式」（桌面 + 开始菜单）
+    // ⚠️ 只验形态、**不真点** —— 真点会在用户真实桌面 / 开始菜单留下 .lnk（方案 D8）
+    const shtBtn = await js(`(() => {
+      const bs = [...document.querySelectorAll('.modal .btn')]
+      const b = bs.find((x) => x.innerText.trim() === ${JSON.stringify(COPY.sht.btn)})
+      if (!b) return null
+      return {
+        t: b.innerText.trim(),
+        tip: (b.getAttribute('title') || '').trim(),
+        btns: bs.map((x) => x.innerText.trim())
+      }
+    })()`)
+    ok(!!shtBtn, `【第 54 批】任务详情里有「${plain(COPY.sht.btn)}」按钮`)
+    ok(
+      !!shtBtn && shtBtn.tip === plain(COPY.sht.btnTip),
+      `按钮提示写明落点（桌面 + 开始菜单）：${shtBtn ? shtBtn.tip : '—'}`
+    )
+    ok(
+      !!shtBtn &&
+        shtBtn.btns.indexOf(plain(COPY.sht.btn)) >
+          shtBtn.btns.indexOf(plain(COPY.common.openFolder)),
+      '它排在「打开文件夹」之后（两者指向同一个任务文件夹）'
+    )
+    await shot('shot-b54-8-packdetail-shortcut-btn.png')
 
     // (2) 详情弹窗里有「打包交付」按钮并点击
     const exportBtn = await js(`(() => {
@@ -3772,6 +3821,255 @@ app.whenReady().then(async () => {
       `目标任务下拉里能选到任务（${claim && claim.packOpts} 项，含一个占位项）`
     )
     await shot('shot-b25-3-claim-bar.png')
+  } else if (SCEN === 'wizard') {
+    // ============================================================
+    // 第 54 批（docs/40）：首次配置引导（初装向导）
+    //   六步：欢迎 → 工作区 → 企业微信 → 工单表 → 报表表 → 完成
+    //   触发判据 = **库是不是本次新建的**（本场景布景故意不建库）+ 没走过向导
+    //   「完成」/「我以后再说」→ 写 setup_wizard_done；直接关掉 → 不写
+    // ============================================================
+    await wait(1600)
+
+    // (1) 【核心】全新库启动 → 向导自动弹出
+    const w0 = await js(`(() => {
+      const m = document.querySelector('.wz-modal')
+      if (!m) return null
+      return {
+        title: ((m.querySelector('h3') || {}).innerText || '').replace(/\\s+/g, ' ').trim(),
+        step: ((m.querySelector('.wz-stepbar') || {}).innerText || '').trim(),
+        name: ((m.querySelector('.wz-name') || {}).innerText || '').trim(),
+        h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+        btns: [...m.querySelectorAll('.btn')].map((b) => b.innerText.trim())
+      }
+    })()`)
+    ok(!!w0, '【核心】全新库启动 → 首次配置引导自动弹出（库本次新建 + 没走过向导）')
+    ok(!!w0 && w0.title.includes(plain(COPY.wz.title)), `弹窗标题 = 「${w0 ? w0.title : '—'}」`)
+    ok(
+      !!w0 && w0.step === plain(fmt(COPY.wz.stepOf, { n: 1, m: 6 })),
+      `步骤指示：${w0 ? w0.step : '—'}`
+    )
+    ok(!!w0 && w0.h === plain(COPY.wz.s0Title), `欢迎页大标题：${w0 ? w0.h : '—'}`)
+    ok(
+      !!w0 && w0.btns.includes(plain(COPY.wz.start)) && w0.btns.includes(plain(COPY.wz.later)),
+      `首步按钮：${w0 ? w0.btns.join(' / ') : '—'}`
+    )
+    ok(
+      !!w0 && !w0.btns.includes(plain(COPY.wz.skip)) && !w0.btns.includes(plain(COPY.wz.prev)),
+      '首步没有「跳过」也没有「上一步」'
+    )
+    if (!w0) {
+      // 后面全靠这个弹窗往下走，没弹出来就别接着点（那只会得到一串 no-el 假失败）
+      ok(false, '向导没弹出 —— 后续步骤跳过（先修触发判定）')
+    } else {
+      await shot('shot-b54-1-wizard-welcome.png')
+
+      // (2) 点「开始配置」→ S1 工作区（显示软件已自动选好的位置 + 允许改）
+      await clickByText('.wz-modal .btn', COPY.wz.start)
+      await wait(700)
+      const w1 = await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        if (!m) return null
+        return {
+          h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+          path: ((m.querySelector('.wz-path code') || {}).innerText || '').trim(),
+          change: ((m.querySelector('.wz-path .btn') || {}).innerText || '').trim()
+        }
+      })()`)
+      ok(!!w1 && w1.h === plain(COPY.wz.s1Title), `第 2 步是「工作区」（${w1 ? w1.h : '—'}）`)
+      ok(
+        !!w1 && w1.path.toLowerCase().includes('shot_wswz'),
+        `显示软件已经自动选好的位置：${w1 ? w1.path : '—'}`
+      )
+      ok(
+        !!w1 && w1.change === plain(COPY.wz.s1Change),
+        '工作区那步有「更改位置」（不破坏"绝不偷偷换位置"）'
+      )
+      await shot('shot-b54-2-wizard-workspace.png')
+
+      // (3) 下一步 → S2 企业微信（扫码面板与工单设置里是同一个组件）
+      await clickByText('.wz-modal .btn', COPY.wz.next)
+      await wait(1300)
+      const w2 = await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        if (!m) return null
+        return {
+          h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+          pill: ((m.querySelector('.wc-pill') || {}).innerText || '').trim(),
+          intro: ((m.querySelector('.wc-intro') || {}).innerText || '').trim(),
+          btns: [...m.querySelectorAll('.btn')].map((b) => b.innerText.trim())
+        }
+      })()`)
+      ok(!!w2 && w2.h === plain(COPY.wz.s2Title), `第 3 步是「连接企业微信」（${w2 ? w2.h : '—'}）`)
+      ok(!!w2 && w2.pill.length > 0, `扫码面板有状态徽标（${w2 ? w2.pill : '—'}）`)
+      ok(!!w2 && w2.intro.length > 20, '面板有一句话说明（授权只做一次 / 换机才需重扫）')
+      ok(
+        !!w2 &&
+          w2.btns.includes(plain(COPY.wz.skip)) &&
+          w2.btns.includes(plain(COPY.wz.prev)) &&
+          w2.btns.includes(plain(COPY.wz.next)),
+        `中间步骤的三个按钮都在：${w2 ? w2.btns.join(' / ') : '—'}`
+      )
+      // ⚠️ 不点「开始扫码授权」—— 那会拉起真 CLI 等扫码（真企微不进自动测试）
+      await shot('shot-b54-3-wizard-wecom.png')
+
+      // (4) 跳过 → S3 工单表：向导里只放一个按钮，把已有的设置弹窗打开
+      await clickByText('.wz-modal .btn', COPY.wz.skip)
+      await wait(700)
+      const w3 = await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        if (!m) return null
+        return {
+          h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+          open: ((m.querySelector('.wz-body > .btn') || {}).innerText || '').trim()
+        }
+      })()`)
+      ok(!!w3 && w3.h === plain(COPY.wz.s3Title), `第 4 步是「配置工单表」（${w3 ? w3.h : '—'}）`)
+      ok(
+        !!w3 && w3.open === plain(COPY.wz.s3Open),
+        `有「${w3 ? w3.open : '—'}」按钮（复用已有的设置弹窗，不重造一套）`
+      )
+
+      // (5) 点它 → 工单同步设置真的开在向导之上；关掉后回到向导
+      await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        const b =
+          m &&
+          [...m.querySelectorAll('.btn')].find(
+            (x) => x.innerText.trim() === ${JSON.stringify(plain(COPY.wz.s3Open))}
+          )
+        if (b) b.click()
+        return 'ok'
+      })()`)
+      await wait(1300)
+      const nested = await js(`!document.querySelector('.tk-settings')`)
+      ok(nested === false, '向导里点「打开工单同步设置」→ 工单设置弹窗真的开在向导之上')
+      await shot('shot-b54-4-wizard-ticket-settings.png')
+      await js(`(() => {
+        const st = document.querySelector('.tk-settings')
+        const modal = st && st.closest('.modal')
+        const c = modal && modal.querySelector('.close')
+        if (c) c.click()
+        return 'ok'
+      })()`)
+      await wait(900)
+      const backToWizard = await js(
+        `(() => ({ wizard: !!document.querySelector('.wz-modal'), settings: !!document.querySelector('.tk-settings') }))()`
+      )
+      ok(
+        backToWizard.wizard === true && backToWizard.settings === false,
+        '关掉设置弹窗后回到向导（向导没被连带关掉）'
+      )
+
+      // (6) 下一步 → S4 报表表：内联一个链接框；填个不像链接的 → 如实报错
+      await clickByText('.wz-modal .btn', COPY.wz.next)
+      await wait(700)
+      const w4 = await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        if (!m) return null
+        return {
+          h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+          hasInput: !!m.querySelector('.wz-input'),
+          save: ((m.querySelector('.wz-row .btn') || {}).innerText || '').trim()
+        }
+      })()`)
+      ok(!!w4 && w4.h === plain(COPY.wz.s4Title), `第 5 步是「配置报表表」（${w4 ? w4.h : '—'}）`)
+      ok(!!w4 && w4.hasInput, '报表那步有链接输入框（向导内联，不用再开一个弹窗）')
+      ok(!!w4 && w4.save === plain(COPY.wz.s4Save), `有「${w4 ? w4.save : '—'}」按钮`)
+
+      await js(`(() => {
+        const i = document.querySelector('.wz-modal .wz-input')
+        if (!i) return 'no-input'
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        setter.call(i, '这不是一条表格链接')
+        i.dispatchEvent(new Event('input', { bubbles: true }))
+        return 'ok'
+      })()`)
+      await wait(400)
+      await js(`(() => {
+        const b = document.querySelector('.wz-modal .wz-row .btn')
+        if (b) b.click()
+        return 'ok'
+      })()`)
+      await wait(1000)
+      const badLink = await js(`(() => {
+        const e = document.querySelector('.wz-modal .tk-err')
+        return e ? e.innerText.trim() : ''
+      })()`)
+      ok(
+        badLink === plain(COPY.wz.s4Bad),
+        `填了不像链接的内容 → 如实报错、不静默存进去（${badLink || '—'}）`
+      )
+      await shot('shot-b54-5-wizard-report.png')
+
+      // (7) 走到完成页：汇总如实（工作区=已配置 / 企业微信=已跳过）
+      await clickByText('.wz-modal .btn', COPY.wz.next)
+      await wait(1000)
+      const w5 = await js(`(() => {
+        const m = document.querySelector('.wz-modal')
+        if (!m) return null
+        return {
+          h: ((m.querySelector('.wz-title') || {}).innerText || '').trim(),
+          items: [...m.querySelectorAll('.wz-sum-item')].map((x) => ({
+            k: ((x.querySelector('.k') || {}).innerText || '').trim(),
+            v: ((x.querySelector('.v') || {}).innerText || '').trim()
+          })),
+          btns: [...m.querySelectorAll('.btn')].map((b) => b.innerText.trim())
+        }
+      })()`)
+      ok(!!w5 && w5.h === plain(COPY.wz.s5Title), `末步是完成页（${w5 ? w5.h : '—'}）`)
+      ok(!!w5 && w5.items.length === 4, `汇总列出四项配置（实际 ${w5 ? w5.items.length : 0}）`)
+      ok(
+        !!w5 && w5.items[0] && w5.items[0].v === plain(COPY.wz.itemDone),
+        `工作区如实标「已配置」（${w5 && w5.items[0] ? w5.items[0].v : '—'}）`
+      )
+      ok(
+        !!w5 && w5.items[1] && w5.items[1].v === plain(COPY.wz.itemSkipped),
+        `【如实】被跳过的企业微信标「已跳过」（${w5 && w5.items[1] ? w5.items[1].v : '—'}）`
+      )
+      ok(
+        !!w5 && w5.btns.includes(plain(COPY.wz.done)) && w5.btns.includes(plain(COPY.wz.prev)),
+        `完成页按钮：${w5 ? w5.btns.join(' / ') : '—'}`
+      )
+      await shot('shot-b54-6-wizard-summary.png')
+
+      // (8) 点「完成」→ 关窗 + 写标记 + 跳到工单队列（用户拍板 W11）
+      await clickByText('.wz-modal .btn', COPY.wz.done)
+      await wait(1400)
+      const doneState = await js(`(() => ({
+        wizard: !!document.querySelector('.wz-modal'),
+        tab: (() => { const el = document.querySelector('.tabs button.on'); return el ? el.innerText.trim() : '' })(),
+        toast: [...document.querySelectorAll('.toast')].map((t) => t.innerText.trim()).join(' | ')
+      }))()`)
+      ok(doneState.wizard === false, '点「完成」→ 向导关闭')
+      ok(
+        String(doneState.tab).startsWith(plain(COPY.ticket.viewTab)),
+        `完成后自动跳到${plain(COPY.ticket.viewTab)}（当前高亮：${doneState.tab}）`
+      )
+      ok(
+        doneState.toast.includes(plain(fmt(COPY.wz.syncHint, { btn: COPY.ticket.syncBtn }))),
+        `并提示点一下「${plain(COPY.ticket.syncBtn)}」（${doneState.toast || '—'}）`
+      )
+
+      // (9) 【核心】标记真的落库了（另开一个连接读 —— 主进程写的是已提交数据）
+      const Database2 = require('better-sqlite3')
+      const dbW = new Database2(join(ws, '_system', 'media.db'), { readonly: true })
+      const doneFlag = dbW.prepare("SELECT value FROM meta WHERE key = 'setup_wizard_done'").get()
+      dbW.close()
+      ok(!!doneFlag && doneFlag.value === '1', '点「完成」→ `setup_wizard_done` 落库')
+
+      // (10) 【核心】再启动一次渲染层 → 向导不再弹（标记生效，不会天天挡路）
+      await win.webContents.reload()
+      await wait(2400)
+      const afterReload = await js(`(() => ({
+        wizard: !!document.querySelector('.wz-modal'),
+        tab: (() => { const el = document.querySelector('.tabs button.on'); return el ? el.innerText.trim() : '' })()
+      }))()`)
+      ok(
+        afterReload.wizard === false,
+        '【核心】走过向导之后再启动 → **不再自动弹**（标记生效）'
+      )
+      await shot('shot-b54-7-wizard-no-repop.png')
+    }
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

@@ -14,6 +14,22 @@ import {
 import { join, basename } from 'path'
 // 第 52 批：分级名改从文案字典取（不再硬编码 S/A/B/C，改名时断言自动跟着变）
 import { COPY } from './src/shared/copy'
+// 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
+import {
+  sanitizeShortcutName,
+  shortcutPathFor,
+  buildShortcutPlan,
+  runShortcut,
+  type ShortcutWriter
+} from './src/main/shortcut'
+// 第 54 批（docs/40）：首次配置引导的规则（步骤定义 / 触发判定 / 关窗语义）
+import {
+  SETUP_STEPS,
+  setupStepCount,
+  shouldShowSetupWizard,
+  wizardWritesDoneFlag,
+  type SetupWizardSignals
+} from './src/shared/setupWizard'
 import { tmpdir } from 'os'
 import {
   initWorkspace,
@@ -6105,6 +6121,197 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(w53Root)
+  }
+
+  // ============ 第 54 批（子项 1）：任务快捷方式（docs/39） ============
+  log('\n[48] 第 54 批：任务快捷方式 —— 命名净化 / 计划 / 注入 writer（docs/39）')
+  {
+    // ---- (1) 命名净化：非法字符 / 结尾的点与空格 / 空名 ----
+    ok(
+      sanitizeShortcutName('海南招生海报-2026秋季') === '海南招生海报-2026秋季',
+      '正常任务名原样保留'
+    )
+    ok(
+      sanitizeShortcutName('a<b>c:d"e/f\\g|h?i*j') === 'a_b_c_d_e_f_g_h_i_j',
+      '非法字符统统换成下划线（与建任务同一套规则）'
+    )
+    ok(
+      sanitizeShortcutName('任务名... ') === '任务名',
+      '结尾的点与空格去掉（Windows 会静默吃掉，先自己去掉免得名字对不上）'
+    )
+    ok(sanitizeShortcutName('   ') === '', '全空白 → 空串（上层用兜底名）')
+
+    // ---- (2) 落点路径：桌面 + 开始菜单各一份，扩展名 .lnk ----
+    // 用临时目录冒充"桌面 / 开始菜单"，**绝不碰真实桌面**（探针只做只读探测）
+    const fakeDesk = join(tmpdir(), 'shot_desktop_probe')
+    const fakeStart = join(tmpdir(), 'shot_startmenu_probe')
+    ok(
+      shortcutPathFor(fakeDesk, '海报') === join(fakeDesk, '海报.lnk'),
+      '桌面那份路径 = <目录>\\<任务名>.lnk'
+    )
+    ok(
+      shortcutPathFor(fakeStart, '海报') === join(fakeStart, '海报.lnk'),
+      '开始菜单那份同理'
+    )
+    const longName = 'A'.repeat(200)
+    const longPath = shortcutPathFor(fakeDesk, longName)
+    ok(
+      basename(longPath).length < 130,
+      `超长名截断（200 字 → 文件名 ${basename(longPath).length} 字，防超 Windows 路径上限）`
+    )
+
+    const probes = [
+      { key: 'desktop' as const, dir: fakeDesk, lnkExists: false },
+      { key: 'startMenu' as const, dir: fakeStart, lnkExists: false }
+    ]
+
+    // ---- (3) 计划：文件夹不在 → 不可建（探针第 3 条的防线：target 不在也照样建死链）----
+    const planMissing = buildShortcutPlan({
+      packName: '海报',
+      folderPath: 'X:\\没有这个目录',
+      folderExists: false,
+      probes
+    })
+    ok(
+      planMissing.ok === false,
+      '【核心】任务文件夹不在 → 明确回"不可建"（不产出一个点了打不开的死链）'
+    )
+
+    const planFresh = buildShortcutPlan({
+      packName: '海报',
+      folderPath: 'X:\\任务',
+      folderExists: true,
+      probes
+    })
+    ok(planFresh.ok === true && planFresh.needsConfirm === false, '文件夹在 + 两处都没同名 → 不需要确认')
+    ok(
+      planFresh.ok === true && planFresh.places.length === 2,
+      '计划里两处落点都算出来了（桌面 + 开始菜单）'
+    )
+    ok(
+      planFresh.ok === true && planFresh.target === 'X:\\任务',
+      '快捷方式指向的是**任务文件夹本身**（与「打开文件夹」同一个目标）'
+    )
+
+    const planConflict = buildShortcutPlan({
+      packName: '海报',
+      folderPath: 'X:\\任务',
+      folderExists: true,
+      probes: [
+        { key: 'desktop' as const, dir: fakeDesk, lnkExists: false },
+        { key: 'startMenu' as const, dir: fakeStart, lnkExists: true }
+      ]
+    })
+    ok(
+      planConflict.ok === true && planConflict.needsConfirm === true,
+      '【核心】任一处已有同名 → 需要确认覆盖（探针第 2 条：API 不报错，只能软件自己判）'
+    )
+
+    // ---- (4) 未确认覆盖 → 一次 writer 都不调 ----
+    const calls: Array<{ p: string; op: string; target: string }> = []
+    const writer: ShortcutWriter = (p, op, d) => {
+      calls.push({ p, op, target: d.target })
+      return true
+    }
+    const refused = runShortcut(writer, planConflict, { overwrite: false })
+    ok(
+      calls.length === 0 && refused.wrote === false,
+      '用户没确认覆盖 → 一次写盘都不做（不静默盖掉已存在的快捷方式）'
+    )
+
+    // ---- (5) 确认覆盖 → 该 replace 的 replace、该 create 的 create ----
+    calls.length = 0
+    const overwritten = runShortcut(writer, planConflict, { overwrite: true })
+    ok(calls.length === 2, `确认后两处都写（实际 ${calls.length} 次）`)
+    ok(
+      calls.some((c) => c.op === 'replace') && calls.some((c) => c.op === 'create'),
+      '已有同名的那个位置用 replace、没有的用 create'
+    )
+    ok(calls.every((c) => c.target === 'X:\\任务'), '每次写盘的 target 都是任务文件夹')
+    ok(overwritten.ok === true && overwritten.done.length === 2, '两处都成功 → ok，done 含两个落点')
+    ok(
+      overwritten.desktopPath === join(fakeDesk, '海报.lnk'),
+      '结果里带回桌面那份的路径（界面提示要用）'
+    )
+
+    // ---- (6) 一处失败不连坐 ----
+    const picky: ShortcutWriter = (p, op, d) => {
+      calls.push({ p, op, target: d.target })
+      return !p.includes('shot_startmenu_probe')
+    }
+    calls.length = 0
+    const partial = runShortcut(picky, planFresh, { overwrite: false })
+    ok(
+      partial.wrote === true && partial.done.length === 1 && partial.failed.length === 1,
+      '开始菜单写失败不影响桌面那份；结果如实列出哪一处失败'
+    )
+    ok(partial.ok === false, '有落点失败时整体 ok=false（界面会提示"有的位置没写成"）')
+  }
+
+  // ============ 第 54 批（子项 2）：首次配置引导（docs/40） ============
+  log('\n[49] 第 54 批：首次配置引导 —— 步骤定义 / 触发判定 / 关窗语义（docs/40）')
+  {
+    // ---- (1) 六步定义（以后加删步骤时这条会红 —— 那是故意的）----
+    ok(setupStepCount() === 6, `向导共 6 步（实际 ${setupStepCount()}）`)
+    const stepKeys = SETUP_STEPS.map((s) => s.key).join(',')
+    ok(
+      stepKeys === 'welcome,workspace,wecom,ticket,report,done',
+      `步骤与顺序：${stepKeys}`
+    )
+    ok(
+      SETUP_STEPS[0].key === 'welcome' && SETUP_STEPS[0].skippable === false,
+      '首步（欢迎）没有"跳过"'
+    )
+    ok(
+      SETUP_STEPS[5].key === 'done' && SETUP_STEPS[5].skippable === false,
+      '末步（完成）没有"跳过"'
+    )
+    ok(
+      SETUP_STEPS.slice(1, 5).every((s) => s.skippable === true),
+      '中间四步（工作区 / 企业微信 / 工单表 / 报表表）都能跳过'
+    )
+    ok(
+      SETUP_STEPS.every((s) => s.name.length > 0),
+      '每一步都有名字（全部来自文案字典，改文案不用改代码）'
+    )
+
+    // ---- (2) 触发判定：四种组合逐条 ----
+    const sig = (o: Partial<SetupWizardSignals>): SetupWizardSignals => ({
+      workspaceOk: true,
+      firstRunThisSession: true,
+      setupWizardDone: false,
+      alreadyShownThisSession: false,
+      ...o
+    })
+    ok(shouldShowSetupWizard(sig({})) === true, '新建库 + 未走过 → 弹')
+    ok(
+      shouldShowSetupWizard(sig({ setupWizardDone: true })) === false,
+      '新建库 + 已走过 → 不弹'
+    )
+    ok(
+      shouldShowSetupWizard(sig({ firstRunThisSession: false })) === false,
+      '【核心】老库（库不是本次新建）+ 未走过 → 不弹 —— 老用户升级不该被弹一遍'
+    )
+    ok(
+      shouldShowSetupWizard(sig({ firstRunThisSession: false, setupWizardDone: true })) === false,
+      '老库 + 已走过 → 不弹'
+    )
+    ok(
+      shouldShowSetupWizard(sig({ workspaceOk: false })) === false,
+      '工作区连不上 → 不弹（顶部红条已经说明原因）'
+    )
+    ok(
+      shouldShowSetupWizard(sig({ alreadyShownThisSession: true })) === false,
+      '本会话里已自动弹过一次 → 不重复弹（否则每次数据刷新都弹）'
+    )
+
+    // ---- (3) 关窗语义：只有「完成」/「我以后再说」才写标记 ----
+    ok(wizardWritesDoneFlag('done') === true, '点「完成」→ 写标记')
+    ok(wizardWritesDoneFlag('later') === true, '点「我以后再说」→ 也写标记')
+    ok(
+      wizardWritesDoneFlag('dismiss') === false,
+      '【核心】直接关掉（✕ / Esc / 点弹窗外）→ **不写标记**，下次启动还会弹'
+    )
   }
 
 // ============ 汇总 ============

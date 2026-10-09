@@ -1,7 +1,7 @@
 import { COPY, fmt } from '../shared/copy'
 import { BrowserWindow, ipcMain, shell, app, dialog } from 'electron'
 import { join, basename } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { openDb } from './db'
 import {
   createPack,
@@ -162,7 +162,20 @@ import {
   type TicketSchedulerJobResult,
   type TicketSchedulerOptions
 } from './ticketScheduler'
-import type { PackExportInput, PackExportPreview, PackExportResult } from '../shared/types'
+import type {
+  CreateShortcutResult,
+  PackExportInput,
+  PackExportPreview,
+  PackExportResult
+} from '../shared/types'
+// 第 54 批（docs/39）：任务文件夹的桌面 / 开始菜单快捷方式（纯逻辑 + 注入 writer）
+import {
+  buildShortcutPlan,
+  runShortcut,
+  shortcutPathFor,
+  type ShortcutProbe,
+  type ShortcutWriter
+} from './shortcut'
 
 /**
  * 一次工单同步的完整结果（手动点「同步」和后台定时跑**共用同一条链路**，docs/16 §3.3）。
@@ -180,11 +193,32 @@ type TicketSyncOutcome = SyncResult & {
  * 约定：一律 ipcMain.handle + contextBridge（方案 6.1），不用 ipcRenderer.send。
  */
 
-export function registerIpc(): void {
+export function registerIpc(opts?: {
+  /**
+   * 第 54 批（docs/40 §4.1）：本次启动时工作区里**没有现成的库**（要在启动过程中现场新建）。
+   * 必须由调用方在 `initWorkspace` **之前**探好传进来 —— 主进程是"先建库再注册 IPC"，
+   * 这里再探就已经晚了。不传时（界面验证壳）就地探一次。
+   */
+  firstRunThisSession?: boolean
+}): void {
   const appData = app.getPath('userData')
   const documentsDir = app.getPath('documents')
 
   // ---------- 工作区 ----------
+  /**
+   * 第 54 批（docs/40 §4.1）：**本次启动时这个工作区的库是不是现场新建的**。
+   *
+   * ⚠️ 这个值必须由**建库之前**的人告诉我们（`index.ts` 在 `initWorkspace` 之前探一次传进来）——
+   * 真实主进程是"先建库、再 registerIpc"的，在这里探就已经晚了（库早被建出来了）。
+   * 没传时（界面验证壳走这条）就地探一次：壳的场景布景通常已经把库建好了 → false；
+   * 而专门验向导的 `wizard` 场景**故意不建库** → true。
+   */
+  let firstRunThisSession = opts?.firstRunThisSession
+  if (firstRunThisSession === undefined) {
+    const st0 = getWorkspaceState(appData, documentsDir)
+    firstRunThisSession = st0.ok ? !existsSync(join(st0.root, '_system', 'media.db')) : false
+  }
+
   /**
    * 工作区信息。这里要区分两种「不可用」（方案 06 第 6 节）：
    * - 首次启动、还没有任何配置 → 已在 resolveWorkspace 里自动择址，正常情况必然可用
@@ -212,11 +246,24 @@ export function registerIpc(): void {
     if (!st.ok) {
       // 工作区不可用时数据库根本打不开，直接返回空数据交给界面提示，
       // 不让异常冒到渲染进程控制台
-      return { ...base, projects: [], unassigned: 0, unboundProjects: [], missing: 0, ignoredMissing: 0 }
+      return {
+        ...base,
+        // 工作区都连不上，谈不上"没配过" —— 向导一律不弹（顶部红条已经说明了原因）
+        firstRunThisSession: false,
+        setupWizardDone: true,
+        projects: [],
+        unassigned: 0,
+        unboundProjects: [],
+        missing: 0,
+        ignoredMissing: 0
+      }
     }
     initWorkspace(st.root)
     return {
       ...base,
+      // 第 54 批（docs/40）：首次配置引导的两个判据
+      firstRunThisSession: firstRunThisSession === true,
+      setupWizardDone: getMeta('setup_wizard_done') === '1',
       projects: listProjectsWithCount(),
       unassigned: countUnassigned(),
       // 第 7 批：已解绑的项目（左栏「已解绑 N 个项目」入口用）
@@ -233,6 +280,17 @@ export function registerIpc(): void {
   /** 界面已经提示过目录结构升级了 → 清掉标记，保证提示条只出现一次 */
   ipcMain.handle('ws:ackLayout', () => {
     ackLayoutNotice()
+  })
+
+  /**
+   * 第 54 批（docs/40 §4.2）：标记「首次配置引导已走过」。
+   * 只在点「完成」或「我以后再说」时写；关窗口（✕ / Esc）**不写** —— 下次启动还会弹。
+   */
+  ipcMain.handle('setup:wizardDone', () => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    setMeta('setup_wizard_done', '1')
+    return { ok: true }
   })
 
   // ---------- 项目维护 ----------
@@ -1570,6 +1628,99 @@ export function registerIpc(): void {
         end: input.end
       }
       return exportReport(expInput, reportAdapter)
+    }
+  )
+
+  /**
+   * 第 54 批（docs/40 S4）：只记住报表表格链接（**不导出**）。
+   * 首次配置引导的「配置报表表」用 —— 原来这条链接是搭着「导出」才落库的，
+   * 向导里没有导出这一步，所以单独开一个只写配置的口子。
+   */
+  ipcMain.handle('report:saveLink', (_e, link: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const docid = extractDocid(String(link ?? ''))
+    if (!docid) return { ok: false, kind: 'bad-link' as const }
+    const cfg = readReportConfig()
+    writeReportConfig(docid, cfg.templateSheet || '报表模板')
+    return { ok: true, docid }
+  })
+
+  // ---------- 第 54 批（docs/39）：任务快捷方式 ----------
+  /**
+   * 给任务文件夹在**桌面 + 开始菜单**各建一个快捷方式（用户拍板 D4）。
+   *
+   * 三条边界全部来自本机一次性探针实测（见 `shortcut.ts` 文件头，别改成"想当然"的写法）：
+   *  ① 目标位置已有同名 `.lnk` 时 API **不报错、直接覆盖** → 覆盖与否只能我们问用户；
+   *  ② `target` 指向不存在的目录也照样建成功（死链）→ 建之前必须自己查任务文件夹在不在；
+   *  ③ 带 `icon` 回读值存疑 → 不指定图标，用 Windows 给文件夹的默认图标。
+   *
+   * 只写快捷方式、**不碰任务文件夹里的任何文件**（不新增/不改名/不删除）。
+   */
+  ipcMain.handle(
+    'pack:createShortcut',
+    (_e, args: { packId: number; overwrite?: boolean }): CreateShortcutResult => {
+      const root = getWorkspaceRoot(appData)
+      initWorkspace(root)
+      if (process.platform !== 'win32') return { ok: false, msg: COPY.sht.notWin }
+
+      let folderPath = ''
+      let packName = ''
+      try {
+        const d = getPackDetail(args.packId)
+        folderPath = d.pack.folder_path
+        packName = d.pack.name
+      } catch {
+        return { ok: false, msg: COPY.sht.packMissing }
+      }
+
+      const desktopDir = app.getPath('desktop')
+      // 开始菜单「所有程序」—— .lnk 放这里就出现在开始菜单里（Windows 的标准做法）
+      const startMenuDir = join(
+        app.getPath('appData'),
+        'Microsoft',
+        'Windows',
+        'Start Menu',
+        'Programs'
+      )
+      // 该目录正常都存在；万一没有（精简系统）就现建一个，失败也不影响桌面那一路
+      try {
+        mkdirSync(startMenuDir, { recursive: true })
+      } catch {
+        /* 建不出来就让这一处写失败，桌面照写 */
+      }
+
+      const probes: ShortcutProbe[] = [
+        { key: 'desktop', dir: desktopDir, lnkExists: existsSync(shortcutPathFor(desktopDir, packName)) },
+        {
+          key: 'startMenu',
+          dir: startMenuDir,
+          lnkExists: existsSync(shortcutPathFor(startMenuDir, packName))
+        }
+      ]
+
+      const plan = buildShortcutPlan({
+        packName,
+        folderPath,
+        folderExists: existsSync(folderPath),
+        probes
+      })
+      if (!plan.ok) return { ok: false, msg: COPY.sht.folderMissing }
+      if (plan.needsConfirm && args.overwrite !== true) {
+        const desktop = plan.places.find((p) => p.key === 'desktop')
+        return { ok: true, conflict: true, path: desktop?.lnkPath }
+      }
+
+      const writer: ShortcutWriter = (lnkPath, operation, details) =>
+        shell.writeShortcutLink(lnkPath, operation, details)
+      const r = runShortcut(writer, plan, { overwrite: args.overwrite === true })
+      if (!r.ok) {
+        return {
+          ok: false,
+          msg: fmt(COPY.sht.failed, { msg: COPY.sht.partialFailed })
+        }
+      }
+      return { ok: true, path: r.desktopPath ?? undefined, skipped: !r.wrote }
     }
   )
 

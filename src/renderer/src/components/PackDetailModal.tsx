@@ -158,6 +158,28 @@ export function PackDetailModal({
     onChanged()
   }
 
+  /**
+   * 第 54 批（docs/39）：给任务文件夹在桌面 + 开始菜单建快捷方式。
+   * 目标位置已有同名 `.lnk` 时主进程**什么都不做**、回 `conflict`，
+   * 这里问一句再带 overwrite 重来（探针实测：API 自己不会报错，只能我们问）。
+   */
+  const makeShortcut = async (overwrite = false): Promise<void> => {
+    const name = detail?.pack.name ?? ''
+    const r = await window.api.packCreateShortcut(packId, overwrite)
+    if (r.conflict) {
+      if (window.confirm(fmt(COPY.sht.confirmOverwrite, { name }))) {
+        await makeShortcut(true)
+      }
+      return
+    }
+    if (!r.ok) {
+      toast(r.msg ?? COPY.common.failed, 'err')
+      return
+    }
+    if (r.skipped) return
+    toast(fmt(COPY.sht.ok, { name }), 'ok')
+  }
+
   const toggle = (id: number): void => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -272,6 +294,14 @@ export function PackDetailModal({
                 </button>
                 <button className="btn" onClick={() => window.api.openFolder(detail.pack.folder_path)}>
                   <Icon name="folder" size={13} />  {COPY.common.openFolder}
+                </button>
+                {/* 第 54 批（docs/39）：桌面 + 开始菜单快捷方式 */}
+                <button
+                  className="btn"
+                  title={COPY.sht.btnTip}
+                  onClick={() => void makeShortcut()}
+                >
+                  <Icon name="shortcut" size={13} />  {COPY.sht.btn}
                 </button>
                 <button
                   className="btn primary"

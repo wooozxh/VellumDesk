@@ -10,7 +10,8 @@ import type {
   WecomCliInfo
 } from '../types'
 import { Icon } from './Icon'
-import { WecomAuthModal, wecomSourceText, wecomStatusText } from './WecomAuthModal'
+import { WecomAuthModal } from './WecomAuthModal'
+import { wecomSourceText, wecomStatusText } from './WecomConnectPanel'
 
 /**
  * 第 13 批：工单同步设置弹窗（docs/15 §6.3）—— 只在首配 / 换表时碰它。
@@ -35,12 +36,15 @@ interface SheetDraft {
 export function TicketSettingsModal({
   initial,
   onClose,
-  onSaved
+  onSaved,
+  onOpenWizard
 }: {
   /** 已有配置（改配置时预填）；首配为 null */
   initial?: TicketStatus | null
   onClose: () => void
   onSaved: () => void | Promise<void>
+  /** 第 54 批（docs/40 §4.3）：重新打开「首次配置引导」 */
+  onOpenWizard?: () => void
 }): React.JSX.Element {
   const [link, setLink] = useState(initial?.docid ?? '')
   const [probed, setProbed] = useState<TicketSaveConfigResult | null>(null)
@@ -265,6 +269,12 @@ export function TicketSettingsModal({
               <button className="btn small" onClick={() => setShowWecom(true)}>
                 {COPY.wecom.openGuide}
               </button>
+              {/* 第 54 批（docs/40 §4.3）：重新打开首次配置引导（常驻入口，不依赖首次自动弹） */}
+              {onOpenWizard && (
+                <button className="btn small" onClick={onOpenWizard}>
+                  {COPY.wz.openWizard}
+                </button>
+              )}
             </div>
           )}
 

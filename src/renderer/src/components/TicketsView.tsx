@@ -54,11 +54,14 @@ function hhmm(iso: string | null): string {
 
 export function TicketsView({
   onToast,
-  onUnassignedCount
+  onUnassignedCount,
+  onOpenWizard
 }: {
   onToast?: (msg: string) => void
   /** 第 17 批：同步/加载后回传未指派存量，顶栏徽标跟着刷新（App.tsx 只管显示） */
   onUnassignedCount?: (n: number) => void
+  /** 第 54 批（docs/40 §4.3）：从工单设置里重新打开「首次配置引导」 */
+  onOpenWizard?: () => void
 }): React.JSX.Element {
   const [status, setStatus] = useState<TicketStatus | null>(null)
   const [list, setList] = useState<TicketListItem[]>([])
@@ -229,6 +232,7 @@ export function TicketsView({
         {showSettings && (
           <TicketSettingsModal
             initial={status}
+            onOpenWizard={onOpenWizard}
             onClose={() => setShowSettings(false)}
             onSaved={async () => {
               setShowSettings(false)
@@ -441,6 +445,7 @@ export function TicketsView({
       {showSettings && (
         <TicketSettingsModal
           initial={status}
+          onOpenWizard={onOpenWizard}
           onClose={() => setShowSettings(false)}
           onSaved={async () => {
             setShowSettings(false)
