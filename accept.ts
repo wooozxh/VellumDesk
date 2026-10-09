@@ -186,7 +186,16 @@ import {
   setFfmpegDir,
   ffmpegReady
 } from './src/main/thumbs'
-import { getDb, closeDb, openDb, getMeta, setMeta } from './src/main/db'
+import {
+  getDb,
+  closeDb,
+  openDb,
+  getMeta,
+  setMeta,
+  // 第 55 批（docs/41）：造「待归类任务」的包记录要用兜底值
+  UNCATEGORIZED,
+  UNGRADED
+} from './src/main/db'
 import {
   listTagDimensions,
   createTag,
@@ -6312,6 +6321,152 @@ async function main(): Promise<void> {
       wizardWritesDoneFlag('dismiss') === false,
       '【核心】直接关掉（✕ / Esc / 点弹窗外）→ **不写标记**，下次启动还会弹'
     )
+  }
+
+  // ============ 第 55 批：根目录下的待归类任务不再被扫散（docs/41）============
+  log('\n[50] 第 55 批：待归类任务（带 V1）—— 扫描不再造幽灵「V1」任务，旧幽灵记录被回收')
+  {
+    const w55Root = join('D://_accept_ws', `wstest55_${RUN_ID}`)
+    const w55Ws = join(w55Root, 'ws')
+    hardRm(w55Root)
+    mkdirSync(w55Ws, { recursive: true })
+    closeDb()
+    openDb(w55Ws)
+    initWorkspace(w55Ws)
+
+    const proj55 = (getDb().prepare('SELECT id FROM projects LIMIT 1').get() as { id: number }).id
+    /** 造一个标准任务形态：<包>\V1\三组 */
+    const putVer = (packDir: string, ver: string, sub: string, file: string): void => {
+      for (const s of SUB_FOLDERS) mkdirSync(join(packDir, ver, s), { recursive: true })
+      writeFileSync(join(packDir, ver, sub, file), 'x', 'utf-8')
+    }
+
+    // 对照组：项目里的正常任务（项目\任务\V1\三组）
+    const pIn = createPack({ name: '项目内任务', projectId: proj55, workspaceRoot: w55Ws })
+    putVer(pIn.folder_path, 'V1', '01-成品', 'in.png')
+
+    // 被测对象：「待归类任务」——文件夹躺在工作区**根目录**、里面是 V1/三组。
+    // 这就是界面「编辑任务信息 → 不指定项目」或「删掉项目」之后的磁盘形态。
+    const looseDir = join(w55Ws, '待归类任务')
+    putVer(looseDir, 'V1', '01-成品', 'loose.png')
+    const ts55 = new Date().toISOString()
+    const insLoose = getDb().prepare(
+      `INSERT INTO packs (name, project_id, category, channel, grade, folder_path, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`
+    )
+    insLoose.run('待归类任务', UNCATEGORIZED, UNCATEGORIZED, UNGRADED, looseDir, ts55, ts55)
+
+    const packsOf55 = (): Array<{ id: number; name: string; folder_path: string }> =>
+      getDb().prepare('SELECT id, name, folder_path FROM packs ORDER BY id').all() as Array<{
+        id: number
+        name: string
+        folder_path: string
+      }>
+    const filesOfPack55 = (packId: number): string[] =>
+      (
+        getDb().prepare('SELECT file_name FROM assets WHERE pack_id = ? ORDER BY file_name').all(packId) as Array<{
+          file_name: string
+        }>
+      ).map((r) => r.file_name)
+    const packIdOf55 = (dir: string): number =>
+      (packsOf55().find((p) => p.folder_path.toLowerCase() === dir.toLowerCase()) as { id: number }).id
+
+    // ---- (1) 防新增：扫描一遍，根目录下的待归类任务不再裂成两个 ----
+    scanAll(w55Ws)
+    const after1 = packsOf55()
+    ok(
+      after1.length === 2,
+      `【核心】扫描后仍是 2 个任务（实际 ${after1.length}：${after1.map((p) => p.name).join(' / ')}）`
+    )
+    ok(
+      !after1.some(
+        (p) =>
+          p.folder_path.toLowerCase() !== looseDir.toLowerCase() &&
+          p.folder_path.toLowerCase().startsWith(looseDir.toLowerCase())
+      ),
+      '【核心】没有把「待归类任务」内部的层级文件夹当成新任务'
+    )
+    ok(!after1.some((p) => p.name === 'V1'), '【核心】没有叫「V1」的幽灵任务')
+    ok(
+      filesOfPack55(packIdOf55(looseDir)).join(',') === 'loose.png',
+      `【核心】待归类任务自己拿着它的文件（实际 ${filesOfPack55(packIdOf55(looseDir)).join(',')}）`
+    )
+    ok(filesOfPack55(pIn.id).join(',') === 'in.png', '项目内的正常任务不受影响')
+
+    // ---- (2) 幂等：再扫一遍不长新的 ----
+    scanAll(w55Ws)
+    ok(packsOf55().length === 2, '再扫一遍：还是 2 个（幂等）')
+
+    // ---- (3) 回收旧账：老版本已经造出来的幽灵记录，本次扫描要摘掉 ----
+    const ghostId = Number(
+      insLoose.run('V1', UNCATEGORIZED, UNCATEGORIZED, UNGRADED, join(looseDir, 'V1'), ts55, ts55)
+        .lastInsertRowid
+    )
+    // 让文件先挂到幽灵名下（复刻"原任务变空"的现场）
+    getDb().prepare('UPDATE assets SET pack_id = ? WHERE file_name = ?').run(ghostId, 'loose.png')
+    const before3 = packsOf55()
+    ok(
+      before3.length === 3,
+      `【布景】手工插入幽灵记录后是 3 个（${before3.map((p) => p.name).join(' / ')}）`
+    )
+    ok(filesOfPack55(ghostId).length === 1, '【布景】文件此刻挂在幽灵名下（这正是用户看到的现象）')
+
+    const r55 = scanAll(w55Ws)
+    ok(r55.cleanedPacks === 1, `【核心】扫描回收了 1 条幽灵记录（实际 ${r55.cleanedPacks}）`)
+    ok(packsOf55().length === 2, '【核心】幽灵记录已摘除，回到 2 个任务')
+    ok(!packsOf55().some((p) => p.name === 'V1'), '【核心】「V1」幽灵任务消失')
+    ok(
+      filesOfPack55(packIdOf55(looseDir)).join(',') === 'loose.png',
+      '【核心】原任务把文件拿回来了（文件本来就没动过，只是归属被改回来）'
+    )
+    ok(existsSync(join(looseDir, 'V1', '01-成品', 'loose.png')), '磁盘上的文件一个字节没动（只摘记录）')
+
+    // 摘记录前留痕（「永不静默丢弃用户数据」）
+    const backupDir55 = join(w55Ws, '_system', 'backup')
+    const backups55 = existsSync(backupDir55)
+      ? readdirSync(backupDir55)
+          .filter((f) => f.endsWith('.json'))
+          .sort()
+      : []
+    ok(backups55.length >= 1, `摘记录前留了备份（${backups55.length} 份）`)
+    if (backups55.length) {
+      const last = JSON.parse(
+        readFileSync(join(backupDir55, backups55[backups55.length - 1]), 'utf-8')
+      ) as { records: Array<{ folderPath: string; reason?: string }> }
+      const rec = last.records.find(
+        (x) => x.folderPath.toLowerCase() === join(looseDir, 'V1').toLowerCase()
+      )
+      ok(!!rec, '备份里记着这条被摘的记录')
+      ok(rec?.reason === 'nested', `原因标成 nested（实际 ${rec?.reason}）`)
+    }
+
+    // ---- (4) 反向：项目下有个任务恰好叫「V1」→ 项目不能被吞掉 ----
+    const projDir55 = join(
+      w55Ws,
+      (
+        getDb().prepare('SELECT folder_name FROM projects WHERE id = ?').get(proj55) as {
+          folder_name: string
+        }
+      ).folder_name
+    )
+    const v1Task = join(projDir55, 'V1')
+    putVer(v1Task, 'V1', '01-成品', 'v1task.png')
+    scanAll(w55Ws)
+    ok(
+      packsOf55().some((p) => p.folder_path.toLowerCase() === v1Task.toLowerCase()),
+      '【反向】项目下有个任务叫「V1」→ 它被认成任务'
+    )
+    ok(
+      packsOf55().length === 3,
+      `【反向】此时共 3 个任务（项目内任务 / 待归类任务 / V1 任务；实际 ${packsOf55().length}）`
+    )
+    ok(
+      !packsOf55().some((p) => p.folder_path.toLowerCase() === projDir55.toLowerCase()),
+      '【反向】项目文件夹本身没被当成任务'
+    )
+
+    closeDb()
+    hardRm(w55Root)
   }
 
 // ============ 汇总 ============

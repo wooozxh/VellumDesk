@@ -739,6 +739,8 @@ export const COPY = {
     fileGone: '{name}：文件已不存在',
     scanPackGoneNote:
       '扫描时发现任务文件夹已不在磁盘上，任务记录与任务内素材记录已一并摘除（磁盘文件本来就没有了）',
+    scanPackNestedNote:
+      '扫描时发现这些任务是误认出来的（记录指向别的任务内部的层级文件夹），任务记录与任务内素材记录已一并摘除',
     multiRoot: '库里的素材路径指向 {n} 个不同位置，数据异常，已拒绝自动改动',
     inconsistent: '库里有 {skipped}/{total} 条记录的路径自相矛盾，已拒绝自动改动',
     multiPackRoot: '任务目录分布在 {n} 个不同位置，数据异常，已拒绝自动改动',

@@ -571,9 +571,9 @@ export interface ScanResult {
  */
 interface TopDirs {
   rootReadable: boolean
-  /** 项目文件夹（根目录下、直接子级不含三组名的目录） */
+  /** 项目文件夹（根目录下、既不带三组、也不带版本层的目录） */
   projectDirs: string[]
-  /** 游离的包（根目录下、直接子级含三组名的目录）→ 界面归「待归类」 */
+  /** 游离的包（根目录下、带三组或带版本层的目录）→ 界面归「待归类」 */
   loosePacks: string[]
 }
 
@@ -584,6 +584,36 @@ function hasSubFolder(dir: string): boolean {
       if (statSync(join(dir, sub)).isDirectory()) return true
     } catch {
       /* 不存在，看下一个 */
+    }
+  }
+  return false
+}
+
+/**
+ * 目录的直接子级里有没有**版本层**（`V1` / `V2` …），且版本层里带三组之一。
+ *
+ * 第 55 批（docs/41）补：第 9 批起每个任务都自带 `V1`，任务文件夹的直接子级**不再**放三组，
+ * 于是 `hasSubFolder` 对「躺在工作区根目录的待归类任务」判 false → 被当成「项目文件夹」，
+ * 它里面的 `V1` 又被当成一个独立任务登记下来。结果是原任务变空、多出一个叫「V1」的幽灵任务，
+ * 文件全挂到幽灵名下（命中「永不静默丢弃用户数据」：标签 / 版本 / 工单关联会挂错）。
+ *
+ * 为什么要连版本层里的三组一起看：只认「子目录叫 V<n>」会把「项目下有个任务恰好叫 V1」的
+ * 项目文件夹误判成任务（那是更糟的方向 —— 整个项目连同它的任务会消失）。多看一层，零成本。
+ */
+function hasVersionLayer(dir: string): boolean {
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return false
+  }
+  for (const name of entries) {
+    if (!VERSION_FOLDER_RE.test(name)) continue
+    const full = join(dir, name)
+    try {
+      if (statSync(full).isDirectory() && hasSubFolder(full)) return true
+    } catch {
+      /* 不存在 / 不是目录，看下一个 */
     }
   }
   return false
@@ -640,7 +670,11 @@ function listTopDirs(workspaceRoot: string): TopDirs {
       continue
     }
     if (!st.isDirectory()) continue
-    if (hasSubFolder(full)) loosePacks.push(full)
+    // 「这是任务文件夹（包）」的两条判据（第 55 批补齐第二条）：
+    //   ① 直接子级带三组 —— 第 9 批前的老布局，或同事手动建的
+    //   ② 直接子级带版本层 `V<n>` 且它里面有三组 —— 第 9 批起的标准布局
+    // 少了 ②，根目录下的「待归类任务」就会被当项目文件夹，它里面的 V1 被当独立任务。
+    if (hasSubFolder(full) || hasVersionLayer(full)) loosePacks.push(full)
     else projectDirs.push(full)
   }
   return { rootReadable: true, projectDirs, loosePacks }
@@ -1983,6 +2017,9 @@ export interface PackBackupRecord {
   /** 第 8 批：包内文件清单（工作区相对路径）。记录要连素材一起摘了，
    *  这份 JSON 是事后唯一能查"当时包里有什么"的东西 */
   files?: string[]
+  /** 第 55 批：为什么被摘 —— `fs` = 文件夹在磁盘上没了；`nested` = 这条记录其实指向
+   *  别的任务内部的层级文件夹（历史误认留下的幽灵记录） */
+  reason?: 'fs' | 'nested'
 }
 
 /**
@@ -2024,6 +2061,13 @@ export function backupPackRecords(
  * 门二刻意用 `existsSync` 而不是"不在本次扫描结果里"：包被手动挪到不合法位置时，
  * 记录留着让用户还能看见它，比默默摘掉更符合「软件永远不悄悄扔掉用户放的东西」。
  *
+ * **第 55 批（docs/41）补第四类"失效"**：`folder_path` 虽然存在，但它**嵌在另一个包里面**。
+ * 三级结构里包只可能是「项目\任务」或「根\任务」，绝不可能是「任务\子目录」——
+ * 出现这种嵌套只有一种来历：历史误认。最典型的是根目录下的「待归类任务」，
+ * 它的 `V1` 层曾被当成一个独立任务登记（见 `hasVersionLayer` 的注释），
+ * 于是 `待归类任务\V1` 成了一条真包记录，最长前缀匹配一直把文件判给它，
+ * 原任务永远是"0 个文件"。这一条是**回收历史误认**，不是新玩法。
+ *
  * 摘之前先留痕。**第 8 批补**：摘记录时把包内素材记录一并摘掉 ——
  * 光删包记录的话，外键会把包内素材的 `pack_id` 置空，变成一堆悬空的"孤儿素材"，
  * 下一轮扫描它们又会被判成「文件已丢失」（文件确实没了），跟用户"我把整包删了"的本意对不上。
@@ -2050,7 +2094,16 @@ export function cleanupMissingPacks(workspaceRoot: string, rootReadable: boolean
     projectArchived: number | null
   }>
 
-  const gone = rows.filter((r) => !existsSync(r.folder_path) && !r.projectArchived)
+  // 两类失效，分开记原因（第 55 批补第二类，见函数头注释）
+  const dirs = rows.map((r) => r.folder_path)
+  const whyOf = new Map<number, 'fs' | 'nested'>()
+  for (const r of rows) {
+    if (r.projectArchived) continue
+    if (!existsSync(r.folder_path)) whyOf.set(r.id, 'fs')
+    else if (dirs.some((d) => d !== r.folder_path && isInside(r.folder_path, d)))
+      whyOf.set(r.id, 'nested')
+  }
+  const gone = rows.filter((r) => whyOf.has(r.id))
   if (!gone.length) return 0
 
   const filesOf = db.prepare(
@@ -2068,13 +2121,16 @@ export function cleanupMissingPacks(workspaceRoot: string, rootReadable: boolean
       projectName: g.projectName,
       createdAt: g.created_at,
       fileCount: fs.length,
-      files: fs.map((f) => f.rel_path || f.file_name)
+      files: fs.map((f) => f.rel_path || f.file_name),
+      reason: whyOf.get(g.id)
     }
   })
 
+  // 整批都是"幽灵记录"时换一句准确的原因；混着来时用原来那句（文件没了更常见）
+  const allNested = gone.every((r) => whyOf.get(r.id) === 'nested')
   backupPackRecords(
     workspaceRoot,
-    COPY.wsErr.scanPackGoneNote,
+    allNested ? COPY.wsErr.scanPackNestedNote : COPY.wsErr.scanPackGoneNote,
     records
   )
 

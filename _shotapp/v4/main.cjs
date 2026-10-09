@@ -110,6 +110,13 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_wizard'),
     workspaceRoot: join(BASE, 'shot_wswz'),
     shot: 'shot-b54-9-wizard-after-reload.png'
+  },
+  // 使用手册专用：真实图片演示工作区（素材见 D:\_accept_ws\_manual_assets）
+  // 只为「拍手册插图」存在，不做断言，跑完把一堆 shot-m-*.png 落在仓库根目录。
+  manual: {
+    userData: join(BASE, 'shot4_manual'),
+    workspaceRoot: join(BASE, 'shot_manual'),
+    shot: 'shot-m-00-home.png'
   }
 }
 
@@ -725,6 +732,143 @@ app.whenReady().then(async () => {
 
     wsm.scanAll(ws)
     say('seeded export pack    : ' + packDir)
+  }
+
+  // ============================================================
+  // 使用手册专用布景：一份「像真在用的」工作区
+  //   · 素材是**真图片**（D:\_accept_ws\_manual_assets，由 _manual/gen_assets.py 生成）
+  //   · 4 个项目 / 7 个任务 / 2 稿 / 真视频 / 真缩略图 / 打了标签
+  //   只写 D:\_accept_ws\shot_manual，绝不碰用户真实工作区
+  // ============================================================
+  if (SCEN === 'manual') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const A = 'D:\\_accept_ws\\_manual_assets'
+    const now = new Date().toISOString()
+
+    const put = (verDir, sub, src, asName) => {
+      mkdirSync(join(verDir, sub), { recursive: true })
+      require('fs').copyFileSync(join(A, src), join(verDir, sub, asName || src))
+    }
+    const subFolders = (verDir) => { for (const s of SUB) mkdirSync(join(verDir, s), { recursive: true }) }
+
+    const pj = (n) => d.prepare('SELECT id, folder_name FROM projects WHERE name = ?').get(n)
+    const P1 = pj('海南升学集训营')
+    const P2 = pj('精英升学先修营')
+    const P3 = pj('精英志愿填报中心')
+    const P4 = pj('一对一项目部')
+    const addPack = d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+
+    // A —— 主任务：两稿（V2 当前）
+    const dirA = join(ws, P1.folder_name, '海南招生海报-2026秋季')
+    subFolders(join(dirA, 'V1'))
+    put(join(dirA, 'V1'), '01-成品', '海报-秋季招生主视觉.png')
+    put(join(dirA, 'V1'), '02-素材', '底图-椰林渐变.jpg')
+    put(join(dirA, 'V1'), '03-工程', '素材-暗色渐变.jpg', '主视觉源文件.psd')
+    subFolders(join(dirA, 'V2'))
+    put(join(dirA, 'V2'), '01-成品', '海报-秋季招生主视觉.png', '海报-秋季招生主视觉-终稿.png')
+    put(join(dirA, 'V2'), '01-成品', '海报-初三集训营.png')
+    put(join(dirA, 'V2'), '02-素材', '素材-几何底纹.jpg')
+    require('fs').copyFileSync(join(A, '配图-公众号首图.png'), join(dirA, '临时导出的预览图.png'))
+    addPack.run('海南招生海报-2026秋季', '海报', dirA, P1.id, now, now)
+
+    // B —— 折页
+    const dirB = join(ws, P1.folder_name, '招生折页-A4三折')
+    subFolders(join(dirB, 'V1'))
+    put(join(dirB, 'V1'), '01-成品', '折页封面-A4三折.png')
+    put(join(dirB, 'V1'), '02-素材', '素材-暗色渐变.jpg')
+    put(join(dirB, 'V1'), '03-工程', '素材-几何底纹.jpg', '折页源文件.psd')
+    addPack.run('招生折页-A4三折', '折页', dirB, P1.id, now, now)
+
+    // C —— 视频任务（真 mp4，缩略图走 FFmpeg 抽帧）
+    const dirC = join(ws, P1.folder_name, '初三集训营形象片')
+    subFolders(join(dirC, 'V1'))
+    put(join(dirC, 'V1'), '01-成品', '宣传片-秋季形象片.mp4')
+    put(join(dirC, 'V1'), '02-素材', '底图-椰林渐变.jpg', '底图-片头.jpg')
+    addPack.run('初三集训营形象片', 'KV-电子展示', dirC, P1.id, now, now)
+
+    // D —— 另一个项目的系列海报
+    const dirD = join(ws, P2.folder_name, '精英先修营-系列海报')
+    subFolders(join(dirD, 'V1'))
+    put(join(dirD, 'V1'), '01-成品', '海报-精英先修营.png')
+    put(join(dirD, 'V1'), '02-素材', '素材-几何底纹.jpg')
+    addPack.run('精英先修营-系列海报', '海报', dirD, P2.id, now, now)
+
+    // E —— 电子屏 KV
+    const dirE = join(ws, P3.folder_name, '志愿填报-电子屏KV')
+    subFolders(join(dirE, 'V1'))
+    put(join(dirE, 'V1'), '01-成品', 'KV-电子屏主视觉.png')
+    addPack.run('志愿填报-电子屏KV', 'KV-电子展示', dirE, P3.id, now, now)
+
+    // F —— 长图
+    const dirF = join(ws, P4.folder_name, '国庆活动朋友圈长图')
+    subFolders(join(dirF, 'V1'))
+    put(join(dirF, 'V1'), '01-成品', '长图-国庆活动.png')
+    put(join(dirF, 'V1'), '02-素材', '素材-暗色渐变.jpg')
+    addPack.run('国庆活动朋友圈长图', '电商长图', dirF, P4.id, now, now)
+
+    // ⚠️ 刻意**不**造「躺在工作区根目录、里面是 V1」的待归类任务：
+    //    scanAll 的 listTopDirs 只用「直接子级有没有三组」来区分「项目文件夹 / 游离任务」，
+    //    这种布局会被误判成项目文件夹、把里面的 V1 当成一个新任务。
+    //    已单独复现并记录（见本次会话报告），不在手册布景里制造这种状态。
+
+    // 未归属池：直接丢在工作区根目录的散文件
+    require('fs').copyFileSync(join(A, '配图-公众号首图.png'), join(ws, '公众号配图-待整理.png'))
+    require('fs').copyFileSync(join(A, '素材-暗色渐变.jpg'), join(ws, '素材-暗色渐变.jpg'))
+
+    d.close()
+
+    // 扫一遍：V1 / V2 自动认，生成真缩略图（sharp 对真图；mp4 走 FFmpeg 抽帧）
+    const vscan = wsm.scanAll(ws)
+    say('manual auto-versions  : ' + vscan.newVersions)
+
+    // 补版本说明 + 把「当前」指到 V2（和真实用法一致：改稿后新建一稿）
+    const d2 = new Database(join(ws, '_system', 'media.db'))
+    d2.pragma('foreign_keys = ON')
+    const pkA = d2.prepare('SELECT id FROM packs WHERE name = ?').get('海南招生海报-2026秋季')
+    const setNote = d2.prepare('UPDATE pack_versions SET note = ? WHERE pack_id = ? AND seq = ?')
+    setNote.run('初稿——按招生简报先出一版', pkA.id, 1)
+    setNote.run('客户反馈：主标题太小，整体调亮', pkA.id, 2)
+    d2.prepare('UPDATE pack_versions SET is_current = 0 WHERE pack_id = ?').run(pkA.id)
+    d2.prepare('UPDATE pack_versions SET is_current = 1 WHERE pack_id = ? AND seq = 2').run(pkA.id)
+
+    // 给素材贴上标签（左栏三个维度的数字才有内容，不是一片灰 0）
+    const tagRows = d2.prepare('SELECT id, dimension FROM tags ORDER BY dimension, sort_order, id').all()
+    const byDim = {}
+    for (const t of tagRows) (byDim[t.dimension] = byDim[t.dimension] || []).push(t.id)
+    const pick = (dim, i) => (byDim[dim] && byDim[dim].length ? byDim[dim][i % byDim[dim].length] : null)
+    const linkTag = d2.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)')
+    const assets = d2.prepare('SELECT id, abs_path FROM assets').all()
+    const plan = [
+      ['海南招生海报', 6, 0, 0],
+      ['招生折页', 1, 1, 1],
+      ['形象片', 8, 6, 1],
+      ['精英先修营', 0, 5, 2],
+      ['志愿填报', 9, 2, 0],
+      ['国庆活动', 7, 4, 2],
+      ['待归位', 6, 4, 3]
+    ]
+    for (const a of assets) {
+      const p = plan.find((x) => a.abs_path.includes(x[0])) || ['', 6, 0, 3]
+      for (const [dim, idx] of [['category', p[1]], ['channel', p[2]], ['grade', p[3]]]) {
+        const tid = pick(dim, idx)
+        if (tid) linkTag.run(a.id, tid)
+      }
+    }
+    say('manual tagged assets  : ' + d2.prepare('SELECT COUNT(*) AS c FROM asset_tags').get().c)
+    say('manual packs / assets : ' + d2.prepare('SELECT COUNT(*) AS c FROM packs').get().c + ' / ' + assets.length)
+    d2.close()
   }
 
   const errs = []
@@ -4070,6 +4214,164 @@ app.whenReady().then(async () => {
       )
       await shot('shot-b54-7-wizard-no-repop.png')
     }
+  } else if (SCEN === 'manual') {
+    // ============================================================
+    // 使用手册插图流水线：把演示工作区每一屏各拍一张（不做断言，只出图）
+    // 产物：仓库根目录 shot-m-*.png
+    // ============================================================
+    const clickTxt = async (sel, text) => {
+      const r = await js(`(() => {
+        const b = [...document.querySelectorAll(${JSON.stringify(sel)})]
+          .find(x => x.innerText.trim().includes(${JSON.stringify(text)}))
+        if (!b) return 'no-el'
+        b.click(); return 'ok'
+      })()`)
+      await wait(600)
+      return r
+    }
+    /** 关掉最顶层那个弹窗（叠了弹窗时 pop() 拿到的就是最上面那层） */
+    const popModal = async () => {
+      await js(`(() => {
+        const ms = [...document.querySelectorAll('.modal')]
+        const m = ms[ms.length - 1]
+        if (!m) return 'no-modal'
+        const c = m.querySelector('.close')
+        if (c) { c.click(); return 'ok' }
+        return 'no-close'
+      })()`)
+      await wait(500)
+    }
+
+    await wait(2400)
+
+    // 出图前先探一次真实 DOM，写进 log —— 以后选择器失效时能一眼看出是哪儿变了
+    say('dom probe: tabs       : ' + JSON.stringify(await js(`[...document.querySelectorAll('.tabs button')].map(b=>b.innerText.trim())`)))
+    say('dom probe: file rows  : ' + (await js(`document.querySelectorAll('.file-row').length`)))
+    say('dom probe: pack cards : ' + (await js(`document.querySelectorAll('.grid .pack-card').length`)))
+
+    // 左栏标签维度默认是收起的（没选标签就折叠）—— 展开，截图里才看得到标签清单。
+    // ⚠️ 收起时 `.tp-tags` 根本不渲染，所以判据用「这个维度里有没有 .tp-tag」，
+    //    不要用 offsetHeight（第一次就踩了这个，展开没生效）。
+    say('expanded dims         : ' + (await js(`(() => {
+      let n = 0
+      ;[...document.querySelectorAll('.tag-panel .tp-dim-head')].forEach((h) => {
+        const box = h.closest('.tp-dim')
+        if (box && !box.querySelector('.tp-tag')) { h.click(); n += 1 }
+      })
+      return n
+    })()`)))
+    await wait(600)
+
+    // ① 任务视图（总览）
+    await clickTxt('.tabs button', COPY.top.viewPacks)
+    await wait(1400)
+    await shot('shot-m-01-packs.png')
+
+    // ② 点一个「有人用过」的标签 → 自动跳到文件视图并筛选
+    const tagClicked = await js(`(() => {
+      const ts = [...document.querySelectorAll('.tag-panel .tp-tag')]
+      const t = ts.find(x => parseInt(((x.querySelector('.tp-tag-n')||{}).innerText||'0').trim(), 10) > 0)
+      if (!t) return 'none'
+      t.click()
+      return ((t.querySelector('.tp-tag-name')||{}).innerText||'').trim()
+    })()`)
+    say('clicked tag           : ' + tagClicked)
+    await wait(1200)
+    await shot('shot-m-02-files-tag.png')
+
+    // ③ 清掉标签 → 全部文件
+    await js(`(() => { const b = document.querySelector('.tag-panel .tp-clear'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+    await clickTxt('.side .item', COPY.side.allFiles)
+    await wait(1100)
+    await shot('shot-m-03-files.png')
+
+    // ④ 勾 3 个文件 → 认领条
+    await js(`(() => { const c = [...document.querySelectorAll('.file-row .cb')].slice(0,3); c.forEach(x=>x.click()); return c.length })()`)
+    await wait(500)
+    await shot('shot-m-04-files-claimbar.png')
+
+    // ⑤ 认领条上的「打标签」→ 标签选择弹窗
+    await clickTxt('.claimbar .btn', COPY.claim.tagBtn)
+    await wait(1400)
+    await shot('shot-m-05-tagpicker.png')
+    await popModal()
+    await js(`(() => { const b=[...document.querySelectorAll('.claimbar .btn')].find(x=>x.innerText.trim()===${JSON.stringify(COPY.common.cancel)}); if(b){b.click(); return 'ok'} return 'no' })()`)
+    await wait(400)
+
+    // ⑥ 回任务视图 → 点开主任务（两稿、带封面）
+    await clickTxt('.tabs button', COPY.top.viewPacks)
+    await wait(1300)
+    await js(`(() => {
+      const c = [...document.querySelectorAll('.grid .pack-card')]
+        .find(x => ((x.querySelector('.name')||{}).innerText||'').includes('海南招生海报'))
+      if (c) c.click()
+      return c ? 'ok' : 'no-card'
+    })()`)
+    await wait(1700)
+    await shot('shot-m-06-packdetail.png')
+
+    // ⑦ 勾选成品组里的文件 → 移动条
+    await js(`(() => { const c=[...document.querySelectorAll('.modal.wide .cbwrap input')].slice(0,2); c.forEach(x=>x.click()); return c.length })()`)
+    await wait(600)
+    await shot('shot-m-07-packdetail-move.png')
+    await clickTxt('.modal.wide .claimbar .btn', COPY.pdm.deselect)
+
+    // ⑧ 新建版本弹窗
+    await clickTxt('.modal.wide .ver-acts .btn', '新建版本')
+    await wait(1100)
+    await shot('shot-m-08-version-new.png')
+    await popModal()
+
+    // ⑨ 打包交付弹窗（上 / 下两屏）
+    await clickTxt('.modal.wide .btn', COPY.exportPack.btn)
+    await wait(1500)
+    await shot('shot-m-09-export-top.png')
+    await js(`(() => { const c=document.querySelector('.pack-export-modal .content'); if(c) c.scrollTop=c.scrollHeight; return 'ok' })()`)
+    await wait(600)
+    await shot('shot-m-10-export-bottom.png')
+    await popModal()
+
+    // ⑩ 编辑任务信息
+    await clickTxt('.modal.wide .btn', '编辑任务信息')
+    await wait(1000)
+    await shot('shot-m-11-editpack.png')
+    await popModal()
+    await popModal() // 关掉任务详情
+
+    // ⑪ 新建任务弹窗
+    await clickTxt('.btn', COPY.top.newPack)
+    await wait(1100)
+    await shot('shot-m-12-newpack.png')
+    await popModal()
+
+    // ⑫ 标签管理
+    await js(`(() => { const b=document.querySelector('.tag-panel .tp-add'); if(b){b.click(); return 'ok'} return 'no' })()`)
+    await wait(1100)
+    await shot('shot-m-13-tagmanager.png')
+    await popModal()
+
+    // ⑬ 新建项目
+    await js(`(() => { const b=document.querySelector('button[title=' + JSON.stringify(${JSON.stringify(COPY.side.newProjectTip)}) + ']'); if(b){b.click(); return 'ok'} return 'no' })()`)
+    await wait(1000)
+    await shot('shot-m-14-project-new.png')
+    await popModal()
+
+    // ⑭ 删除项目（要先真鼠标 hover 项目行，🗑 才出现）
+    if (typeof hoverProjectRow === 'function') await hoverProjectRow(1)
+    await wait(500)
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.side .proj-row')][1]
+      if (!r) return 'no-row'
+      const b = [...r.querySelectorAll('button')].find(x => (x.getAttribute('title')||'').includes('删除'))
+      if (b) { b.click(); return 'ok' }
+      return 'no-del-btn'
+    })()`)
+    await wait(1000)
+    await shot('shot-m-15-project-del.png')
+    await popModal()
+
+    say('manual screenshots    : done')
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

@@ -83,7 +83,7 @@ npx esbuild src/main/ipc.ts --bundle --platform=node --format=cjs \
 npx esbuild src/main/workspace.ts --bundle --platform=node --format=cjs \
   --outfile=out/test/workspace.cjs --external:better-sqlite3 --external:electron \
   --external:sharp --external:pdfjs-dist --external:@napi-rs/canvas
-NODE_OPTIONS= node out/test/accept.cjs            # 1097 项断言，结果写 accept-result.txt
+NODE_OPTIONS= node out/test/accept.cjs            # 1116 项断言，结果写 accept-result.txt
 
 NODE_OPTIONS= node _shotapp/run-verify4.cjs banner            # 界面验证：工作区不可用提示条
 NODE_OPTIONS= node _shotapp/run-verify4.cjs version           # 界面验证：状态栏版本号
@@ -244,6 +244,35 @@ CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 node out/test/accept.cjs
   扫码区抽成共用组件 `WecomConnectPanel`
 - 向导 S3 直接复用已有的「工单同步设置」弹窗（不重造一套）；S4 用新开的 `report:saveLink` 只记链接、不导出
 - ⚠️ **视觉样式本批不定稿**（用户：「欢迎窗口后续我可能会改样式」）：文案全走字典、样式收在 `main.css` 的 `.wz-*` 一段，将来换皮只动那段
+
+## 待归类任务扫描修复（第 55 批）
+
+**现象**（用户报的）：任务一旦不带项目（界面上的「待归类」），刷新扫描后**会散架** —— 原任务变空（文件数 0、没封面），多出一个叫 **`V1`** 的幽灵任务，文件全跑到它名下。磁盘文件一个没丢，但**归属全错**。
+
+**怎么走到这个状态**（都是界面里正常能做的操作）：① 编辑任务信息 →「不指定项目（待归类）」；② 删掉一个项目 → 该项目下的任务变待归类。
+
+**根因（两层）**：
+
+1. **判据漏了一条** —— 根目录下靠「直接子级有没有三组名」区分「项目文件夹 / 待归类任务」，但**第 9 批起每个任务都自带 `V1`**，三组藏进了 `V1` 里 → 待归类任务被判成项目文件夹，它的 `V1` 被当成一个独立任务登记。
+2. **幽灵记录清不掉** —— 回收逻辑只看「文件夹在磁盘上还在吗」，而幽灵的路径**真实存在** → 永不回收；文件归属按最长路径前缀判定，幽灵路径更长 → **文件永远判给幽灵**。
+
+**修法（两处，都在扫描核心）**：① `listTopDirs` 判据补成「带三组 **或** 带版本层 `V<n>`（且版本层里有三组）」；② `cleanupMissingPacks` 失效判定补一条「**嵌在另一个任务文件夹里面**」→ 一并摘掉（摘前留痕，备份里 `reason: "nested"`）。
+
+**只摘记录、磁盘零改动**，且**不做一次性修复脚本** —— 下次扫描自动回收。详见 `docs/41`。
+
+**⚠️ 教训**：改目录形态时，靠"目录长什么样"做判定的地方要一起改（`hasSubFolder` / `listTopDirs` / `listSubDirs` / `locateFile` / `detectVersions`）。判据宁可严一点 —— 误判成任务只多一张卡片，误判成项目会让整个项目消失。
+
+## 用户使用手册（`docs/manual/`，**暂不入库**）
+
+第 55 批做的，用户明确"暂时不 push"，打算**发 Release 时把手册附在 exe 旁边**。
+
+| 文件 | 说明 |
+|---|---|
+| `index.html` + `images/` | 主版（6 章 47 节、44 张真实截图、5 张自绘流程图），顶栏右上角是 GitHub 图标入口 |
+| `Vellum工作台-使用手册（单文件）.html` | 便携版：44 张图 base64 内联（约 7 MB），双击就开、可直接发同事 |
+| `Vellum工作台-使用手册.pdf` | A4 打印版（60 页），**已按要求去掉目录页**（`@media print` 里 `.tocsec{display:none}`） |
+
+改完页面记得**重新生成后两份**（内联图片 / 导出 PDF），否则它们会和主版不同步。
 
 ## 已知环境坑（踩过别再踩）
 
