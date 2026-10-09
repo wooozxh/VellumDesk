@@ -103,6 +103,11 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
   NODE_OPTIONS= node _shotapp/run-verify4.cjs
   banner|version|wslist|threelevel|lifecycle|tagcount|missing|versions|category|tickets|export|unassigned|wizard
 - 改文案走 tools/copy-sheet 流程（表上改 → pull → diff → apply --write → 验收 → publish），别手改 copy.ts
+- **动了界面文案 / 按钮 / 流程的批次，完工时跑一次 `node tools/manual/check.cjs`**（用户手册体检：
+  版本号 / 目录对账 / 图片 / 结构 / 类名白名单 / 按钮名 ↔ 字典 / 产物新鲜度）。
+  它报的「按钮名对不上」**两个方向都要看**：手册写了旧名 → 改手册；手册对、字典里没有 → **软件漏了字典**
+  （第 55 批第一次跑就查出工单设置的「连接」按钮是硬编码，用户在在线表里改不到）。
+  ⚠️ 手册产物在 `docs/manual/`（**暂不入库**），换机器跑之前先把手册带过去
 - **跑测试/场景前必须清空 NODE_OPTIONS=**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，
   导致第 4/5 批假失败）；跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
 - 出包 / 发版拆两步（`npm run build` → `npx electron-builder --win --config.directories.output=<项目外全新空目录>`）；
