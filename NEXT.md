@@ -6,7 +6,7 @@
 
 ---
 
-## ⚠️ 先看：只剩 `main` 一个分支（2026-10-09 第 55 次会话复核）
+## ⚠️ 先看：只剩 `main` 一个分支（2026-10-09 第 56 次会话复核）
 
 | 分支 | 指向提交 | 是什么 | 状态 |
 |---|---|---|---|
@@ -59,41 +59,50 @@
 ## 一、标准启动词 —— 新一批开发（`main` 分支，直接复制下面整段）
 
 ```
-开工。项目在 D:\proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
+开工。项目在 D:/proj_media（项目代号 proj_media，对外显示名「Vellum工作台」，exe / 安装包名「VellumDesk」；
 Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
-本机现状（2026-10-09 第 55 次会话复核，开工前请再跑一次 git status / git log 确认）：
-- 分支只有 main；最新提交 = 第 55 批 `530e1e0`（+ `d1c2f53` 手册一致性机制），
-  再上面是第 54 批 `9e05c57`（任务快捷方式 + 首次配置引导）。
+本机现状（2026-10-09 第 56 次会话复核，开工前请再跑一次 git status / git log / git pull 确认）：
+- 分支只有 main；最新提交 = 第 55 批 `7aac8eb`（待归类任务扫描修复）+ 手册三连
+  `d1c2f53` / `530e1e0` + 台账 `16f6b3d`，再上面是第 54 批 `9e05c57`（任务快捷方式 + 首次配置引导）。
   直接在 main 上开工；新功能开 feature/小写短横线，合入即删。
+- ⚠️ **本机可能还有一个未推送的台账提交**（`e53ed1b`：v1.9.4 发版记录 + 两条工具坑）——
+  推不上去是 GCM 挂起所致（见下「环境」段）。开工先 `git pull --rebase` 看一眼再动。
 - 版本号 **1.9.6**；验收基线 accept **1116 项**（只增不减）+ 界面场景 **13 个**（含 wizard）。
   ⚠️ 基线一律以**本机** accept-result.txt 为准：档案以前记的 1051 是"档案数"，本机是 1062（差的 11 项是 PSD 条件断言）。
-- 出包现状：`rel_out` 里最新 = **v1.9.6**（含第 49~55 批，已过冒烟）；GitHub Release 最新 = **v1.9.4**；
-  另有一份 v1.9.4 的包在 `D:\_release\v1.9.4\`（发版时生成的，与 rel_out 无关）。
+- 出包 / 发版现状（**两件事分开看，别混**）：
+  · 本地包：`rel_out` 里最新 = **v1.9.6**（含第 49~55 批，已过包内资源核对 + 冒烟）。
+  · GitHub Release：最新 = **v1.9.4**（2026-10-09 已发，覆盖第 50~53 批）。**v1.9.5 / v1.9.6 尚未发。**
   ⚠️ 发 Release = 对外发布（仓库 PUBLIC），要发先问我。
 - `docs/manual/` 是**用户使用手册**（已完成并**已入库**；两个大产物由 `.gitignore` 排除、脚本可重建）。
   用户打算**发 Release 时把手册附在 exe 旁边**。改手册或改界面后跑 `node tools/manual/check.cjs`。
 - 下一个 docs 编号 **42**；下一个迁移号仍 **21**（第 54 / 55 批均无新增迁移）。
 
+环境（两条开工前必看，都是踩过的）：
+- **`git push` 的输出会被吞**：本机 push 经常完全无输出、`$?` 还是 0，但**其实已经成功**。
+  判定推送一律用 `git rev-parse origin/main` / `git ls-remote origin main`，别信 push 的输出。
+- **Git Credential Manager 会挂起**（`git push` 卡住不动、`git credential fill` 也超时）→ 写操作推不上去。
+  此时 **fetch / pull 仍然正常**（仓库 PUBLIC，读不需要认证）。真要推，先确认 GCM 能正常读凭据。
+
 先读这七份，读完再动手（只读，不改文件）：
-1. D:\proj_media\PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
-2. D:\proj_media\PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末第 48 次）
-3. D:\proj_media\DECISIONS.md —— 历史决策，不要推翻已验证的结论
-4. D:\proj_media\NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
-5. D:\proj_media\README.md    —— 验收三件套与界面场景命令
-6. D:\proj_media\docs\25-软件操作手册.md —— 软件现在实际长什么样、怎么用（了解功能全貌最快的一份）
-7. 最近两批的方案：D:\proj_media\docs\41-待归类任务扫描修复.md 与 docs\40-首次配置引导方案.md
+1. D:/proj_media/PROJECT.md   —— 定位、技术栈、目录结构、协作铁律
+2. D:/proj_media/PROGRESS.md  —— 进度台账（现状在开头「分支与版本现状」，最后一次会话在文末「第 55 次会话」）
+3. D:/proj_media/DECISIONS.md —— 历史决策，不要推翻已验证的结论
+4. D:/proj_media/NEXT.md      —— 本文件（第四节候选清单 + 第五节环境坑速查，开工前必看）
+5. D:/proj_media/README.md    —— 验收三件套与界面场景命令
+6. D:/proj_media/docs/25-软件操作手册.md —— 软件现在实际长什么样、怎么用（了解功能全貌最快的一份）
+7. 最近两批的方案：D:/proj_media/docs/41-待归类任务扫描修复.md 与 docs\40-首次配置引导方案.md
    （再往前是 docs\39 任务快捷方式 / docs\38 封面文件 / docs\37 分级改名）
 
 读完先向我复述三件事，等我确认后再继续：
 ① 分支 / 版本 / 断言基线的现状（当前应为 main · 1.9.6 · **1116 项** + 13 场景）
-② 未完成的待办（**第 55 批未出包**、GitHub Release 最新 = v1.9.4〔第 50~53 批已发〕、第 17/18 批真表验收、
-  报表导出用户自己测、手册待随 Release 分发）
+② 未完成的待办（**v1.9.5 / v1.9.6 尚未发 Release**〔本地包已出〕、第 17/18 批真表验收、
+  报表导出用户自己测、手册待随 Release 分发，以及本机那个未推送的台账提交 `e53ed1b`）
 ③ 你建议的下一批方向 + 理由，等我拍板
 
 这一批做什么，现在定（候选见 NEXT.md 第四节）：
 - 工单二期最后一项：印刷状态写回企微表（写回管路 / CLI 内置 / 通知链路 / 定时同步都已就绪，只剩这一项）
-- 收尾类：出 GitHub Release（要发先问）/ 第 17~18 批真表人工验收
+- 收尾类：把 v1.9.6 发成 GitHub Release（含手册附件；要发先问）/ 第 17~18 批真表人工验收
 - 审核平台（大模块，方案 docs/21 已存档，卡点＝公司微盘使用规范待与同事对齐）
 - 连接 WorkBuddy 审稿（docs/23 已存档待细化，倾向「本地目录 + 自研审稿 Skill + automation」最轻闭环）
 - M6-06 版本对比（图片并排 + 视频双窗同步播放）/ M8-02 重复文件检测 / 报表口径完善
@@ -114,9 +123,11 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
   （第 55 批第一次跑就查出工单设置的「连接」按钮是硬编码，用户在在线表里改不到）。
   ✅ 手册已入库（源码 + manual.css + 样板页），任何机器 clone 下来都能跑
 - **跑测试/场景前必须清空 NODE_OPTIONS=**（否则 WorkBuddy 注入的 fs shim 会让工作区探针/配置文件读写异常，
-  导致第 4/5 批假失败）；跑界面场景前先把 D:\_accept_ws\shot* 挪走（NEXT 第五节有细节，全是血泪）
+  导致第 4/5 批假失败）；跑界面场景前先把 D:/_accept_ws/shot* 挪走（NEXT 第五节有细节，全是血泪）
 - 出包 / 发版拆两步（`npm run build` → `npx electron-builder --win --config.directories.output=<项目外全新空目录>`）；
-  出包前必查 `resources/ffmpeg/*.exe` 与 `resources/wecom-cli/wecom-cli.exe` 存在（两者都 gitignore 不入库，已经丢过两次）
+  出包前必查 `resources/ffmpeg/*.exe` 与 `resources/wecom-cli/wecom-cli.exe` 存在（两者都 gitignore 不入库，已经丢过两次）；
+  **发 Release：本机没装 `gh`、GitHub 连接器也没有创建 Release 的工具** → 走 API + GCM 令牌
+  （完整流程见 DECISIONS.md 2026-10-09 那条）
 
 先别写代码。读完档案把候选建议给我，等我拍板这一批做什么。
 ```
