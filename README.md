@@ -96,6 +96,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs versions          # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs category          # 界面验证：建包类别与左栏标签同源 + 改名/删除联动包（第 10 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs tickets           # 界面验证：工单视图（**顶栏第一格 + 启动默认**，第 22 批起 / 筛选 / 徽标 / 待确认 / 详情弹窗，第 13 批；待指派徽标 / 提示条 / 指派下拉 / 开关 / 逃生口，第 17 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5 交付打包（包详情 → 打包交付 → 生成 zip，第 16 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs backup           # 界面验证：任务备份打包（工具条多选 → 批量打包 → 卡片置灰 + 已备份徽标 + 详情信息条，第 58 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs unassigned       # 界面验证：未归属池入口（虚线卡片 → 文件视图未归属筛选 → 认领，第 25 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs wizard           # 界面验证：首次配置引导六步走完 + 完成/不再弹（第 54 批）
 ```
