@@ -3,12 +3,26 @@ import { Rich } from './Rich'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AssetItem, PackDetail, PackVersion } from '../types'
 import { fmtSize } from './FileRow'
+// 第 56 批（docs/42）：工单标识的提示文案与卡片共用一份
+import { ticketTip } from './PackCard'
 import { VersionBar } from './VersionBar'
 import { VersionModal } from './VersionModal'
 import { PackExportModal } from './PackExportModal'
 import { Icon } from './Icon'
 
 const ROLE_ORDER = ['成品', '素材', '工程', '未归属'] as const
+
+/** 第 58 批：备份时间戳 → 可读一行 */
+function fmtTime(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false })
+}
+
+/** 第 58 批：从 zip 绝对路径里取文件名（渲染层没有 path 模块，手写一段） */
+function backupFileName(p: string): string {
+  const seg = p.split(/[\\/]/)
+  return seg[seg.length - 1] || p
+}
 
 function ThumbCell({
   item,
@@ -232,6 +246,17 @@ export function PackDetailModal({
           {detail ? (
             <>
               <Icon name="package" size={15} /> {detail.pack.name}
+              {/* 第 56 批（docs/42）：标题带工单标识 —— 与卡片上那一行对得上 */}
+              {detail.pack.ticketNo && (
+                <span className="ticket-line" title={ticketTip(detail.pack)}>
+                  <span className="tno">
+                    {fmt(COPY.card.ticketLine, { no: detail.pack.ticketNo })}
+                  </span>
+                  {detail.pack.ticketApplicant && (
+                    <span className="tapp">{detail.pack.ticketApplicant}</span>
+                  )}
+                </span>
+              )}
               <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>
                 {detail.pack.folder_path}
               </span>
@@ -337,6 +362,30 @@ export function PackDetailModal({
                   <Icon name="check" size={13} />  {COPY.ticket.completeBtn}
                 </button>
               </div>
+
+              {/* 第 58 批（docs/43）：已备份信息条 —— 原文件从哪个 zip 里取回。
+                  路径失效（包被挪走/改名）时**不给跳转按钮**，只如实显示路径，不让用户点了没反应。 */}
+              {detail.pack.backedUpAt && (
+                <div className="backup-info">
+                  <Icon name="archive" size={13} />
+                  <span className="txt">
+                    {detail.pack.backupPath
+                      ? fmt(COPY.backup.barBody, {
+                          time: fmtTime(detail.pack.backedUpAt),
+                          name: backupFileName(detail.pack.backupPath)
+                        })
+                      : fmt(COPY.backup.barNoPath, { time: fmtTime(detail.pack.backedUpAt) })}
+                  </span>
+                  {detail.pack.backupPath && detail.pack.backupPathExists && (
+                    <button
+                      className="btn"
+                      onClick={() => void window.api.revealFile(detail.pack.backupPath as string)}
+                    >
+                      {COPY.backup.barOpenFolder}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* 第 9 批（M6）：版本条 —— 一格一稿，点一下换视角 */}
               <VersionBar

@@ -635,6 +635,36 @@ body:has(.side-resizer.dragging) {
   font-variant-numeric: tabular-nums;
 }
 
+/* 第 56 批（docs/42）：任务上的工单标识 —— 同名任务的唯一区分。
+   卡片（.pack-card 内）与任务详情弹窗（.modal h3 内）共用这一段。 */
+.ticket-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.ticket-line .tno {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ticket-line .tapp {
+  color: var(--text-3);
+  flex: 0 0 auto;
+}
+
+.pack-card .ticket-line {
+  margin-top: -1px; /* 名称与它的 gap 已有 5px，这里收一点，三行更紧凑 */
+}
+
 .pack-card .tags {
   display: flex;
   gap: 5px;
@@ -3678,4 +3708,100 @@ svg {
 }
 .wz-actions {
   margin-top: 4px;
+}
+
+/* ==================== 第 58 批（docs/43）：任务备份打包 ==================== */
+
+/* 已备份任务：置灰（与「已解绑/失效」同一套视觉语言），但仍可点开看详情 */
+.pack-card.backed-up {
+  opacity: 0.55;
+}
+.pack-card.backed-up:hover {
+  opacity: 1;
+}
+
+/* 多选备份模式：整卡点击 = 切换勾选 */
+.pack-card.selectable {
+  cursor: pointer;
+}
+.pack-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+/* 多选模式左上角的勾选指示 */
+.pack-card .pick-cb {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  z-index: 2;
+  transition: all 0.12s;
+}
+.pack-card .pick-cb.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 多选模式下「查看详情」的眼睛按钮：常显（不靠 hover），否则用户找不到入口 */
+.pack-card.selectable .pact {
+  opacity: 1;
+}
+
+/* 「已备份」徽标（sub 行，跟「已交付」并列） */
+.backup-chip {
+  color: var(--ok);
+  white-space: nowrap;
+}
+.backup-chip svg {
+  vertical-align: -1px;
+}
+
+/* 多选模式提示条 */
+.backup-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 10px 10px;
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.backup-bar .spacer {
+  flex: 1;
+}
+
+/* 任务详情弹窗的「已备份」信息条 */
+.backup-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.backup-info .txt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.backup-info svg {
+  color: var(--ok);
+  flex-shrink: 0;
 }

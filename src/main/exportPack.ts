@@ -50,11 +50,18 @@ function todayYmd(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
 }
 
-function sanitizeFileName(name: string): string {
+/**
+ * 文件名消毒：干掉 Windows 不允许的字符。
+ * ⚠️ 第 58 批（docs/43）起**导出**给 `backupPack.ts` 共用 —— 它踩过的坑很深
+ * （2026-10-04：手填「10*1000cm」的星号把 `createWriteStream` 干成 ENOENT 且崩软件），
+ * 备份打包绝不能各写一份，必须共用同一套清洗规则。
+ */
+export function sanitizeFileName(name: string): string {
   return name.replace(/[<>:"\\/|?*\x00-\x1f]/g, '_').trim()
 }
 
-function uniqueFileName(dir: string, name: string): string {
+/** 目标目录里同名文件已存在就加 ` (1)` ` (2)` …… —— 第 58 批起导出给备份打包共用 */
+export function uniqueFileName(dir: string, name: string): string {
   if (!existsSync(join(dir, name))) return name
   const ext = extname(name)
   const stem = name.slice(0, name.length - ext.length)

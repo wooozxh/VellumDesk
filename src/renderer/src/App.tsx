@@ -135,6 +135,14 @@ export default function App(): React.JSX.Element {
   // ---- 第 8 批：文件已丢失 / 重新定位（M8-03）----
   const [showRelocate, setShowRelocate] = useState(false)
 
+  // ---- 第 58 批（docs/43）：任务备份打包（多选 → 批量打包）----
+  /** 是否处于「多选备份」模式（工具条按钮切进来） */
+  const [backupMode, setBackupMode] = useState(false)
+  /** 已勾选要备份的任务 id */
+  const [backupSel, setBackupSel] = useState<Set<number>>(new Set())
+  /** 正在打包中（按钮显示「打包中…」并禁用） */
+  const [backupBusy, setBackupBusy] = useState(false)
+
   const [scanning, setScanning] = useState(false)
   /** 第 14 批：刷新扫描的阶段进度（主进程推送；null = 没有在跑） */
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
@@ -438,6 +446,43 @@ export default function App(): React.JSX.Element {
     }
     toast(fmt(COPY.toast.located, { path: r.relPath ?? '' }), 'ok')
     await reloadAll()
+  }
+
+  /**
+   * 第 58 批（docs/43）：批量备份 —— 给每个勾选的任务各打一个**原样** zip 到所选目录。
+   * 选目录复用交付打包那条通道（`dialog:pickOutputDir`）；完成后刷新卡片（置灰 + 徽标）并退出多选模式。
+   * 失败的任务逐条报出来（不闷成一句"有失败"），用户才知道哪几个没成。
+   */
+  const doBackup = async (): Promise<void> => {
+    if (backupSel.size === 0) {
+      toast(COPY.backup.noneSelected, 'err')
+      return
+    }
+    const picked = await window.api.pickOutputDir('')
+    if (!picked.ok || !picked.dir) return
+    setBackupBusy(true)
+    const res = await window.api.packBackupBatch({
+      packIds: Array.from(backupSel),
+      outputDir: picked.dir,
+      suffix: '-backup'
+    })
+    setBackupBusy(false)
+    if (res.error) {
+      toast(`${COPY.backup.failed}：${res.error}`, 'err')
+    } else if (res.failCount === 0) {
+      toast(fmt(COPY.backup.done, { n: res.okCount, path: picked.dir }), 'ok')
+    } else {
+      toast(
+        fmt(COPY.backup.donePartial, { ok: res.okCount, fail: res.failCount }),
+        res.okCount > 0 ? 'info' : 'err'
+      )
+      for (const it of res.items.filter((i) => !i.ok)) {
+        toast(`${it.packName || `#${it.packId}`}：${it.error ?? COPY.backup.failed}`, 'err')
+      }
+    }
+    await reloadAll()
+    setBackupMode(false)
+    setBackupSel(new Set())
   }
 
   /**
@@ -1114,6 +1159,42 @@ export default function App(): React.JSX.Element {
         <button className="btn primary" onClick={() => setShowNew(true)}>
           <Icon name="plus" size={13} strokeWidth={2} />  {COPY.top.newPack}
         </button>
+
+        {/* 第 58 批（docs/43）：任务视图 —— 「新建任务」后面加「备份打包」。
+            点它 → 全部卡片进入打勾模式，按钮变「批量打包」、旁边冒「取消」。 */}
+        {view === 'packs' &&
+          (!backupMode ? (
+            <button
+              className="btn"
+              title={COPY.backup.enterTip}
+              onClick={() => {
+                setBackupMode(true)
+                setBackupSel(new Set())
+              }}
+            >
+              <Icon name="archive" size={13} />  {COPY.backup.enter}
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn primary"
+                disabled={backupSel.size === 0 || backupBusy}
+                onClick={() => void doBackup()}
+              >
+                {backupBusy ? COPY.backup.packing : fmt(COPY.backup.doBatch, { n: backupSel.size })}
+              </button>
+              <button
+                className="btn"
+                disabled={backupBusy}
+                onClick={() => {
+                  setBackupMode(false)
+                  setBackupSel(new Set())
+                }}
+              >
+                {COPY.common.cancel}
+              </button>
+            </>
+          ))}
       </div>
 
       {/* 主体 */}
@@ -1471,6 +1552,24 @@ export default function App(): React.JSX.Element {
             </div>
           )}
           <div className="main-scroll">
+            {/* 第 58 批（docs/43）：多选备份模式的提示条 —— 否则用户不知道现在点卡片是勾选 */}
+            {view === 'packs' && backupMode && (
+              <div className="backup-bar">
+                <Icon name="archive" size={13} />
+                <span>{COPY.backup.selectHint}</span>
+                <span className="spacer" />
+                <button
+                  className="btn"
+                  disabled={backupBusy || shownPacks.length === 0}
+                  onClick={() => setBackupSel(new Set(shownPacks.map((p) => p.id)))}
+                >
+                  {COPY.backup.selectAll}
+                </button>
+                <button className="btn" disabled={backupBusy || backupSel.size === 0} onClick={() => setBackupSel(new Set())}>
+                  {COPY.backup.selectNone}
+                </button>
+              </div>
+            )}
             {view === 'packs' ? (
               shownPacks.length === 0 ? (
                 <div className="empty">
@@ -1515,6 +1614,17 @@ export default function App(): React.JSX.Element {
                       pack={p}
                       onOpen={() => setOpenPackId(p.id)}
                       onEdit={() => setEditingPackId(p.id)}
+                      selectable={backupMode}
+                      selected={backupSel.has(p.id)}
+                      onToggleSelect={() =>
+                        setBackupSel((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(p.id)) next.delete(p.id)
+                          else next.add(p.id)
+                          return next
+                        })
+                      }
+                      onViewDetail={() => setOpenPackId(p.id)}
                     />
                   ))}
                 </div>

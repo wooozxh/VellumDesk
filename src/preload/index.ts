@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ScanProgress, PackExportInput, TicketSyncedEvent } from '../shared/types'
+import type { ScanProgress, PackBackupInput, PackExportInput, TicketSyncedEvent } from '../shared/types'
 
 /**
  * 暴露给界面的接口。约定见方案 6.1：全部走 invoke（ipcMain.handle），
@@ -195,7 +195,10 @@ const api = {
   packExport: (input: PackExportInput) => ipcRenderer.invoke('pack:export', input),
   packExportPreview: (input: PackExportInput) => ipcRenderer.invoke('pack:exportPreview', input),
   packDeliveryRecords: (packId: number) => ipcRenderer.invoke('pack:deliveryRecords', packId),
-  pickOutputDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:pickOutputDir', defaultPath)
+  pickOutputDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:pickOutputDir', defaultPath),
+
+  // 第 58 批：任务备份打包（docs/43）
+  packBackupBatch: (input: PackBackupInput) => ipcRenderer.invoke('pack:backupBatch', input)
 }
 
 if (process.contextIsolated) {

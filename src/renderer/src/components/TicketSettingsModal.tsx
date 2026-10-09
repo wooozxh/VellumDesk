@@ -291,7 +291,7 @@ export function TicketSettingsModal({
               disabled={busy || link.trim() === ''}
               onClick={() => void probeOrSave('probe')}
             >
-              {busy ? COPY.common.saving : '连接'}
+              {busy ? COPY.common.saving : COPY.ticket.settingsConnect}
             </button>
           </div>
 

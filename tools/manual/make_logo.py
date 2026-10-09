@@ -1,12 +1,27 @@
 # -*- coding: utf-8 -*-
 """把用户给的 LOGO 处理成两版：完整版（封面用）+ 图标版（顶栏用）。
-去白底 → 透明 PNG → 裁边 → 在「图标 / 文字」之间那条空白带切开。"""
+去白底 → 透明 PNG → 裁边 → 在「图标 / 文字」之间那条空白带切开。
+
+用法：
+    python tools/manual/make_logo.py <原始 LOGO 图片路径>
+    # 或设环境变量 MANUAL_LOGO_SRC=<路径>
+
+输出固定落到本仓库的 docs/manual/images/（与脚本位置无关写死）。
+注意：原图不在仓库里，必须显式给路径（以前这里写死过某个用户的剪贴板路径，换机即挂）。
+"""
 import os, sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from PIL import Image
 
-SRC = r"C:\Users\30873\.workbuddy\clipboard-images\clipboard-2026-10-09T08-20-17-060Z-c8a49d34.jpg"
-DST = r"D:\proj_media\docs\manual\images"
+SRC = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("MANUAL_LOGO_SRC", "")).strip()
+if not SRC or not os.path.isfile(SRC):
+    sys.exit(
+        "原始 LOGO 图片没找到。用法：python tools/manual/make_logo.py <图片路径>\n"
+        "（或设 MANUAL_LOGO_SRC 环境变量）"
+    )
+
+# 输出固定到仓库内 docs/manual/images —— 用脚本自身位置推导，别写绝对盘符
+DST = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "manual", "images"))
 os.makedirs(DST, exist_ok=True)
 
 im = Image.open(SRC).convert("RGB")

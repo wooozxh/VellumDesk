@@ -18,9 +18,10 @@ if (!FILE_ID) {
 const DIR = __dirname
 // 注意：bin 目录下的 `mcporter` 只是个 sh 包装脚本（内部调 dirname/sed/uname），
 // Windows 下 Node 直接 spawn 它会失败；必须起 node + dist/cli.js。
-// 用 process.execPath —— 就是当前跑本脚本的这个 node，避免再写死一个路径。
-const NODE = process.execPath
-const MCP_CLI = 'C:/Users/30873/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/mcporter/dist/cli.js'
+// node 用 process.execPath（就是当前跑本脚本的这个），cli.js 路径由 mcp-cli.cjs 解析
+// ——**别再写死某个用户的绝对路径**（写死过，换机即挂）。
+const { NODE, resolveMcporterCli } = require('./mcp-cli.cjs')
+const MCP_CLI = resolveMcporterCli()
 
 /** 极简 CSV 解析（能处理引号包裹、转义双引号、字段内换行） */
 function parseCsv(text) {

@@ -97,6 +97,12 @@ const SCENARIOS = {
     workspaceRoot: join(BASE, 'shot_wsexp'),
     shot: 'shot-b16-1-export-modal.png'
   },
+  // 第 58 批（docs/43）：任务备份打包（工具条多选 → 批量打包 → 卡片置灰 + 已备份徽标）
+  backup: {
+    userData: join(BASE, 'shot4_backup'),
+    workspaceRoot: join(BASE, 'shot_wsbk'),
+    shot: 'shot-b58-6-backup-final.png'
+  },
   // 第 25 批：未归属池入口（用户报的 bug —— 点虚线「未归属」卡片时弹窗一直「加载中」）
   unassigned: {
     userData: join(BASE, 'shot4_unassigned'),
@@ -732,6 +738,46 @@ app.whenReady().then(async () => {
 
     wsm.scanAll(ws)
     say('seeded export pack    : ' + packDir)
+  }
+
+  // ---- 第 58 批（docs/43）：任务备份打包 ----
+  // 造一个项目 + 两个任务（各带 成品/素材 两个文件），用来验多选备份的整套界面。
+  if (SCEN === 'backup') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const proj = d
+      .prepare('SELECT id, folder_name FROM projects WHERE name = ?')
+      .get('海南升学集训营')
+
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const addPack = d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    const mk = (name, bytes) => {
+      const dir = join(ws, proj.folder_name, name)
+      for (const sub of SUB) mkdirSync(join(dir, sub), { recursive: true })
+      // 用**随机字节**而不是 'x'.repeat()：高度可压的数据打成 zip 只剩几十字节，
+      // 「zip 非空」这类断言就失去意义了（真实图片是压不动的）。
+      writeFileSync(join(dir, '01-成品', '成品.png'), require('crypto').randomBytes(bytes))
+      writeFileSync(join(dir, '02-素材', '底图.png'), require('crypto').randomBytes(Math.floor(bytes / 2)))
+      addPack.run(name, '海报', dir, proj.id, now, now)
+      return dir
+    }
+    const bp1 = mk('海南招生海报', 80 * 1024)
+    const bp2 = mk('抖音短视频封面', 60 * 1024)
+    d.close()
+
+    wsm.scanAll(ws)
+    say('seeded backup packs   : ' + bp1 + ' | ' + bp2)
   }
 
   // ============================================================
@@ -3871,6 +3917,221 @@ app.whenReady().then(async () => {
     ok(zipStat.size > 1000, '生成的 zip 非空（' + Math.round(zipStat.size / 1024) + ' KB）')
 
     await shot('shot-b16-1-export-done.png')
+  } else if (SCEN === 'backup') {
+    // ============================================================
+    // 第 58 批（docs/43）：任务备份打包
+    //   工具条「新建任务」右边「备份打包」→ 卡片进多选 → 勾任务 → 批量打包
+    //   → 系统选目录 → 每任务各打一个 zip → 卡片置灰 + 「已备份」徽标 → 详情信息条
+    // ============================================================
+    const BKOUT = join(BASE, 'shot_bkout')
+    rmSync(BKOUT, { recursive: true, force: true })
+
+    // ⚠️【关键】把系统「选择文件夹」对话框换成固定返回值。
+    //   否则真点「批量打包」会弹出原生模态框把场景卡死在无人点击上。
+    //   换的是同一个 dialog 对象上的方法 —— ipc.cjs 里 `dialog.showOpenDialog(...)`
+    //   访问的就是这个属性，所以能拦住。
+    const { dialog } = require('electron')
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [BKOUT] })
+    say('stub dialog.showOpenDialog → ' + BKOUT)
+
+    const P1 = '海南招生海报'
+    const P2 = '抖音短视频封面'
+    // 主按钮文案随勾选数变（批量打包（0）→（2）），只用前缀定位，别把数字写死进选择器
+    const batchPrefix = plain(COPY.backup.doBatch).split('（')[0]
+
+    // ---- (1) 工具条上有「备份打包」按钮，且排在「新建任务」右边 ----
+    const tb = await js(`(() => {
+      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const texts = bs.map(b => b.innerText.trim())
+      const iNew = texts.findIndex(t => t.includes(${JSON.stringify(plain(COPY.top.newPack))}))
+      const iBk  = texts.findIndex(t => t.includes(${JSON.stringify(plain(COPY.backup.enter))}))
+      const bk = bs[iBk] || null
+      return { texts, iNew, iBk, tip: bk ? (bk.getAttribute('title') || '').trim() : '' }
+    })()`)
+    ok(tb && tb.iBk >= 0, `工具条出现「${plain(COPY.backup.enter)}」按钮`)
+    ok(tb && tb.iNew >= 0 && tb.iBk > tb.iNew, '它排在「新建任务」右边（iNew=' + (tb ? tb.iNew : '?') + ' → iBk=' + (tb ? tb.iBk : '?') + '）')
+    ok(!!tb && tb.tip === plain(COPY.backup.enterTip), '按钮提示点明与「打包交付」无关：' + (tb ? tb.tip : '—'))
+    await shot('shot-b58-1-backup-entry.png')
+
+    // ---- (2) 点它 → 进多选模式：主按钮变「批量打包（0）」+ 旁边冒「取消」+ 顶部提示条 ----
+    const enterClicked = await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))}))
+      if (!b) return 'no-btn'
+      b.click(); return 'ok'
+    })()`)
+    ok(enterClicked === 'ok', '点击「' + plain(COPY.backup.enter) + '」进入多选模式')
+    await wait(500)
+
+    const modeUi = await js(`(() => {
+      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const texts = bs.map(b => b.innerText.trim())
+      const batch = bs.find(b => b.innerText.includes(${JSON.stringify(batchPrefix)}))
+      const cancel = bs.find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.common.cancel))})
+      const bar = document.querySelector('.backup-bar')
+      return {
+        texts,
+        batchText: batch ? batch.innerText.trim() : '',
+        batchDisabled: batch ? batch.disabled : null,
+        hasCancel: !!cancel,
+        barText: bar ? bar.innerText.trim() : '',
+        barBtns: bar ? [...bar.querySelectorAll('.btn')].map(b => b.innerText.trim()) : [],
+        selectableCount: document.querySelectorAll('.pack-card.selectable').length
+      }
+    })()`)
+    ok(
+      modeUi && modeUi.batchText === fmt(COPY.backup.doBatch, { n: 0 }),
+      `主按钮变「${fmt(COPY.backup.doBatch, { n: 0 })}」：${modeUi ? modeUi.batchText : '—'}`
+    )
+    ok(!!modeUi && modeUi.batchDisabled === true, '一个都没勾时「批量打包」是禁用的')
+    ok(!!modeUi && modeUi.hasCancel, '旁边多出「' + plain(COPY.common.cancel) + '」')
+    ok(!!modeUi && modeUi.barText.includes(plain(COPY.backup.selectHint)), '顶部出现提示条：' + (modeUi ? modeUi.barText.split('\n')[0] : '—'))
+    ok(
+      !!modeUi && modeUi.barBtns.includes(plain(COPY.backup.selectAll)) && modeUi.barBtns.includes(plain(COPY.backup.selectNone)),
+      '提示条里有「全选 / 取消全选」：' + (modeUi ? modeUi.barBtns.join(' | ') : '—')
+    )
+    ok(!!modeUi && modeUi.selectableCount === 2, '两张卡片都进了多选态（selectable=' + (modeUi ? modeUi.selectableCount : '?') + '）')
+    await shot('shot-b58-2-backup-mode.png')
+
+    // ---- (3) 勾两张卡：勾选指示点亮、按钮计数变 2 ----
+    const pickCards = await js(`(() => {
+      const cards = [...document.querySelectorAll('.grid .pack-card')]
+      let n = 0
+      for (const c of cards) { c.click(); n += 1 }
+      return n
+    })()`)
+    ok(pickCards === 2, '点了两张卡片（' + pickCards + '）')
+    await wait(400)
+
+    const selUi = await js(`(() => {
+      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const batch = bs.find(b => b.innerText.includes(${JSON.stringify(batchPrefix)}))
+      return {
+        batchText: batch ? batch.innerText.trim() : '',
+        batchDisabled: batch ? batch.disabled : null,
+        cbOn: document.querySelectorAll('.grid .pack-card .pick-cb.on').length,
+        selCount: document.querySelectorAll('.grid .pack-card.selected').length,
+        detailBtns: document.querySelectorAll('.grid .pack-card.selectable .pact.detail').length
+      }
+    })()`)
+    ok(!!selUi && selUi.cbOn === 2, '两张卡的勾选指示点亮（pick-cb.on=' + (selUi ? selUi.cbOn : '?') + '）')
+    ok(!!selUi && selUi.selCount === 2, '两张卡带 selected 高亮（selected=' + (selUi ? selUi.selCount : '?') + '）')
+    ok(!!selUi && selUi.batchText === fmt(COPY.backup.doBatch, { n: 2 }), `按钮计数变「${fmt(COPY.backup.doBatch, { n: 2 })}」：` + (selUi ? selUi.batchText : '—'))
+    ok(!!selUi && selUi.batchDisabled === false, '勾了任务后「批量打包」可点')
+    ok(!!selUi && selUi.detailBtns === 2, '多选态下每张卡有独立「查看详情」眼睛按钮（' + (selUi ? selUi.detailBtns : '?') + '）')
+    await shot('shot-b58-3-backup-selected.png')
+
+    // ---- (3b) 全选 / 取消全选 ----
+    await clickByText('.backup-bar .btn', plain(COPY.backup.selectAll))
+    await wait(300)
+    const allOn = await js(`document.querySelectorAll('.grid .pack-card .pick-cb.on').length`)
+    ok(allOn === 2, '点「全选」后两张都勾上（' + allOn + '）')
+    await clickByText('.backup-bar .btn', plain(COPY.backup.selectNone))
+    await wait(300)
+    const noneOn = await js(`document.querySelectorAll('.grid .pack-card .pick-cb.on').length`)
+    ok(noneOn === 0, '点「取消全选」后一张不剩（' + noneOn + '）')
+
+    // 重新勾上两张，准备真打包
+    await js(`(() => { document.querySelectorAll('.grid .pack-card').forEach(c => c.click()); return 'ok' })()`)
+    await wait(400)
+    const reselected = await js(`document.querySelectorAll('.grid .pack-card .pick-cb.on').length`)
+    ok(reselected === 2, '重新勾上两张（' + reselected + '）')
+
+    // ---- (4) 点「批量打包」→ 真跑主进程打包（选目录已被 stub 成固定路径）----
+    const batchClicked = await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(batchPrefix)}))
+      if (!b) return 'no-btn'
+      b.click(); return 'ok'
+    })()`)
+    ok(batchClicked === 'ok', '点击「' + plain(COPY.backup.doBatch).replace('（{n}）', '') + '」')
+
+    // 等打包完成：多选模式自动退出 = 「备份打包」按钮回来 + 提示条消失
+    let left = false
+    for (let i = 0; i < 60; i++) {
+      left = await js(`(() => {
+        const bs = [...document.querySelectorAll('.topbar .btn')]
+        const hasEnter = bs.some(b => b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))}))
+        return hasEnter && !document.querySelector('.backup-bar')
+      })()`)
+      if (left === true) break
+      await wait(500)
+    }
+    ok(left === true, '打包完成后自动退出多选模式')
+
+    // ---- (5) 成功 toast ----
+    let toastOk = false
+    for (let i = 0; i < 20; i++) {
+      toastOk = await js(`(() => {
+        const t = [...document.querySelectorAll('.toast')].find(el => el.classList.contains('ok'))
+        if (!t) return false
+        return t.innerText.includes(${JSON.stringify(plain(COPY.backup.done).split('{n}')[0].trim())}) &&
+               t.innerText.includes(${JSON.stringify(BKOUT)})
+      })()`)
+      if (toastOk) break
+      await wait(300)
+    }
+    ok(toastOk, '出现「已备份 N 个任务」成功 toast')
+
+    // ---- (6) 磁盘上真的按「项目 / 标识-任务名-backup.zip」落了两个包 ----
+    const projDir = join(BKOUT, '海南升学集训营')
+    const zips = existsSync(projDir) ? require('fs').readdirSync(projDir).filter((f) => f.endsWith('.zip')) : []
+    ok(zips.length === 2, '输出目录下「项目名」子目录里有 2 个 zip：' + zips.join(' | '))
+    ok(zips.every((z) => z.includes(P1) || z.includes(P2)), 'zip 名带任务名')
+    ok(zips.every((z) => z.endsWith('-backup.zip')), 'zip 名带 -backup 后缀')
+    ok(zips.every((z) => /^T\d{4}-/.test(z)), '自建任务 zip 名以「T+4位编号」打头：' + zips.join(' | '))
+    ok(
+      zips.every((z) => require('fs').statSync(join(projDir, z)).size > 1000),
+      '生成的 zip 都非空'
+    )
+
+    // 备份清单.csv —— UTF-8 带 BOM（否则 Excel 打开中文乱码）
+    const mf = join(BKOUT, plain(COPY.backup.manifestName))
+    const mfRaw = existsSync(mf) ? require('fs').readFileSync(mf, 'utf-8') : ''
+    ok(mfRaw.charCodeAt(0) === 0xfeff, '输出目录根上有「' + plain(COPY.backup.manifestName) + '」且以 BOM 开头')
+    ok(mfRaw.includes(P1) && mfRaw.includes(P2), '清单里记了两个任务名')
+
+    // ---- (7) 卡片置灰 + 「已备份」徽标 ----
+    const cardUi = await js(`(() => {
+      const cards = [...document.querySelectorAll('.grid .pack-card')]
+      return {
+        backedUp: cards.filter(c => c.classList.contains('backed-up')).length,
+        chips: cards.filter(c => c.querySelector('.backup-chip')).length,
+        chipText: (() => { const c = document.querySelector('.grid .pack-card .backup-chip'); return c ? c.innerText.trim() : '' })(),
+        selectableLeft: document.querySelectorAll('.grid .pack-card.selectable').length
+      }
+    })()`)
+    ok(!!cardUi && cardUi.backedUp === 2, '两张卡都置灰（backed-up=' + (cardUi ? cardUi.backedUp : '?') + '）')
+    ok(!!cardUi && cardUi.chips === 2, '两张卡都有「已备份」徽标（' + (cardUi ? cardUi.chipText : '—') + '）')
+    ok(!!cardUi && cardUi.selectableLeft === 0, '已退出多选态（selectable=' + (cardUi ? cardUi.selectableLeft : '?') + '）')
+    await shot('shot-b58-4-backup-cards.png')
+
+    // ---- (8) 打开详情 → 顶部「已备份」信息条 ----
+    const openDetail = await js(`(() => {
+      const c = [...document.querySelectorAll('.grid .pack-card')]
+        .find(el => ((el.querySelector('.name') || {}).innerText || '').includes(${JSON.stringify(P1)}))
+      if (!c) return 'no-card'
+      c.click(); return 'ok'
+    })()`)
+    ok(openDetail === 'ok', '打开「' + P1 + '」任务详情')
+    await wait(900)
+
+    const infoUi = await js(`(() => {
+      const bar = document.querySelector('.modal .backup-info')
+      if (!bar) return null
+      return {
+        text: bar.innerText.trim(),
+        hasOpenBtn: !!bar.querySelector('.btn')
+      }
+    })()`)
+    ok(!!infoUi, '详情里有「已备份」信息条')
+    ok(!!infoUi && infoUi.text.includes('.zip'), '信息条里点明从哪个 zip 取回：' + (infoUi ? infoUi.text.split('\n').join(' ') : '—'))
+    ok(!!infoUi && infoUi.hasOpenBtn === true, 'zip 还在磁盘上 → 有「打开所在文件夹」按钮')
+    await shot('shot-b58-5-backup-detail.png')
+
+    // 关掉详情弹窗，别影响收尾截图
+    await js(`(() => { const m = document.querySelector('.modal .foot .btn, .modal .close'); if (m) m.click(); return 'ok' })()`)
+    await wait(400)
   } else if (SCEN === 'unassigned') {
     // ============================================================
     // 第 25 批：未归属池入口 —— 用户报的 bug

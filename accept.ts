@@ -11,9 +11,13 @@ import {
   readFileSync,
   copyFileSync
 } from 'fs'
-import { join, basename } from 'path'
+import { join, basename, dirname } from 'path'
 // 第 52 批：分级名改从文案字典取（不再硬编码 S/A/B/C，改名时断言自动跟着变）
 import { COPY } from './src/shared/copy'
+// 第 58 批（docs/43）：任务标识（打包与卡片共用的那一份）
+import { taskCode } from './src/shared/taskCode'
+// 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
+import { backupPacks } from './src/main/backupPack'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -362,6 +366,35 @@ function makePdf(path: string, pages = 1): void {
   }
   pdf += `trailer\n<< /Size ${count + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
   writeFileSync(path, Buffer.from(pdf, 'latin1'))
+}
+
+/**
+ * 第 58 批（docs/43）：读出一个 zip 里所有条目的名字（用于验证「原样打包」的包内结构）。
+ * 走标准 EOCD → 中央目录，可靠（不靠扫 `PK\x03\x04` 签名 —— 压缩数据里可能恰好出现那几个字节）。
+ */
+function zipEntryNames(zipPath: string): string[] {
+  const buf = readFileSync(zipPath)
+  let eocd = -1
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65535; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) throw new Error('不是合法 zip（找不到 EOCD）：' + zipPath)
+  const count = buf.readUInt16LE(eocd + 10)
+  const cdOffset = buf.readUInt32LE(eocd + 16)
+  const names: string[] = []
+  let p = cdOffset
+  for (let n = 0; n < count; n++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('中央目录损坏 @' + p)
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    names.push(buf.toString('utf-8', p + 46, p + 46 + nameLen))
+    p += 46 + nameLen + extraLen + commentLen
+  }
+  return names
 }
 
 async function main(): Promise<void> {
@@ -6467,6 +6500,348 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(w55Root)
+  }
+
+  // ============ 第 56 批：任务挂工单标识（docs/42）============
+  log('\n[51] 第 56 批：任务卡片挂工单标识 —— 同名任务分得清（docs/42）')
+  {
+    const t56Root = join('D:\\_accept_ws', `wstest56_${RUN_ID}`)
+    const t56Ws = join(t56Root, 'ws')
+    hardRm(t56Root)
+    mkdirSync(t56Ws, { recursive: true })
+    closeDb()
+    openDb(t56Ws)
+    initWorkspace(t56Ws)
+
+    /**
+     * 造一条假工单。**两张单刻意同名物料** —— 这正是用户看到的「任务重名」
+     * 场景（任务名直接取物料名称），本批要验证的就是"挂上唯一编号后能区分"。
+     */
+    const rec56 = (no: string, over: Record<string, unknown> = {}): TicketRawRecord => ({
+      record_id: `rec_${no}`,
+      values: {
+        审批单编号: [{ text: no }],
+        物料名称: [{ text: '同名物料' }],
+        当前审批状态: [{ text: '审批中' }],
+        设计师: [{ userId: 'uME', userName: '本机测试员' }],
+        业务归属: [{ text: '同名测试项目' }],
+        申请人: [{ userId: 'uCHEN', userName: '陈晓' }],
+        交稿日期: [{ text: '2026-10-20' }],
+        ...over
+      }
+    })
+    const payload56 = (records: TicketRawRecord[]): SheetPayload => ({
+      sheet_id: 'sheet56',
+      title: '营销物料设计申请（印刷物料）',
+      type: 'print',
+      records
+    })
+    const identity56 = { userid: 'uME', name: '本机测试员' }
+
+    const proj56 = createProject({ name: '同名测试项目', workspaceRoot: t56Ws }).project!
+
+    // 首次同步 = 快照（表里已有的全标历史、一张任务都不建）——先拿一张无关单把这一步走掉
+    applySync({
+      payloads: [payload56([rec56('P0000')])],
+      structureChanged: false,
+      identity: identity56,
+      workspaceRoot: t56Ws
+    })
+    // 第二轮：P0001 / P0002 **首次出现**（同名物料）→ 各建一个任务
+    const s56 = applySync({
+      payloads: [payload56([rec56('P0001'), rec56('P0002')])],
+      structureChanged: false,
+      identity: identity56,
+      workspaceRoot: t56Ws
+    })
+    ok(s56.tasksCreated === 2, `【布景】两张同名工单各建一个任务（实际 ${s56.tasksCreated}）`)
+
+    const twins56 = listPacks().filter((p) => p.name === '同名物料')
+    ok(twins56.length === 2, `【现状】两张任务**名字一模一样**（${twins56.map((p) => p.name).join(' / ')}）`)
+    ok(
+      new Set(twins56.map((p) => p.folder_path)).size === 2,
+      '【根因】磁盘上文件夹本就不同名（createPack 自动加 -2 后缀）——怪的是界面只显示原名'
+    )
+
+    // ---- 核心：挂上唯一编号后，两张同名任务分得清 ----
+    ok(
+      twins56.map((p) => p.ticketNo).sort().join(',') === 'P0001,P0002',
+      `【核心】两张同名任务各自挂出唯一工单编号（${twins56.map((p) => p.ticketNo).join(' / ')}）`
+    )
+    ok(
+      twins56.every((p) => p.ticketApplicant === '陈晓'),
+      '【核心】申请人跟着带出来（陈晓）'
+    )
+    ok(
+      twins56.every((p) => p.ticketCount === 1),
+      `每张任务各关联 1 张工单（实际 ${twins56.map((p) => p.ticketCount).join(' / ')}）`
+    )
+    const t56a = twins56.find((p) => p.ticketNo === 'P0001')!
+    ok(
+      t56a.ticketTitle === '同名物料' && t56a.ticketState === '审批中' && !!t56a.ticketDueDate,
+      `悬停信息齐（物料「${t56a.ticketTitle}」/ 状态「${t56a.ticketState}」/ 交期「${t56a.ticketDueDate}」）`
+    )
+
+    // ---- 详情弹窗与卡片同源（点进去和卡片上那一行对得上）----
+    const d56 = getPackDetail(t56a.id)
+    ok(
+      d56.pack.ticketNo === 'P0001' && d56.pack.ticketApplicant === '陈晓',
+      '任务详情弹窗拿到同样的工单标识（P0001 / 陈晓）'
+    )
+
+    // ---- 手工建的任务（没有工单）→ 全 null / 0，界面据此不显示标识行 ----
+    const manual56 = mkPack({ name: '手工建的任务', projectId: proj56.id, workspaceRoot: t56Ws })
+    const m56 = listPacks().find((p) => p.id === manual56.id)!
+    ok(
+      m56.ticketNo === null && m56.ticketApplicant === null && m56.ticketCount === 0,
+      '手工建的任务没有工单 → 字段全 null / 0（界面不显示这一行，保持干净）'
+    )
+
+    // ---- 一任务多单（历史手工干预）：代表取 id 最小的一张，张数照实累加 ----
+    getDb()
+      .prepare(
+        `INSERT INTO tickets (sheet_id, ticket_type, ticket_no, pack_id)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run('sheet56', 'print', 'P8888', t56a.id)
+    const again56 = listPacks().find((p) => p.id === t56a.id)!
+    ok(
+      again56.ticketCount === 2 && again56.ticketNo === 'P0001',
+      `一任务多单：代表仍是 id 最小的那张（${again56.ticketNo}），张数累加成 ${again56.ticketCount}`
+    )
+
+    closeDb()
+    hardRm(t56Root)
+  }
+
+  log('\n[52] 第 58 批：任务备份打包 —— 原样打包 / 标识命名 / 清单 / 门五（docs/43）')
+  {
+    const t58Root = join('D:\\_accept_ws', `wstest58_${RUN_ID}`)
+    const t58Ws = join(t58Root, 'ws')
+    const t58Out = join(t58Root, 'out')
+    hardRm(t58Root)
+    mkdirSync(t58Ws, { recursive: true })
+    mkdirSync(t58Out, { recursive: true })
+    closeDb()
+    openDb(t58Ws)
+    initWorkspace(t58Ws)
+
+    // ---- 迁移 21 ----
+    const p58cols = getDb().prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+    ok(
+      p58cols.some((c) => c.name === 'backed_up_at') && p58cols.some((c) => c.name === 'backup_path'),
+      '迁移 21：packs 带出 backed_up_at / backup_path 两列'
+    )
+
+    // ---- 任务标识函数（打包与卡片共用的那一份）----
+    ok(taskCode({ id: 23, ticketNo: 'P0001' }) === 'P0001', '标识：有工单号 → 直接用（P0001）')
+    ok(taskCode({ id: 23, ticketNo: null }) === 'T0023', '标识：自建任务 → T + id 补零 4 位（T0023）')
+    ok(taskCode({ id: 7, ticketNo: null }) === 'T0007', '标识：不足 4 位补零（T0007）')
+    ok(taskCode({ id: 123456, ticketNo: null }) === 'T123456', '标识：超 4 位不截断（T123456）')
+    ok(taskCode({ id: 9, ticketNo: '' }) === 'T0009', '标识：空串工单号视为「没有」→ 退回 T0009')
+
+    // ---- 布景：项目 + 任务 + 原样目录（中文 / 空格 / 非法字符 / 该跳过的 _ 与 . 开头）----
+    const proj58 = createProject({ name: '备份测试项目', workspaceRoot: t58Ws }).project!
+    const pack58 = mkPack({ name: '海南招生海报', projectId: proj58.id, workspaceRoot: t58Ws })
+    makePng(join(pack58.folder_path, '01-成品', '主视觉.png'), 10, 10)
+    writeFileSync(join(pack58.folder_path, '01-成品', '说明 文档.txt'), 'hello backup', 'utf-8')
+    const weird58 = join(pack58.folder_path, '02-素材', '素材 子文件夹')
+    mkdirSync(weird58, { recursive: true })
+    makePng(join(weird58, '素材 1.png'), 10, 10)
+    mkdirSync(join(pack58.folder_path, '_thumbs'), { recursive: true })
+    writeFileSync(join(pack58.folder_path, '_thumbs', 'x.webp'), 'skip', 'utf-8')
+    writeFileSync(join(pack58.folder_path, '.hidden'), 'skip', 'utf-8')
+
+    const pack58b = mkPack({ name: '抖音短视频封面', projectId: proj58.id, workspaceRoot: t58Ws })
+    const bFile = join(pack58b.folder_path, '01-成品', '封面.png')
+    makePng(bFile, 8, 8)
+
+    scanAll(t58Ws)
+    const reg58 = (
+      getDb().prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ?').get(pack58.id) as { c: number }
+    ).c
+    ok(reg58 === 3, `【布景】任务内登记 3 个文件（_thumbs / .hidden 不入库；实际 ${reg58}）`)
+
+    // ===================== 备份打包 =====================
+    const res58 = await backupPacks(
+      { packIds: [pack58.id, pack58b.id], outputDir: t58Out, suffix: '-backup' },
+      t58Ws
+    )
+    ok(res58.okCount === 2 && res58.failCount === 0, `两个任务都打包成功（ok=${res58.okCount} fail=${res58.failCount}）`)
+
+    const item58 = res58.items.find((i) => i.packId === pack58.id)!
+    const item58b = res58.items.find((i) => i.packId === pack58b.id)!
+    ok(!!item58.outputPath && existsSync(item58.outputPath), `产出了 zip：${item58.outputPath}`)
+
+    // ---- 命名规则：<输出目录>/<项目名>/<标识>-<任务名>-backup.zip ----
+    const code58 = taskCode({ id: pack58.id, ticketNo: null })
+    const expectZip58 = `${code58}-海南招生海报-backup.zip`
+    ok(
+      basename(item58.outputPath!) === expectZip58,
+      `zip 名 = <标识>-<任务名>-backup.zip（${basename(item58.outputPath!)}）`
+    )
+    ok(
+      dirname(item58.outputPath!) === join(t58Out, '备份测试项目'),
+      'zip 落在「所选目录 / 项目名 /」下（正好对应网盘的项目目录）'
+    )
+
+    // ---- 原样打包：包内顶层套任务名，保留原始目录层级与文件名 ----
+    const names58 = zipEntryNames(item58.outputPath!)
+    ok(names58.length > 0 && names58.every((n) => n.startsWith('海南招生海报/')), '包内顶层套一层任务名文件夹（解压不散落）')
+    ok(names58.includes('海南招生海报/01-成品/主视觉.png'), '原样：保留原始文件名与层级（01-成品/主视觉.png）')
+    ok(names58.includes('海南招生海报/01-成品/说明 文档.txt'), '原样：中文带空格的文件名照原样')
+    ok(
+      names58.includes('海南招生海报/02-素材/素材 子文件夹/素材 1.png'),
+      '原样：中文带空格的子文件夹名照原样（不重命名、不重排）'
+    )
+    ok(!names58.some((n) => n.includes('_thumbs') || n.includes('.hidden')), '跳过 _ / . 开头的条目（_thumbs / .hidden 不进包）')
+    ok(item58.fileCount === 3, `打进包里的文件数 = 3（实际 ${item58.fileCount}）`)
+
+    // ---- 文件名消毒：任务名里带 Windows 非法字符（真实事故 2026-10-04「10*1000cm」）----
+    // 磁盘文件夹名会被 createPack 的 sanitizeFolderName 洗过，但 packs.name 存的是**原名**，
+    // 所以 zip 名必须再洗一遍 —— 共用交付打包那套 sanitizeFileName（星号会把 createWriteStream 干崩）。
+    const pack58s = mkPack({ name: '10*1000cm 海报', projectId: proj58.id, workspaceRoot: t58Ws })
+    makePng(join(pack58s.folder_path, '01-成品', 's.png'), 8, 8)
+    scanAll(t58Ws)
+    const res58s = await backupPacks({ packIds: [pack58s.id], outputDir: t58Out, suffix: '-backup' }, t58Ws)
+    const zip58s = basename(res58s.items[0].outputPath ?? '')
+    ok(res58s.items[0].ok && zip58s !== '' && !zip58s.includes('*'), `任务名里的非法字符被清洗（${zip58s}）`)
+    ok(zip58s.includes('10_1000cm'), '非法字符 * → _（与交付打包共用同一套 sanitizeFileName）')
+
+    // ---- 标记 + 路径 ----
+    const p58row = getDb()
+      .prepare('SELECT backed_up_at, backup_path FROM packs WHERE id = ?')
+      .get(pack58.id) as { backed_up_at: string | null; backup_path: string | null }
+    ok(
+      p58row.backed_up_at !== null && p58row.backup_path === item58.outputPath,
+      '成功后在 packs 上盖「已备份」戳 + 记下 zip 路径'
+    )
+
+    // ---- 隔离：绝不写交付记录 / 绝不碰 delivered_at ----
+    const dr58 = (
+      getDb().prepare('SELECT COUNT(*) AS c FROM delivery_records WHERE pack_id = ?').get(pack58.id) as { c: number }
+    ).c
+    ok(dr58 === 0, '【隔离】备份不写 delivery_records（那是「打包交付」的事）')
+    const dv58 = (
+      getDb()
+        .prepare('SELECT COUNT(*) AS c FROM pack_versions WHERE pack_id = ? AND delivered_at IS NOT NULL')
+        .get(pack58.id) as { c: number }
+    ).c
+    ok(dv58 === 0, '【隔离】备份不碰 pack_versions.delivered_at（不挂「已交付」徽标）')
+
+    // ---- 备份清单.csv（UTF-8 带 BOM，只增不改）----
+    const manifestPath = join(t58Out, '备份清单.csv')
+    ok(existsSync(manifestPath), '输出目录根上生成了「备份清单.csv」')
+    const mraw = readFileSync(manifestPath, 'utf-8')
+    ok(mraw.charCodeAt(0) === 0xfeff, '清单是 UTF-8 带 BOM（Excel 打开中文不乱码）')
+    ok(
+      mraw.includes('标识') && mraw.includes('备份测试项目') && mraw.includes(expectZip58),
+      '清单含表头 / 项目名 / zip 文件名'
+    )
+
+    // ---- 重复备份：不覆盖，生成 (1)；清单追加一行 ----
+    const res58again = await backupPacks({ packIds: [pack58.id], outputDir: t58Out, suffix: '-backup' }, t58Ws)
+    const item58again = res58again.items[0]
+    ok(
+      item58again.ok && basename(item58again.outputPath!) === `${code58}-海南招生海报-backup (1).zip`,
+      `重复备份不覆盖，生成 (1) 副本（${basename(item58again.outputPath!)}）`
+    )
+    ok(readFileSync(manifestPath, 'utf-8').includes('backup (1).zip'), '清单追加了新的一行（只增不改）')
+
+    // ---- 卡片 / 详情字段透出 ----
+    const lp58 = listPacks().find((p) => p.id === pack58.id)!
+    ok(
+      lp58.backedUpAt !== null && lp58.backupPath === item58again.outputPath && lp58.backupPathExists === true,
+      'listPacks 带出 backedUpAt / backupPath / backupPathExists（重复备份后指向最新那份）'
+    )
+    const gd58 = getPackDetail(pack58.id)
+    ok(gd58.pack.backedUpAt !== null && gd58.pack.backupPathExists === true, 'getPackDetail 同样带出（详情弹窗信息条用）')
+    // 从未备份过的任务：三字段应为 null / null / false（界面不置灰、不挂徽标）
+    const pack58n = mkPack({ name: '从未备份的任务', projectId: proj58.id, workspaceRoot: t58Ws })
+    const lp58n = listPacks().find((p) => p.id === pack58n.id)!
+    ok(
+      lp58n.backedUpAt === null && lp58n.backupPath === null && lp58n.backupPathExists === false,
+      '未备份的任务 backedUpAt / backupPath = null、backupPathExists = false'
+    )
+
+    // ---- 路径失效：zip 被挪走/删掉 → backupPathExists 变 false（界面据此不渲染跳转按钮）----
+    ok(!!item58b.outputPath && existsSync(item58b.outputPath), '【布景】第二个任务的 zip 在')
+    hardRm(item58b.outputPath!)
+    const lp58b2 = listPacks().find((p) => p.id === pack58b.id)!
+    ok(
+      lp58b2.backupPath !== null && lp58b2.backupPathExists === false,
+      'zip 被删掉后 backupPathExists = false（路径只是"记录"不是"保证"，界面优雅降级）'
+    )
+
+    // ===================== 门五 =====================
+    // 把两个已备份任务的文件都删光 → 扫描不该报「文件已丢失」
+    hardRm(join(pack58.folder_path, '01-成品', '主视觉.png'))
+    hardRm(join(pack58.folder_path, '01-成品', '说明 文档.txt'))
+    hardRm(join(pack58.folder_path, '02-素材', '素材 子文件夹', '素材 1.png'))
+    hardRm(bFile)
+    const scan58 = scanAll(t58Ws)
+    ok(scan58.markedMissing === 0, `【门五】已备份任务的文件删光也不报「丢失」（实际标记 ${scan58.markedMissing} 条）`)
+    ok(
+      (
+        getDb()
+          .prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ? AND missing_at IS NOT NULL')
+          .get(pack58.id) as { c: number }
+      ).c === 0,
+      '已备份任务内没有一条被标「文件已丢失」（整任务豁免）'
+    )
+
+    // ---- 回归钉子：未备份的任务照旧报丢失（门五不能写宽把 M8-03 废掉）----
+    const pack58c = mkPack({ name: '未备份对照任务', projectId: proj58.id, workspaceRoot: t58Ws })
+    const cFile = join(pack58c.folder_path, '01-成品', '对照.png')
+    makePng(cFile, 8, 8)
+    scanAll(t58Ws)
+    hardRm(cFile)
+    const scan58b = scanAll(t58Ws)
+    ok(scan58b.markedMissing === 1, `【回归钉子】未备份任务的文件丢了照旧报「丢失」（标记 ${scan58b.markedMissing} 条）`)
+    ok(
+      (
+        getDb()
+          .prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ? AND missing_at IS NOT NULL')
+          .get(pack58c.id) as { c: number }
+      ).c === 1,
+      '未备份任务的丢失标记照常写入 —— 门五没把老功能废掉'
+    )
+
+    // ---- 空任务跳过、不阻断其它任务 ----
+    const pack58e = mkPack({ name: '空任务', projectId: proj58.id, workspaceRoot: t58Ws })
+    const pack58f = mkPack({ name: '并排任务', projectId: proj58.id, workspaceRoot: t58Ws })
+    makePng(join(pack58f.folder_path, '01-成品', '并排.png'), 8, 8)
+    scanAll(t58Ws)
+    const res58e = await backupPacks({ packIds: [pack58e.id, pack58f.id], outputDir: t58Out, suffix: '-backup' }, t58Ws)
+    const ie58 = res58e.items.find((i) => i.packId === pack58e.id)!
+    ok(ie58.ok === false && !!ie58.error, `空任务被打包跳过并给出原因（${ie58.error}）`)
+    ok(
+      res58e.items.find((i) => i.packId === pack58f.id)?.ok === true,
+      '一条失败不阻断其它任务（并排任务照常打包成功）'
+    )
+
+    // ---- 备份顺手清掉「备份前就丢了」的残留标记 ----
+    const pack58d = mkPack({ name: '带丢失标记的任务', projectId: proj58.id, workspaceRoot: t58Ws })
+    const d1 = join(pack58d.folder_path, '01-成品', 'd1.png')
+    const d2 = join(pack58d.folder_path, '01-成品', 'd2.png')
+    makePng(d1, 8, 8)
+    makePng(d2, 8, 8)
+    scanAll(t58Ws)
+    hardRm(d1)
+    const scan58d = scanAll(t58Ws)
+    ok(scan58d.markedMissing === 1, '【布景】先删 d1 → 扫描标记 1 条「丢失」')
+    await backupPacks({ packIds: [pack58d.id], outputDir: t58Out, suffix: '-backup' }, t58Ws)
+    ok(
+      (
+        getDb()
+          .prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ? AND (missing_at IS NOT NULL OR missing_ignored_at IS NOT NULL)')
+          .get(pack58d.id) as { c: number }
+      ).c === 0,
+      '【节点收尾】备份成功后顺手清掉任务内残留的丢失标记（整份都存下来了）'
+    )
+
+    closeDb()
+    hardRm(t58Root)
   }
 
 // ============ 汇总 ============

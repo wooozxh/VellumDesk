@@ -45,6 +45,11 @@ export interface PackRow {
   folder_path: string
   created_at: string
   updated_at: string
+  // ---- 第 58 批（docs/43）：任务备份标记 ----
+  /** NULL = 未备份；有值 = 最近一次备份成功的时刻（用时间戳不用布尔，多带一个信息） */
+  backed_up_at: string | null
+  /** 最近一次备份 zip 的绝对路径（详情弹窗展示用；路径可能失效，界面要优雅降级） */
+  backup_path: string | null
 }
 
 export interface TagRow {
@@ -825,6 +830,25 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
       renameTag.run(newName, oldName)
       renamePackGrade.run(newName, oldName)
     }
+  }
+
+  // ---- 迁移 21：任务备份标记（第 58 批 docs/43）----
+  // 「备份打包」成功后给任务盖两个戳：
+  //   · `backed_up_at` —— NULL = 未备份；有值 = 最近一次备份成功的时刻。
+  //     用时间戳不用布尔（跟 missing_at / delivered_at 一个道理）：多一个信息（什么时候备的），
+  //     成本一样，界面能显示「已于 10-10 14:30 备份」。这一列还兼作**门五**的判定依据 ——
+  //     扫描失效检查时「已备份任务整任务豁免」（workspace.ts markMissingAssets）。
+  //   · `backup_path` —— 最近一次 zip 的绝对路径，详情弹窗展示用。这只是"记录"不是"保证"，
+  //     用户把包挪走/改名后路径就失效，界面必须优雅降级（不渲染跳转按钮，不报错）。
+  // 幂等：缺列才 ALTER（迁移 8/9/13/17/18/19 同一模式）。
+  // ⚠️ 本批不加索引：查询都是按 pack_id 走（已有 idx_assets_pack），不需要。也别手滑把
+  //    CREATE INDEX 写进建表段（迁移 8 踩过的坑：老库建表被 IF NOT EXISTS 跳过 → no such column）。
+  const packCols21 = d.prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+  if (!packCols21.some((c) => c.name === 'backed_up_at')) {
+    d.exec('ALTER TABLE packs ADD COLUMN backed_up_at TEXT')
+  }
+  if (!packCols21.some((c) => c.name === 'backup_path')) {
+    d.exec('ALTER TABLE packs ADD COLUMN backup_path TEXT')
   }
 }
 

@@ -41,5 +41,8 @@ export type {
   ScanProgress,
   PackExportInput,
   PackExportResult,
-  DeliveryRecord
+  DeliveryRecord,
+  PackBackupInput,
+  PackBackupItemResult,
+  PackBackupResult
 } from '../shared/types'

@@ -282,7 +282,18 @@ export const COPY = {
     currentVer: 'V{n} 当前',
     hasVer: '有版本',
     verCount: '{n} 稿',
-    pending: '待整理'
+    pending: '待整理',
+    // ---- 第 56 批（docs/42）：从工单建的任务挂出工单标识，解决「同名任务分不清」----
+    /** 卡片 / 详情里的标识行：工单编号（唯一值，对得上表格里的那一张单） */
+    ticketLine: '工单 {no}',
+    /** 悬停提示逐行 —— 缺的项由组件过滤掉，不会出现「交期：」这种空壳行 */
+    ticketTipNo: '工单编号：{no}',
+    ticketTipTitle: '物料名称：{title}',
+    ticketTipApplicant: '申请人：{app}',
+    ticketTipDue: '交期：{due}',
+    ticketTipState: '审批状态：{state}',
+    /** 一张任务挂了不止一张单时追加（历史手工干预才有） */
+    ticketTipMore: '（这张任务关联了 {n} 张工单，显示的是最早一张）'
   },
 
   // ==================== 文件行 ====================
@@ -874,6 +885,8 @@ export const COPY = {
     /** 设置弹窗 */
     settingsTitle: '工单同步设置',
     settingsDocid: '智能表格链接',
+    /** 粘链接后探活的那个按钮（第 55 批漏进字典，一直硬编码；第 57 批补） */
+    settingsConnect: '连接',
     settingsDocidOk: '已识别表格：{docid}',
     settingsSheets: '启用的子表',
     settingsIdentity: '本机使用者',
@@ -1095,6 +1108,55 @@ export const COPY = {
     notWin: '当前系统不支持创建快捷方式（本功能只在 Windows 上可用）',
     failed: '创建快捷方式失败：{msg}',
     partialFailed: '有的位置没写成（桌面 / 开始菜单）'
+  },
+
+  // ==================== 第 58 批（docs/43）：任务备份打包 ====================
+  /**
+   * 与「打包交付」（exportPack）是两码事：那个是给客户的成品包，
+   * 这个是原样存档的备份包（软管一半、人管一半 —— 软件只负责打包，上传网盘由人做）。
+   */
+  backup: {
+    /** 工具条第 2 个按钮：进入多选备份模式 */
+    enter: '备份打包',
+    enterTip: '多选任务，各打一个原样压缩包（存档备份用，与「打包交付」无关）',
+    /** 多选模式下主按钮：`批量打包（3）` */
+    doBatch: '批量打包（{n}）',
+    /** 打包进行中 */
+    packing: '打包中…',
+    /** 进入模式后工具条下方那条提示 */
+    selectHint: '勾选要备份的任务，然后点「批量打包」',
+    selectAll: '全选',
+    selectNone: '取消全选',
+    /** 多选模式下卡片上的「查看详情」按钮（点卡片 = 勾选，所以单给一个入口） */
+    viewDetail: '查看任务详情',
+    noneSelected: '先勾选要备份的任务',
+    /** 输出目录里项目名为空时的兜底分组名 */
+    unfiled: '未归类',
+    /** 卡片 / 详情里的「已备份」徽标 */
+    chip: '已备份',
+    chipTip: '已于 {time} 备份到：\n{path}',
+    /**
+     * 自建任务的标识行（从工单建的任务走 card.ticketLine 显示工单号）。
+     * 两者都是「唯一标识」，用户在软件里看到哪个，去网盘就搜哪个。
+     */
+    codeLine: '编号 {code}',
+    codeLineTip: '任务编号：{code}\n（手工建的任务没有工单号，备份包用这个兜底标识）',
+    // ---- 结果反馈 ----
+    done: '已备份 {n} 个任务到：{path}',
+    donePartial: '备份完成：成功 {ok} 个 · 失败 {fail} 个',
+    failed: '备份失败',
+    failedTip: '失败的会在这里列出来',
+    /** 单条失败原因 */
+    errEmpty: '任务里没有文件，跳过',
+    errNoPack: '任务不存在',
+    errNotWritable: '所选位置不能写入',
+    errZip: '打包失败：{msg}',
+    /** 输出目录根上自动生成的清单文件名 */
+    manifestName: '备份清单.csv',
+    // ---- 详情弹窗信息条 ----
+    barBody: '此任务已备份（{time}）。原文件可从 {name} 中取回。',
+    barNoPath: '此任务已备份（{time}）。',
+    barOpenFolder: '打开所在文件夹'
   },
 
   // ==================== 第 54 批（docs/40）：首次配置引导 ====================

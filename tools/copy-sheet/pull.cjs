@@ -7,8 +7,9 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
-const NODE = 'C:/Users/30873/.workbuddy/binaries/node/versions/22.22.2-3/node.exe'
-const CLI = 'C:/Users/30873/.workbuddy/binaries/node/versions/22.22.2-3/node_modules/mcporter/dist/cli.js'
+// node + mcporter cli 路径统一由 mcp-cli.cjs 解析（原来写死某个用户的绝对路径，换机即挂）
+const { NODE, resolveMcporterCli } = require('./mcp-cli.cjs')
+const CLI = resolveMcporterCli()
 const FILE_ID = 'TFHcDzWQzdBC'
 const DIR = __dirname
 

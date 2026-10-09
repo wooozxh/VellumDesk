@@ -154,6 +154,8 @@ import {
 } from './reportWecom'
 // 第 15 批：交付打包（M5，docs/18）
 import { executePackExport, listDeliveryRecords, previewPackExport } from './exportPack'
+// 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
+import { backupPacks } from './backupPack'
 // 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
 import {
   startTicketScheduler,
@@ -164,6 +166,8 @@ import {
 } from './ticketScheduler'
 import type {
   CreateShortcutResult,
+  PackBackupInput,
+  PackBackupResult,
   PackExportInput,
   PackExportPreview,
   PackExportResult
@@ -1760,5 +1764,16 @@ export function registerIpc(opts?: {
     })
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
     return { ok: true, dir: r.filePaths[0] }
+  })
+
+  // ---------- 第 58 批：任务备份打包（docs/43） ----------
+  ipcMain.handle('pack:backupBatch', async (_e, input: PackBackupInput) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    try {
+      return await backupPacks(input, root)
+    } catch (e) {
+      return { items: [], okCount: 0, failCount: 0, error: (e as Error).message } as PackBackupResult
+    }
   })
 }

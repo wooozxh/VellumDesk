@@ -75,7 +75,8 @@ node tools/copy-sheet/publish.cjs
 | `pull.cjs` | 在线表 → JSON | 读回两个子表全部单元格 |
 | `diff.cjs` | JSON → 变更清单 | 比对「现在的文案」vs「改成」；**自动标出批量替换误伤**（标签配对 / 占位符结构变了但裸文字没变） |
 | `apply.cjs` | JSON → `copy.ts` | AST 精确定位回填；默认干跑，`--write` 才落盘；带自检 |
-| `push.cjs` | CSV → 在线表 | 分块写入（Windows 命令行 ~32KB 上限，484 行分 13 次），写完清空「改成 / 备注」 |
+| `push.cjs` | CSV → 在线表 | 分块写入（Windows 命令行 ~32KB 上限），写完清空「改成 / 备注」 |
+| `mcp-cli.cjs` | 解析器 | 定位 `node` + `mcporter/dist/cli.js`（给 `push.cjs` / `pull.cjs` 共用，见下方「坑 1」） |
 | `publish.cjs` | 上面两个的合体 | 一条命令刷新表 |
 
 ### 3.2 审计与验收（改完之后自查）
@@ -105,6 +106,11 @@ done
 1. **`mcporter` 不能用 `bin/mcporter` 那个 sh 包装脚本**（内部调 `dirname`/`sed`/`uname`，
    Windows 下 spawn 必失败）。要起 `node .../mcporter/dist/cli.js`，
    且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 在沙箱里一律 EBUSY）。
+   - **`cli.js` 路径别再写死**（写死过某个用户的绝对路径，换台机器 publish / pull 直接挂）。
+     现由 `mcp-cli.cjs` 统一解析：**环境变量 `MCPORTER_CLI` → 项目 node_modules →
+     当前用户 WorkBuddy 托管 node（各版本）→ npm 全局**，都找不到会抛一句可操作的提示。
+     换机若报「找不到 mcporter」：`npm i -g mcporter`，或
+     `MCPORTER_CLI=<...>/mcporter/dist/cli.js node tools/copy-sheet/publish.cjs`。
 2. **`set_range_value_by_csv` 会跳过空单元格** —— 所以写完必须显式 `clear_range_cells`，
    否则上一轮的「改成」列残留，下次会被当成新改动读回来。
 3. **跑测试/构建前先 `CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000`**：

@@ -1134,13 +1134,18 @@ export function scanAll(workspaceRoot: string): ScanResult {
  * 抽出来之后单元断言能直接 `markMissingAssets(false)` 验证"一条都不许标"。
  * 第 7 批的 `cleanupMissingPacks(workspaceRoot, rootReadable)` 是同样的路数。
  *
- * 四道门，缺一就会误标：
+ * 五道门，缺一就会误标：
  *   ① `rootReadable` —— 根目录读不到 ≠ 里面什么都没有
  *   ② 文件确实不在磁盘上（`!existsSync`）
  *   ③ 素材**可见**（`VISIBLE_PACK_SQL`：所属项目未解绑）—— 解绑项目的文件夹在
  *      `_已解绑的项目` 下，扫描本来就不扫那里；不豁免的话，解绑当天整个项目的记录会集体"丢失"
  *   ④ 所属**包文件夹还在** —— 包整个没了交给包清理统一处理（连带摘掉包内素材，见 §2.3），
  *      用户删的是整包，不该在文件视图里冒出一堆"丢失素材"
+ *   ⑤ **所属任务已备份**（`backed_up_at` 非空）—— 第 58 批（docs/43）：备份是任务的
+ *      **收尾动作**，之后就是删文件腾空间。整任务豁免，任务内文件没了也不报警。
+ *      ⚠️ 门五**只挡"打标记"，不影响"清标记"**：已备份任务里不会产生新标记，
+ *      而备份动作本身已经顺手清了一遍残留标记（见 `backupPack.ts` 第 6 步）。
+ *      ⚠️ 门五排在门四**之后**：包文件夹整个没了仍走包清理，不被门五截胡。
  */
 export function markMissingAssets(rootReadable: boolean): {
   markedMissing: number
@@ -1152,7 +1157,7 @@ export function markMissingAssets(rootReadable: boolean): {
 
   const known = db
     .prepare(
-      `SELECT a.id, a.abs_path, a.missing_at, k.folder_path
+      `SELECT a.id, a.abs_path, a.missing_at, k.folder_path, k.backed_up_at
          FROM assets a
          LEFT JOIN packs k ON k.id = a.pack_id
         WHERE ${VISIBLE_PACK_SQL}` // 门三：解绑项目的素材压根不在结果集里
@@ -1162,6 +1167,7 @@ export function markMissingAssets(rootReadable: boolean): {
     abs_path: string
     missing_at: string | null
     folder_path: string | null
+    backed_up_at: string | null
   }>
 
   const markLost = db.prepare('UPDATE assets SET missing_at = ? WHERE id = ?')
@@ -1178,6 +1184,8 @@ export function markMissingAssets(rootReadable: boolean): {
   db.transaction(() => {
     for (const a of known) {
       if (a.folder_path !== null && !existsSync(a.folder_path)) continue // 门四
+      // 门五（第 58 批 docs/43）：所属任务已备份 → 整任务豁免，任务内文件没了也不报警
+      if (a.backed_up_at !== null) continue
       if (!existsSync(a.abs_path)) {
         // 只在「无标记 → 有标记」时写：保住"第一次发现丢失"的时刻，别每次刷新都改
         if (a.missing_at === null) {
@@ -2987,6 +2995,85 @@ export interface PackWithStats extends PackRow {
   versionCount: number
   /** 第 9 批（M6）：当前版本的编号（1 → V1）；没有版本时为 null */
   currentSeq: number | null
+  // ---- 第 56 批（docs/42）：工单标识（手工建的任务全 null / 0）----
+  ticketNo: string | null
+  ticketApplicant: string | null
+  ticketDueDate: string | null
+  ticketTitle: string | null
+  ticketState: string | null
+  ticketCount: number
+  // ---- 第 58 批（docs/43）：任务备份打包 ----
+  /** null = 未备份；有值 = 最近一次备份成功的时刻 */
+  backedUpAt: string | null
+  /** 最近一次备份 zip 的绝对路径 */
+  backupPath: string | null
+  /** `backupPath` 指向的文件当前是否还在（界面据此决定要不要给「打开所在文件夹」按钮） */
+  backupPathExists: boolean
+}
+
+/**
+ * 第 56 批（docs/42）：一张任务关联的工单展示信息。
+ *
+ * 为什么单独查：`packs` 表里**不存**工单编号（工单是可增删的镜像数据），
+ * 唯一键 `ticket_no` 只在 `tickets` 表里，关联靠 `tickets.pack_id`
+ * （建任务时写入、任务删除时外键自动 SET NULL）。
+ * 一张任务理论上可能挂多张单（历史手工干预）→ 取 **id 最小的一张**做代表，
+ * 另带 `ticketCount` 总张数。手工建的任务查不到 → 全 null / 0，界面不显示标识行。
+ */
+export interface PackTicketInfo {
+  ticketNo: string | null
+  ticketApplicant: string | null
+  ticketDueDate: string | null
+  ticketTitle: string | null
+  ticketState: string | null
+  ticketCount: number
+}
+
+/** 第 56 批（docs/42）：一次查全部「任务 → 工单展示信息」，避免在包循环里逐条查（N+1） */
+export function packTicketInfoMap(): Map<number, PackTicketInfo> {
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT pack_id, ticket_no, applicant_name, due_date, title, approval_state
+         FROM tickets
+        WHERE pack_id IS NOT NULL
+        ORDER BY pack_id, id`
+    )
+    .all() as Array<{
+    pack_id: number
+    ticket_no: string
+    applicant_name: string | null
+    due_date: string | null
+    title: string | null
+    approval_state: string | null
+  }>
+  const map = new Map<number, PackTicketInfo>()
+  for (const r of rows) {
+    const cur = map.get(r.pack_id)
+    if (cur) {
+      cur.ticketCount += 1
+      continue // 先出现的 id 最小 → 它当代表，后面的只累计张数
+    }
+    map.set(r.pack_id, {
+      ticketNo: r.ticket_no,
+      ticketApplicant: r.applicant_name,
+      ticketDueDate: r.due_date,
+      ticketTitle: r.title,
+      ticketState: r.approval_state,
+      ticketCount: 1
+    })
+  }
+  return map
+}
+
+/** 第 56 批（docs/42）：没有工单时的兜底值 —— 界面据此不显示标识行 */
+const NO_TICKET: PackTicketInfo = {
+  ticketNo: null,
+  ticketApplicant: null,
+  ticketDueDate: null,
+  ticketTitle: null,
+  ticketState: null,
+  ticketCount: 0
 }
 
 /** A-06：包视图数据 —— 包卡片（含条数、总容量、封面、项目名与配色） */
@@ -3022,6 +3109,9 @@ export function listPacks(): PackWithStats[] {
         ORDER BY k.updated_at DESC`
     )
     .all() as Array<PackRow & { projectName: string | null; projectColor: string | null }>
+
+  // 第 56 批（docs/42）：一次查全部工单标识（手工建的任务不在表里 → 走兜底，界面不显示）
+  const ticketInfo = packTicketInfoMap()
 
   // 第 53 批（docs/38）**刻意不在这里动封面**：
   // 原有封面查询的候选条件已经包含 `ext IN (jpg,jpeg,png,webp,gif,bmp)`，
@@ -3068,6 +3158,7 @@ export function listPacks(): PackWithStats[] {
       .prepare('SELECT 1 FROM pack_versions WHERE pack_id = ? AND delivered_at IS NOT NULL LIMIT 1')
       .get(p.id) !== undefined
 
+    const ti = ticketInfo.get(p.id) ?? NO_TICKET
     return {
       ...p,
       fileCount: stat.c,
@@ -3076,7 +3167,12 @@ export function listPacks(): PackWithStats[] {
       versionCount: vstat.c,
       currentSeq: vstat.cur || null,
       hasDelivered,
-      coverPath: cover ? cover.thumb_path || cover.abs_path : null
+      coverPath: cover ? cover.thumb_path || cover.abs_path : null,
+      // 第 58 批（docs/43）：备份标记 + 路径是否还在（界面据此决定要不要给跳转按钮）
+      backedUpAt: p.backed_up_at,
+      backupPath: p.backup_path,
+      backupPathExists: !!p.backup_path && existsSync(p.backup_path),
+      ...ti
     }
   })
 }
@@ -3238,7 +3334,13 @@ export function getPackDetail(packId: number): {
       missingCount: stat.m,
       versionCount: versions.length,
       currentSeq: versions.find((v) => v.is_current === 1)?.seq ?? null,
-      coverPath: null
+      coverPath: null,
+      // 第 58 批（docs/43）：详情弹窗的「已备份」信息条要用这两列
+      backedUpAt: pack.backed_up_at,
+      backupPath: pack.backup_path,
+      backupPathExists: !!pack.backup_path && existsSync(pack.backup_path),
+      // 第 56 批（docs/42）：详情弹窗标题要带同样的工单标识，与卡片对得上
+      ...(packTicketInfoMap().get(packId) ?? NO_TICKET)
     },
     groups,
     versions

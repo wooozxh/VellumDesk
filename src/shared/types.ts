@@ -47,6 +47,27 @@ export interface PackCard {
   currentSeq: number | null
   /** 第 15 批（M5）：是否至少有一稿已交付 */
   hasDelivered: boolean
+  // ---- 第 56 批（docs/42）：从工单建的任务挂出工单标识，解决「同名任务分不清」----
+  /** 关联工单的审批编号（唯一键）；手工建的任务 = null（界面不显示标识行） */
+  ticketNo: string | null
+  /** 申请人姓名（工单里的提交人） */
+  ticketApplicant: string | null
+  /** 交期（仅用于悬停提示） */
+  ticketDueDate: string | null
+  /** 物料名称（仅用于悬停提示；可能与任务名不同） */
+  ticketTitle: string | null
+  /** 当前审批状态（仅用于悬停提示） */
+  ticketState: string | null
+  /** 这张任务关联了几张工单（正常 = 1；> 1 属历史手工干预） */
+  ticketCount: number
+  // ---- 第 58 批（docs/43）：任务备份打包 ----
+  /** null = 未备份；有值 = 最近一次备份成功的时刻（卡片据此置灰 + 挂「已备份」徽标） */
+  backedUpAt: string | null
+  /** 最近一次备份 zip 的绝对路径（详情弹窗展示用） */
+  backupPath: string | null
+  /** `backupPath` 指向的文件当前是否还在（主进程 `existsSync` 探出来的）——
+   *  false 时界面不渲染「打开所在文件夹」按钮，避免点了没反应 */
+  backupPathExists: boolean
 }
 
 export interface AssetItem {
@@ -412,6 +433,45 @@ export interface DeliveryRecord {
   output_size: number
   file_count: number
   created_at: string
+}
+
+// ==================== 第 58 批：任务备份打包（docs/43） ====================
+
+/**
+ * 备份打包输入。与交付打包（`PackExportInput`）**完全不同的语义**：
+ * 这里不带版本 / 分组 / 命名模板 —— 备份就是"原样打一份"，一次可以打多个任务。
+ */
+export interface PackBackupInput {
+  /** 要备份的任务 id 列表（一次多选） */
+  packIds: number[]
+  /** 用户选定的输出目录（zip 落到 `<输出目录>/<项目名>/` 下） */
+  outputDir: string
+  /** 文件名后缀，默认 `-backup`（`<标识>-<任务名><后缀>.zip`） */
+  suffix: string
+}
+
+/** 单个任务打包的结果 */
+export interface PackBackupItemResult {
+  packId: number
+  packName: string
+  ok: boolean
+  /** 成功时的 zip 绝对路径 */
+  outputPath?: string
+  /** 打进包里的文件数 */
+  fileCount?: number
+  /** zip 实际大小（字节） */
+  totalSize?: number
+  /** 失败原因（走文案字典） */
+  error?: string
+}
+
+/** 一次批量备份的总结果 */
+export interface PackBackupResult {
+  items: PackBackupItemResult[]
+  okCount: number
+  failCount: number
+  /** 整批崩溃时的兜底说明（正常时为 undefined） */
+  error?: string
 }
 
 // ==================== 第 3 批：标签体系（M2） ====================
@@ -1006,6 +1066,13 @@ export interface Api {
   packDeliveryRecords: (packId: number) => Promise<DeliveryRecord[]>
   /** 弹系统选目录对话框，用于选择打包输出位置 */
   pickOutputDir: (defaultPath?: string) => Promise<{ ok: boolean; canceled?: boolean; dir?: string; error?: string }>
+
+  // ---------------- 第 58 批：任务备份打包（docs/43） ----------------
+  /**
+   * 批量备份：把选中的任务各打一个原样 zip 到所选目录，成功后标记「已备份」。
+   * **绝不写交付记录**（与交付打包是两码事），复用 `dialog:pickOutputDir` 选目录。
+   */
+  packBackupBatch: (input: PackBackupInput) => Promise<PackBackupResult>
 
   // ---------------- 第 21 批：企微连接（wecom-cli 内置 + 扫码授权） ----------------
   /** 连接状态快照（组件在不在 / 从哪来 / 版本 / 授权了没 + 引导是否已弹过） */
