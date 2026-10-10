@@ -6844,6 +6844,73 @@ async function main(): Promise<void> {
     hardRm(t58Root)
   }
 
+  log('\n[53] 第 59 批：无封面任务的「占位封面」判定口径 —— 纯渲染层绘制，不落库不落文件（docs/44）')
+  {
+    const t59Root = join('D:\\_accept_ws', `wstest59_${RUN_ID}`)
+    const t59Ws = join(t59Root, 'ws')
+    hardRm(t59Root)
+    mkdirSync(t59Ws, { recursive: true })
+    closeDb()
+    openDb(t59Ws)
+    initWorkspace(t59Ws)
+
+    const proj59 = createProject({ name: '占位测试项目', workspaceRoot: t59Ws }).project!
+
+    // ① 有成品图 → 走真缩略图（界面渲染 <img>，不画占位）
+    const p59img = mkPack({ name: '有成品图的任务', projectId: proj59.id, workspaceRoot: t59Ws })
+    makePng(join(p59img.folder_path, '01-成品', '主视觉.png'), 12, 12)
+
+    // ② 只有文档、没有任何图片 → coverPath = null（界面改画占位封面）
+    const p59no = mkPack({ name: '没有成品图的任务', projectId: proj59.id, workspaceRoot: t59Ws })
+    writeFileSync(join(p59no.folder_path, '01-成品', '说明.txt'), 'no image here', 'utf-8')
+
+    // ③ 未归类任务：**工作区根下的游离文件夹**
+    //    注意 createPack 传 projectId=null 会被自动归到第一个项目（workspace.ts:495-500），
+    //    造不出未归类任务 —— 只能靠「根目录散落文件夹」这条真实路径，scanAll 会把它登记成 project_id = null。
+    const looseDir59 = join(t59Ws, '还没归类的任务')
+    mkdirSync(join(looseDir59, '01-成品'), { recursive: true })
+    writeFileSync(join(looseDir59, '01-成品', '备注.txt'), 'loose', 'utf-8')
+
+    scanAll(t59Ws)
+    const packs59 = listPacks()
+    const lp59img = packs59.find((p) => p.id === p59img.id)!
+    const lp59no = packs59.find((p) => p.id === p59no.id)!
+    const lp59loose = packs59.find((p) => p.folder_path === looseDir59)!
+
+    ok(!!lp59img.coverPath, '有成品图的任务：coverPath 指向真缩略图（界面走 <img>，不画占位）')
+    ok(lp59no.coverPath === null, '【核心】只有文档、没有图 → coverPath === null（界面据此改画占位封面）')
+    ok(lp59loose.coverPath === null, '未归类任务同样没有 coverPath（走占位）')
+    ok(
+      lp59loose.project_id === null && lp59loose.projectColor === null,
+      '未归类任务 project_id / projectColor 都是 null → 占位用兜底中性灰（与卡片下方「未指定项目」徽标同口径）'
+    )
+    ok(lp59img.projectColor !== null, '有项目的任务带出 projectColor（占位背景按它实时换色）')
+
+    // ④ 占位是纯渲染层的事：主进程既不落库、也不为它新增列
+    const thumb59 = (
+      getDb()
+        .prepare('SELECT COUNT(*) AS c FROM assets WHERE pack_id = ? AND thumb_path IS NOT NULL')
+        .get(p59no.id) as { c: number }
+    ).c
+    ok(thumb59 === 0, '【不落库】无图任务不会凭空多出缩略图记录（占位图不进 assets.thumb_path）')
+    const cols59 = getDb().prepare('PRAGMA table_info(packs)').all() as Array<{ name: string }>
+    ok(
+      !cols59.some((c) => c.name === 'cover_path' || c.name === 'cover_file' || c.name === 'placeholder'),
+      '【不落库】packs 表没有新增封面列（占位完全靠渲染层实时算，无迁移）'
+    )
+
+    // ⑤ 第 8 批口径不变：唯一的成品图丢了 → 封面 SQL 跳过它 → coverPath 自动回落 null（占位顶上）
+    hardRm(join(p59img.folder_path, '01-成品'))
+    scanAll(t59Ws)
+    ok(
+      listPacks().find((p) => p.id === p59img.id)!.coverPath === null,
+      '成品图丢掉后 coverPath 回落到 null（占位封面自动顶上 —— 无须任何额外触发逻辑）'
+    )
+
+    closeDb()
+    hardRm(t59Root)
+  }
+
 // ============ 汇总 ============
   log('\n' + '='.repeat(62))
   log(failed === 0 ? `全部通过 ✅  共 ${lines.filter((l) => l.includes('[OK]') || l.includes('[FAIL]')).length} 项断言` : `有 ${failed} 项失败 ❌`)

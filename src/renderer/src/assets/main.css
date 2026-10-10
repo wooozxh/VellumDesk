@@ -619,6 +619,8 @@ body:has(.side-resizer.dragging) {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  /* 第 60 批（bug 修复）：丢失角标改挂信息区右上角，需要这里是它的定位上下文 */
+  position: relative;
 }
 
 .pack-card .name {
@@ -2143,11 +2145,14 @@ body:has(.side-resizer.dragging) {
   color: var(--text-2);
 }
 
-/* 包卡片封面右上角的 ⚠ N */
-.thumb .miss-flag {
+/* 包卡片**信息区**右上角的 ⚠ N
+   第 60 批（bug 修复）：原先挂在封面区右上角（`.thumb .miss-flag`, top:6 right:6），
+   与悬停才显形的编辑 / 归位按钮（`.pact`, top:8 right:8）**完全重叠** ——
+   两者在卡片右上角叠成一个疙瘩。现挪到信息区右上角，与任务名同一行。 */
+.pack-card .meta .miss-flag {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 10px;
+  right: 12px;
   padding: 1px 7px;
   border-radius: var(--r-pill);
   font-size: 11px;
@@ -2155,6 +2160,12 @@ body:has(.side-resizer.dragging) {
   color: #fff;
   background: var(--danger);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* 有丢失角标时，任务名右侧让出角标的宽度（否则长名会被角标压住；
+   只是提前出现省略号，悬停 title 仍是完整名字） */
+.pack-card .meta:has(.miss-flag) .name {
+  padding-right: 46px;
 }
 
 /* 左栏「⚠️ 文件已丢失」入口 */
@@ -2551,7 +2562,7 @@ svg {
 /* 图标 + 文字的行内小件：flex 居中，间距 4px
    （.btn / .icon-btn / .mini / .modal h3 / .tp-dim-head 外面本来就是 flex，不用管） */
 .miss-badge,
-.thumb .miss-flag,
+.meta .miss-flag,
 .vmiss,
 .tp-add,
 .tp-clear,
@@ -3804,4 +3815,116 @@ svg {
 .backup-info svg {
   color: var(--ok);
   flex-shrink: 0;
+}
+
+/* ============================================================
+   第 59 批（docs/44）：无封面任务的「通用占位封面」
+   ------------------------------------------------------------
+   任务里没有可用成品图时（pack.cover === null），卡片封面区改画这张：
+   同款版式、按项目换色（--pc 由 PackCard 内联注入）。纯 CSS，零文件、零主进程改动。
+   真图一到位立刻换回真图 —— 判定每次渲染都做，不做记忆（改名 / 换工单号自动正确）。
+
+   ⚠ 文字色**不直接用 --pc**：橙 #e8a33d / 橄榄 #8fa83d / 灰 #6b7280 这类偏浅的项目色
+   压在深底上对比度不够，统一用 --pc-ink（把项目色往白里提亮 26%）兜底 —— 十色都验过。
+   背景也不是纯项目色：按低比例混进深底，任何项目色都能保证上方文字可读。
+   ============================================================ */
+.pack-card .thumb .gen-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 11px 9px 14px; /* 左边多留 3px 给项目色竖条 */
+  --pc-ink: color-mix(in srgb, var(--pc) 74%, #ffffff);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 6px, transparent 6px 13px),
+    linear-gradient(
+      152deg,
+      color-mix(in srgb, var(--pc) 30%, #16181c) 0%,
+      color-mix(in srgb, var(--pc) 11%, #0f1013) 100%
+    );
+}
+
+/* 左侧 3px 项目色竖条 —— 与卡片下方的项目名徽标呼应 */
+.pack-card .thumb .gen-cover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--pc);
+}
+
+/* 第一行：项目色圆点 + 项目名 */
+.pack-card .thumb .gc-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pack-card .thumb .gc-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 22%, transparent);
+}
+.pack-card .thumb .gc-proj {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--pc-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 中部：任务名（最多 2 行、垂直居中；溢出截断，绝不撑破 132px 固定高） */
+.pack-card .thumb .gc-mid {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-height: 0;
+  padding: 3px 0;
+}
+.pack-card .thumb .gc-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.32;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* 底部：标识（左）+「占位」角标（右）—— 角标刻意压成中性色，不抢项目名的戏 */
+.pack-card .thumb .gc-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.pack-card .thumb .gc-code {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(239, 239, 239, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pack-card .thumb .gc-mark {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }

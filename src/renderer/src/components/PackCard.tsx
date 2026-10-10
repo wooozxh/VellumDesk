@@ -30,11 +30,33 @@ export function ticketTip(p: {
   return rows.filter(Boolean).join('\n')
 }
 
-/** 包卡片占位图标——没有缩略图时显示 */
-function Placeholder(): React.JSX.Element {
+/** 第 59 批（docs/44）：未归类任务的兜底项目色（与 db.ts `PROJECT_COLORS` 末位的灰一致） */
+const GENERIC_COVER_COLOR = '#6b7280'
+
+/**
+ * 第 59 批（docs/44）：任务里没有可用成品图时的「通用封面」。
+ *
+ * 纯 CSS/DOM 绘制 —— 不落地文件、不改主进程：同款版式、按项目换色。
+ * 顺序与需求一致：**有真图就用真图**，没有才画这张（判定每次渲染都做，不做记忆）；
+ * 任务改名 / 换工单号后，下次渲染自动就是新的，没有缓存失效问题。
+ */
+function GenericCover({ pack, code }: { pack: PackCardType; code: string }): React.JSX.Element {
+  const pc = pack.projectColor ?? GENERIC_COVER_COLOR
   return (
-    <div className="ph">
-      <Icon name="package" size={30} strokeWidth={1.3} />
+    <div className="gen-cover" style={{ ['--pc' as string]: pc } as React.CSSProperties}>
+      <div className="gc-top">
+        <span className="gc-dot" />
+        <span className="gc-proj">{pack.projectName ?? COPY.card.noProject}</span>
+      </div>
+      <div className="gc-mid">
+        <div className="gc-name">{pack.name}</div>
+      </div>
+      <div className="gc-bottom">
+        <span className="gc-code">{code}</span>
+        <span className="gc-mark" title={COPY.cover.markTip}>
+          {COPY.cover.mark}
+        </span>
+      </div>
     </div>
   )
 }
@@ -109,9 +131,13 @@ export function PackCard({
         {pack.cover && imgOk ? (
           <img src={pack.cover} alt={pack.name} onError={() => setImgOk(false)} />
         ) : (
-          <Placeholder />
+          <GenericCover pack={pack} code={code} />
         )}
-        {/* 第 8 批：包里有文件丢了 → 挂个角标，进包详情能看到是哪几条 */}
+      </div>
+      <div className="meta">
+        {/* 第 8 批：包里有文件丢了 → 挂个角标，进包详情能看到是哪几条。
+            第 60 批（bug 修复）：原来挂在**封面区**右上角，与悬停才显形的编辑按钮
+            （`.pact`, top:8 right:8）完全重叠 —— 挪到**信息区**右上角，与任务名同行。 */}
         {(pack.missingCount ?? 0) > 0 && (
           <span
             className="miss-flag"
@@ -120,8 +146,6 @@ export function PackCard({
             <Icon name="warning" size={12} /> {pack.missingCount}
           </span>
         )}
-      </div>
-      <div className="meta">
         <div className="name" title={pack.name}>
           {pack.name}
         </div>

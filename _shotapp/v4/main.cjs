@@ -103,6 +103,12 @@ const SCENARIOS = {
     workspaceRoot: join(BASE, 'shot_wsbk'),
     shot: 'shot-b58-6-backup-final.png'
   },
+  // 第 59 批（docs/44）：无成品图任务的「通用占位封面」（纯 CSS 绘制、按项目换色）
+  gencover: {
+    userData: join(BASE, 'shot4_gencover'),
+    workspaceRoot: join(BASE, 'shot_wsgc'),
+    shot: 'shot-b59-1-gen-cover-grid.png'
+  },
   // 第 25 批：未归属池入口（用户报的 bug —— 点虚线「未归属」卡片时弹窗一直「加载中」）
   unassigned: {
     userData: join(BASE, 'shot4_unassigned'),
@@ -778,6 +784,116 @@ app.whenReady().then(async () => {
 
     wsm.scanAll(ws)
     say('seeded backup packs   : ' + bp1 + ' | ' + bp2)
+  }
+
+  // 第 59 批（docs/44）：占位封面布景 —— 两个项目（不同色）× 有图 / 无图 / 未归类三类任务
+  if (SCEN === 'gencover') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const addPack = d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    const pj = (n) => d.prepare('SELECT id, folder_name, color FROM projects WHERE name = ?').get(n)
+    const PA = pj('海南升学集训营')
+    const PB = pj('精英升学先修营')
+
+    // 合法 PNG —— 「真图」那条分支要能被 sharp 真解码（随机字节会让缩略图生成失败，
+    // 那样 null 就不是「本来没图」而是「图坏了」，把断言验坏）
+    const makePng = (p, w, h, rgb) => {
+      const zlib = require('zlib')
+      const raw = Buffer.alloc((w * 3 + 1) * h)
+      let o = 0
+      for (let y = 0; y < h; y++) {
+        raw[o++] = 0
+        for (let x = 0; x < w; x++) {
+          raw[o++] = (rgb[0] + x * 3) % 256
+          raw[o++] = (rgb[1] + y * 3) % 256
+          raw[o++] = rgb[2]
+        }
+      }
+      const idat = zlib.deflateSync(raw)
+      const crcTable = []
+      for (let n = 0; n < 256; n++) {
+        let c = n
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+        crcTable[n] = c >>> 0
+      }
+      const crc = (buf) => {
+        let c = 0xffffffff
+        for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8)
+        return (c ^ 0xffffffff) >>> 0
+      }
+      const chunk = (type, data) => {
+        const len = Buffer.alloc(4)
+        len.writeUInt32BE(data.length)
+        const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+        const cc = Buffer.alloc(4)
+        cc.writeUInt32BE(crc(body))
+        return Buffer.concat([len, body, cc])
+      }
+      const ihdr = Buffer.alloc(13)
+      ihdr.writeUInt32BE(w, 0)
+      ihdr.writeUInt32BE(h, 4)
+      ihdr[8] = 8
+      ihdr[9] = 2
+      writeFileSync(
+        p,
+        Buffer.concat([
+          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+          chunk('IHDR', ihdr),
+          chunk('IDAT', idat),
+          chunk('IEND', Buffer.alloc(0))
+        ])
+      )
+    }
+
+    const mk = (parentDir, name, projectId, files) => {
+      const dir = join(parentDir, name)
+      for (const s of SUB) mkdirSync(join(dir, s), { recursive: true })
+      for (const [rel, content] of files) writeFileSync(join(dir, rel), content, 'utf-8')
+      addPack.run(name, '海报', dir, projectId, now, now)
+      return dir
+    }
+
+    // ① 有成品图 → 走真缩略图（界面渲染 <img>，不画占位）
+    const withImg = join(ws, PA.folder_name, '有成品图的任务')
+    for (const s of SUB) mkdirSync(join(withImg, s), { recursive: true })
+    makePng(join(withImg, '01-成品', '主视觉.png'), 240, 320, [64, 132, 232])
+    addPack.run('有成品图的任务', '海报', withImg, PA.id, now, now)
+
+    // ② 无成品图（项目 A）→ 占位封面，用项目 A 的颜色
+    mk(join(ws, PA.folder_name), '没有成品图的任务', PA.id, [
+      ['01-成品/交付说明.txt', '只有说明文档，没有成品图']
+    ])
+
+    // ③ 无成品图（项目 B）→ 占位封面换成项目 B 的颜色（验「按项目换色」）
+    mk(join(ws, PB.folder_name), '另一个项目的空任务', PB.id, [['01-成品/备注.txt', 'x']])
+
+    // ④ 未归类（工作区根下的游离文件夹 → scanAll 登记成 project_id = null）→ 兜底中性灰 +「未分类」
+    mk(ws, '还没归类的任务', null, [['01-成品/杂项.txt', 'x']])
+
+    // ⑤ 超长任务名 → 验证 line-clamp(2) 不会把封面撑破（132px 固定高被撑开是个真实风险）
+    //    名字必须**明显超过两行**，否则验不到截断（216px 卡宽 × 15px 字号，一行约 13 个中文字）
+    mk(
+      join(ws, PA.folder_name),
+      '高考冲刺班招生主视觉海报最终确认版v3（含竖版横版两套·需要同时适配朋友圈与电梯屏·设计部张工）',
+      PA.id,
+      [['01-成品/说明.txt', 'x']]
+    )
+
+    d.close()
+    wsm.scanAll(ws)
+    say('seeded gencover: A=' + PA.color + ' B=' + PB.color + ' | loose=' + join(ws, '还没归类的任务'))
   }
 
   // ============================================================
@@ -2008,11 +2124,85 @@ app.whenReady().then(async () => {
       !!packCard && packCard.flag === '1' && packCard.flagIcon === 'warning',
       `包卡片挂出丢失角标（图标 + 数字）：${packCard && packCard.flag}`
     )
+    // 第 60 批（bug 修复）：丢失角标原本挂在封面区右上角，与悬停才显形的编辑按钮
+    // （`.pact`, top:8 right:8）完全重叠 —— 现已挪到信息区右上角，这里钉住几何位置。
+    const flagPos = await js(
+      `(() => {
+         const c = [...document.querySelectorAll('.grid .pack-card')].find(x => x.querySelector('.miss-flag'))
+         if (!c) return null
+         const f = c.querySelector('.miss-flag').getBoundingClientRect()
+         const th = c.querySelector('.thumb').getBoundingClientRect()
+         const p = c.querySelector('.pact')
+         const pr = p ? p.getBoundingClientRect() : null
+         const overlap = pr
+           ? !(f.right <= pr.left || f.left >= pr.right || f.bottom <= pr.top || f.top >= pr.bottom)
+           : null
+         return { inMeta: f.top >= th.bottom - 1, hasPact: !!pr, overlap }
+       })()`
+    )
+    ok(!!flagPos && flagPos.inMeta === true, '丢失角标已挪进信息区（不再落在封面区右上角）')
+    ok(
+      !!flagPos && flagPos.hasPact === true && flagPos.overlap === false,
+      `丢失角标与编辑按钮不再重叠（hasPact=${flagPos && flagPos.hasPact} overlap=${flagPos && flagPos.overlap}）`
+    )
+    // 角标落在任务名行右侧 → 有角标的卡片必须给名字让位，否则长名会被角标压住
+    const namePad = await js(
+      `(() => {
+         const cards = [...document.querySelectorAll('.grid .pack-card')].filter(x => x.querySelector('.name'))
+         const g = (el) => (el ? getComputedStyle(el.querySelector('.name')).paddingRight : null)
+         return {
+           withFlag: g(cards.find(x => x.querySelector('.miss-flag'))),
+           noFlag: g(cards.find(x => !x.querySelector('.miss-flag')))
+         }
+       })()`
+    )
+    ok(
+      !!namePad && parseFloat(namePad.withFlag) >= 40 && parseFloat(namePad.noFlag) === 0,
+      `有丢失角标的卡片任务名让位、无角标的不让（${namePad && namePad.withFlag} / ${namePad && namePad.noFlag}）`
+    )
     ok(
       !!packCard && packCard.sub.includes('2 个文件'),
       `卡片文件数仍算上丢失的（含丢失共 2 条）：${packCard && packCard.sub}`
     )
     await shot('shot-b8-1-missing-entry.png')
+
+    // 第 60 批（bug 修复）：让鼠标**真的移到卡片上**（编辑按钮 hover 才显形），
+    // 截一张专门证明「角标与编辑按钮不再叠在一起」的图。
+    await js(
+      `(() => {
+         const c = [...document.querySelectorAll('.grid .pack-card')].find(x => x.querySelector('.miss-flag'))
+         if (c) c.scrollIntoView({ block: 'center' })
+         return 'ok'
+       })()`
+    )
+    await wait(300)
+    const hoverPt = await js(
+      `(() => {
+         const c = [...document.querySelectorAll('.grid .pack-card')].find(x => x.querySelector('.miss-flag'))
+         if (!c) return null
+         const r = c.getBoundingClientRect()
+         return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+       })()`
+    )
+    if (hoverPt) {
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
+      await wait(150)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x - 4, y: hoverPt.y, button: 'none' })
+      await wait(150)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x, y: hoverPt.y, button: 'none' })
+      await wait(400)
+    }
+    const pactOpacity = await js(
+      `(() => {
+         const c = [...document.querySelectorAll('.grid .pack-card')].find(x => x.querySelector('.miss-flag'))
+         const p = c && c.querySelector('.pact')
+         return p ? getComputedStyle(p).opacity : null
+       })()`
+    )
+    ok(pactOpacity === '1', `鼠标移到卡片上，编辑按钮已显形（opacity=${pactOpacity}）`)
+    await shot('shot-b60-1-missing-flag-no-overlap.png')
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
+    await wait(200)
 
     // (2) 点进去：只看丢失的，左栏数字与列表条数必须一致
     const clickEntry = await js(
@@ -4132,6 +4322,113 @@ app.whenReady().then(async () => {
     // 关掉详情弹窗，别影响收尾截图
     await js(`(() => { const m = document.querySelector('.modal .foot .btn, .modal .close'); if (m) m.click(); return 'ok' })()`)
     await wait(400)
+  } else if (SCEN === 'gencover') {
+    // ============================================================
+    // 第 59 批（docs/44）：无成品图任务的「通用占位封面」
+    //   判定与需求一致：任务里**没有可用成品图**（view:packs 的 cover === null）
+    //   → 卡片封面区改画 CSS 占位封面（项目名 / 任务名 / 标识），同款版式、按项目换色；
+    //   有真图照旧渲染真缩略图（每次渲染都重判，不做记忆）。
+    // ============================================================
+    await wait(1200)
+
+    const gc = await js(`(() => {
+      const cs = [...document.querySelectorAll('.grid .pack-card:not(.unassigned)')]
+      const byName = {}
+      for (const c of cs) {
+        const nm = c.querySelector('.name')
+        const g = c.querySelector('.thumb .gen-cover')
+        byName[nm ? nm.innerText.trim() : '?'] = {
+          hasImg: !!c.querySelector('.thumb img'),
+          hasGen: !!g,
+          proj: g ? ((g.querySelector('.gc-proj') || {}).innerText || '').trim() : '',
+          task: g ? ((g.querySelector('.gc-name') || {}).innerText || '').trim() : '',
+          code: g ? ((g.querySelector('.gc-code') || {}).innerText || '').trim() : '',
+          mark: g ? ((g.querySelector('.gc-mark') || {}).innerText || '').trim() : '',
+          pc: g ? g.style.getPropertyValue('--pc').trim() : '',
+          parts: g ? ['gc-dot','gc-proj','gc-name','gc-code','gc-mark'].every(k => !!g.querySelector('.' + k)) : false
+        }
+      }
+      return { count: cs.length, byName }
+    })()`)
+
+    ok(!!gc && gc.count === 5, '任务视图里 5 张任务卡（' + (gc ? gc.count : '?') + '）')
+
+    // ① 有真图 → 不画占位
+    const imgCard = gc && gc.byName['有成品图的任务']
+    ok(
+      !!imgCard && imgCard.hasImg === true && imgCard.hasGen === false,
+      '有成品图的任务：仍渲染真缩略图 <img>，**不画**占位封面'
+    )
+
+    // ② 无图（项目 A）→ 占位封面，三行信息齐全
+    const noImg = gc && gc.byName['没有成品图的任务']
+    ok(!!noImg && noImg.hasGen === true, '没成品图的任务：封面区出现 .gen-cover 占位封面')
+    ok(!!noImg && noImg.hasImg === false, '占位封面下没有 <img>（真图分支没被误触发）')
+    ok(!!noImg && noImg.parts === true, '占位封面五件套齐全（项目色圆点 / 项目名 / 任务名 / 标识 / 占位角标）')
+    ok(!!noImg && noImg.proj === '海南升学集训营', '第一行是项目名：' + (noImg ? noImg.proj : '—'))
+    ok(!!noImg && noImg.task === '没有成品图的任务', '第二行是任务名：' + (noImg ? noImg.task : '—'))
+    ok(!!noImg && /^T\d{4}$/.test(noImg.code), '第三行是标识（自建任务 T+4 位）：' + (noImg ? noImg.code : '—'))
+    ok(
+      !!noImg && noImg.mark === plain(COPY.cover.mark),
+      '右下角有「' + plain(COPY.cover.mark) + '」角标（免得被误当成真有成品图）'
+    )
+    ok(!!noImg && noImg.pc !== '', '占位封面按项目色注入 --pc：' + (noImg ? noImg.pc : '—'))
+
+    // ③ 换个项目 → 换色
+    const other = gc && gc.byName['另一个项目的空任务']
+    ok(
+      !!other && other.hasGen === true && other.proj === '精英升学先修营',
+      '另一个项目的无图任务同样画占位：' + (other ? other.proj : '—')
+    )
+    ok(
+      !!noImg && !!other && other.pc !== noImg.pc,
+      '两个项目配到不同颜色（A=' + (noImg ? noImg.pc : '?') + ' B=' + (other ? other.pc : '?') + '）'
+    )
+
+    // ④ 未归类 → 兜底中性灰 +「未分类」
+    const loose = gc && gc.byName['还没归类的任务']
+    ok(!!loose && loose.hasGen === true, '未归类的任务也画占位封面')
+    ok(
+      !!loose && loose.proj === plain(COPY.card.noProject),
+      '未归类任务的项目名位置显示「' + plain(COPY.card.noProject) + '」（与卡片下方那个标签同口径）：' + (loose ? loose.proj : '—')
+    )
+    ok(!!loose && loose.pc === '#6b7280', '未归类任务用兜底中性灰 #6b7280：' + (loose ? loose.pc : '—'))
+
+    // ⑤ 超长任务名：line-clamp(2) 生效，底部标识行仍留在封面可视区内（132px 固定高没被撑破）
+    const longUi = await js(`(() => {
+      const cs = [...document.querySelectorAll('.grid .pack-card:not(.unassigned)')]
+      const c = cs.find(x => ((x.querySelector('.name') || {}).innerText || '').includes('高考冲刺班'))
+      if (!c) return null
+      const th = c.querySelector('.thumb').getBoundingClientRect()
+      const bot = c.querySelector('.gc-bottom').getBoundingClientRect()
+      const nm = c.querySelector('.gc-name')
+      const lh = parseFloat(getComputedStyle(nm).lineHeight) || 20
+      return {
+        thumbH: Math.round(th.height),
+        bottomInside: bot.bottom <= th.bottom + 1 && bot.top >= th.top,
+        nameH: Math.round(nm.clientHeight),
+        maxH: Math.ceil(lh * 2),
+        scrollH: nm.scrollHeight,
+        clientH: nm.clientHeight
+      }
+    })()`)
+    ok(!!longUi && longUi.thumbH === 132, '封面区恒为 132px 高（' + (longUi ? longUi.thumbH : '?') + '）')
+    ok(!!longUi && longUi.bottomInside === true, '超长任务名下，底部标识行仍留在可视区内（没被挤出封面）')
+    ok(
+      !!longUi && longUi.nameH <= longUi.maxH + 1,
+      '超长任务名被压在 2 行以内（高=' + (longUi ? longUi.nameH : '?') + 'px ≤ 上限 ' + (longUi ? longUi.maxH : '?') + 'px）'
+    )
+    ok(
+      !!longUi && longUi.scrollH > longUi.clientH,
+      '超长任务名确实溢出被裁（scroll=' + (longUi ? longUi.scrollH : '?') + ' > client=' + (longUi ? longUi.clientH : '?') + '）'
+    )
+
+    // ⑥ 占位封面已取代旧的灰色占位图标
+    const phLeft = await js(`(() => {
+      const cs = [...document.querySelectorAll('.grid .pack-card:not(.unassigned)')]
+      return cs.filter(c => c.querySelector('.thumb .gen-cover') && c.querySelector('.thumb .ph')).length
+    })()`)
+    ok(phLeft === 0, '没有卡片同时出现 gen-cover 与旧的灰色占位图标（.ph）')
   } else if (SCEN === 'unassigned') {
     // ============================================================
     // 第 25 批：未归属池入口 —— 用户报的 bug
