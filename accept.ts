@@ -18,6 +18,18 @@ import { COPY } from './src/shared/copy'
 import { taskCode } from './src/shared/taskCode'
 // 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
 import { backupPacks } from './src/main/backupPack'
+// 第 62 批（docs/45）：插件联动（一）—— 生成并写镜像（假插件目录桩，不依赖 electron）
+import {
+  discoverPluginDataDirs,
+  syncTaskMirror,
+  isPngFile,
+  fileMtimeMs,
+  MIRROR_DIR,
+  MANIFEST_FILE,
+  TASK_FILE,
+  HANDOFF_DIR,
+  THUMB_DIR
+} from './src/main/linkMirror'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -6909,6 +6921,119 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(t59Root)
+  }
+
+  log('\n[54] 第 62 批：插件联动（一）—— 生成并写镜像（假插件目录桩，docs/45 §6）')
+  {
+    const t62Root = join('D:\\_accept_ws', `wstest62_${RUN_ID}`)
+    const t62Ws = join(t62Root, 'ws')
+    // 假 appData：模拟 %APPDATA%\Adobe\UXP\PluginsStorage\PHSP\27\Developer\com.vellum.toolbox\PluginData
+    const t62AppData = join(t62Root, 'appdata')
+    const t62PluginData = join(
+      t62AppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    const t62Lib = join(t62PluginData, MIRROR_DIR)
+
+    hardRm(t62Root)
+    mkdirSync(t62PluginData, { recursive: true })
+    mkdirSync(t62Ws, { recursive: true })
+    closeDb()
+    openDb(t62Ws)
+    initWorkspace(t62Ws)
+
+    // ① 路径发现：扫 PHSP\<数字>\{Developer,External,Plugins} → 命中 PluginData + psMajor
+    const hits62 = discoverPluginDataDirs(t62AppData)
+    ok(
+      hits62.length === 1 && hits62[0].psMajor === '27',
+      '路径发现：命中假 PluginData，psMajor = 27（契约 §七）'
+    )
+    ok(
+      discoverPluginDataDirs(join(t62Root, 'nope')).length === 0,
+      '路径发现：base 不存在时返回空（不崩）'
+    )
+
+    // ② 造一个任务 + 一张成品图 + 一个纯文档
+    const proj62 = createProject({ name: '联动测试项目', workspaceRoot: t62Ws }).project!
+    const pack62 = mkPack({ name: '联动测试任务', projectId: proj62.id, workspaceRoot: t62Ws })
+    makePng(join(pack62.folder_path, '01-成品', '主图.png'), 16, 16)
+    writeFileSync(join(pack62.folder_path, '01-成品', '说明.txt'), 'not an image', 'utf-8')
+    scanAll(t62Ws)
+
+    // ③ 首次同步
+    const r1 = await syncTaskMirror(t62Ws, hits62, { appVersion: '1.9.7' })
+    ok(r1.ok && r1.wrote === true && r1.revision === 1, '首次同步：写入成功 + revision = 1')
+    ok(existsSync(join(t62Lib, MANIFEST_FILE)) && existsSync(join(t62Lib, TASK_FILE)), '写出 manifest.json + task.json')
+    ok(existsSync(join(t62Lib, HANDOFF_DIR)), '预建 handoff/ 目录（契约 §四：软件侧负责建）')
+
+    const manifest62 = JSON.parse(readFileSync(join(t62Lib, MANIFEST_FILE), 'utf-8')) as {
+      contract: string
+      generatedAt: string
+      psMajor: string
+      workspaceRoot: string
+      scopes: Array<{ id: string; file: string; revision: number; count: number }>
+    }
+    ok(manifest62.contract === 'vellum-link/1', 'manifest.contract = vellum-link/1（插件先校验它）')
+    ok(manifest62.psMajor === '27', 'manifest.psMajor 标出 PS 大版本（§5.1 可选字段落地）')
+    ok(manifest62.workspaceRoot === t62Ws, 'manifest.workspaceRoot 是当前工作区根')
+    ok(
+      manifest62.scopes.length === 1 && manifest62.scopes[0].id === 'task' && manifest62.scopes[0].file === 'task.json',
+      'scopes[0] = task → task.json'
+    )
+    ok(manifest62.scopes[0].revision === 1 && manifest62.scopes[0].count >= 1, 'scopes[0].revision / count 正确')
+    ok(/\+08:00$/.test(manifest62.generatedAt), 'generatedAt 是带 +08:00 的 ISO 8601（docs/45 §3.2）')
+
+    const task62 = JSON.parse(readFileSync(join(t62Lib, TASK_FILE), 'utf-8')) as {
+      scope: string
+      revision: number
+      projects: Array<{ packs: Array<{ assets: Array<Record<string, unknown>> }> }>
+    }
+    ok(task62.scope === 'task' && task62.revision === 1, 'task.json scope=task / revision=1')
+    const all62 = task62.projects.flatMap((p) => p.packs).flatMap((pk) => pk.assets)
+    const img62 = all62.find((a) => a.name === '主图.png')
+    ok(!!img62 && img62.kind === 'image' && img62.role === '成品', 'asset.kind / role 由软件侧归好（插件不猜）')
+    ok(
+      img62!.thumb === `${THUMB_DIR}/t${img62!.id}.png`,
+      '【核心】缩略图走命名空间 t<id>.png（契约加法 ②，防与通用库 b<id> 撞名）'
+    )
+    const pngAbs62 = join(t62Lib, THUMB_DIR, `t${img62!.id}.png`)
+    ok(existsSync(pngAbs62), '镜像里确实落了缩略图文件')
+    ok(isPngFile(pngAbs62), '缩略图确为 PNG（8 字节魔数 = 89504e47…，不是 webp）—— §5.5 转码落地')
+    ok(
+      all62.find((a) => a.name === '说明.txt')!.thumb === null,
+      '无缩略图的素材 → thumb = null（插件画占位格，契约 §5.5）'
+    )
+
+    // ④ 内容未变 → 整文件不重写、revision 不涨（内容签名短路）
+    const taskMtime1 = fileMtimeMs(join(t62Lib, TASK_FILE))
+    await new Promise((r) => setTimeout(r, 1100))
+    const r2 = await syncTaskMirror(t62Ws, hits62, { appVersion: '1.9.7' })
+    ok(r2.ok && r2.wrote === false && r2.revision === 1, '内容未变：不重写 + revision 不涨（内容签名短路）')
+    ok(fileMtimeMs(join(t62Lib, TASK_FILE)) === taskMtime1, 'task.json mtime 未变（确实一个字节都没写）')
+
+    // ⑤ 内容变化（新增成品图）→ revision 递增 + 重写
+    makePng(join(pack62.folder_path, '01-成品', '新增.png'), 10, 10)
+    scanAll(t62Ws)
+    const r3 = await syncTaskMirror(t62Ws, hits62, { appVersion: '1.9.7' })
+    ok(r3.ok && r3.wrote === true && r3.revision === 2, '内容变化：重写 + revision 递增到 2')
+    const task62b = JSON.parse(readFileSync(join(t62Lib, TASK_FILE), 'utf-8')) as { revision: number }
+    ok(task62b.revision === 2, 'task.json 里的 revision 也跟着到 2')
+
+    // ⑥ 原子写：不留 .tmp 残骸
+    ok(
+      !existsSync(join(t62Lib, TASK_FILE + '.tmp')) && !existsSync(join(t62Lib, MANIFEST_FILE + '.tmp')),
+      '原子写收尾干净（无 .tmp 残骸）'
+    )
+
+    closeDb()
+    hardRm(t62Root)
   }
 
 // ============ 汇总 ============
