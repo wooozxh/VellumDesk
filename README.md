@@ -17,7 +17,7 @@
 
 | 分支 | 是什么 | 状态 |
 |---|---|---|
-| `main` | 第 1~28 批 + 第 47 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.8.3-Setup.exe`（已发 GitHub Release） |
+| `main` | 第 1~28 批 + 第 47~60 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.9.7-Setup.exe`（已发 GitHub Release） |
 
 - 2026-10-05 起**只保留 `main`**：历史功能分支（`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）全部合并进 `main` 后删除（`feature/wecom-bundle` 为 ff 合并，无信息丢失）。
 - 仓库：`https://github.com/wooozxh/VellumDesk`（2026-10-05 由 `media-lib_zxh` 重命名，旧链接自动重定向）。
@@ -99,6 +99,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs export           # 界面验证：M5
 NODE_OPTIONS= node _shotapp/run-verify4.cjs backup           # 界面验证：任务备份打包（工具条多选 → 批量打包 → 卡片置灰 + 已备份徽标 + 详情信息条，第 58 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs unassigned       # 界面验证：未归属池入口（虚线卡片 → 文件视图未归属筛选 → 认领，第 25 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs wizard           # 界面验证：首次配置引导六步走完 + 完成/不再弹（第 54 批）
+NODE_OPTIONS= node _shotapp/run-verify4.cjs gencover         # 界面验证：无成品图任务的通用占位封面（第 59 批）
 ```
 
 注意：
