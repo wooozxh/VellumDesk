@@ -1087,4 +1087,47 @@ export interface Api {
   wecomIdentity: () => Promise<{ ok: boolean; name?: string; error?: string }>
   /** 标记首次启动引导已看过（只影响自动弹窗） */
   wecomOnboardSeen: () => Promise<{ ok: boolean }>
+
+  // ---------------- 第 62 批：PS 插件联动（docs/45） ----------------
+  /** 联动状态快照：开关 / 是否在轮询 / 命中的插件目录 / 上次同步 */
+  pluginStatus: () => Promise<PluginLinkStatus>
+  pluginGetConfig: () => Promise<PluginLinkConfig>
+  /** 改设置（开关 / 手填目录）；主进程会重新发现目标并重挂轮询 */
+  pluginSetConfig: (patch: { enabled?: boolean; dataDir?: string }) => Promise<PluginLinkConfig>
+  /** 弹系统选目录对话框，选「手填的 PluginData 目录」 */
+  pluginPickDataDir: () => Promise<{ ok: boolean; canceled?: boolean; dir?: string }>
+  /** 手动把「任务库」镜像同步到插件目录 */
+  pluginSyncNow: () => Promise<PluginLinkSyncResult>
+}
+
+/** 第 62 批（docs/45）：PS 插件联动状态 */
+export interface PluginLinkStatus {
+  enabled: boolean
+  workspaceRoot: string
+  /** 命中的插件 PluginData 目录（多 PS 版本 → 多个） */
+  targets: Array<{ psMajor: string; pluginDataDir: string }>
+  /** 轮询是否在跑 */
+  running: boolean
+  lastSyncAt: string | null
+  lastResult: string | null
+}
+
+/** 第 62 批（docs/45）：PS 插件联动设置 */
+export interface PluginLinkConfig {
+  /** 变更时自动同步（含启动首扫） */
+  enabled: boolean
+  /** 手填的 PluginData 目录（自动发现失败时的兜底） */
+  dataDir: string
+}
+
+/** 第 62 批（docs/45）：一次同步的结果（UI 展示用，不含内部 targets 明细） */
+export interface PluginLinkSyncResult {
+  ok: boolean
+  wrote: boolean
+  revision: number
+  count: number
+  thumbs: number
+  /** 这次写了几个目录（0 = 没找到插件目录） */
+  dirs: number
+  error?: string
 }

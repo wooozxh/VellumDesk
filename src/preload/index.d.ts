@@ -44,5 +44,8 @@ export type {
   DeliveryRecord,
   PackBackupInput,
   PackBackupItemResult,
-  PackBackupResult
+  PackBackupResult,
+  PluginLinkStatus,
+  PluginLinkConfig,
+  PluginLinkSyncResult
 } from '../shared/types'

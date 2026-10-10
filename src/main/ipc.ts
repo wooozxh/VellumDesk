@@ -156,6 +156,8 @@ import {
 import { executePackExport, listDeliveryRecords, previewPackExport } from './exportPack'
 // 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
 import { backupPacks } from './backupPack'
+import { getLinkConfig, setLinkConfig } from './linkConfig'
+import { getLinkStatus, refreshLinkTargets, syncNow } from './linkService'
 // 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
 import {
   startTicketScheduler,
@@ -1774,6 +1776,35 @@ export function registerIpc(opts?: {
       return await backupPacks(input, root)
     } catch (e) {
       return { items: [], okCount: 0, failCount: 0, error: (e as Error).message } as PackBackupResult
+    }
+  })
+
+  // ---------- 第 62 批：PS 插件联动（docs/45） ----------
+  ipcMain.handle('plugin:status', () => getLinkStatus())
+  ipcMain.handle('plugin:getConfig', () => getLinkConfig())
+  ipcMain.handle('plugin:setConfig', async (_e, patch: { enabled?: boolean; dataDir?: string }) => {
+    const cfg = setLinkConfig(patch)
+    await refreshLinkTargets()
+    return cfg
+  })
+  ipcMain.handle('plugin:pickDataDir', async () => {
+    const r = await dialog.showOpenDialog({
+      title: COPY.pluginLink.dirLabel,
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
+    return { ok: true, dir: r.filePaths[0] }
+  })
+  ipcMain.handle('plugin:syncNow', async () => {
+    const r = await syncNow()
+    return {
+      ok: r.ok,
+      wrote: r.wrote,
+      revision: r.revision,
+      count: r.count,
+      thumbs: r.thumbs,
+      dirs: r.targets.length,
+      error: r.error
     }
   })
 }

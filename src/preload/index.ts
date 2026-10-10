@@ -198,7 +198,15 @@ const api = {
   pickOutputDir: (defaultPath?: string) => ipcRenderer.invoke('dialog:pickOutputDir', defaultPath),
 
   // 第 58 批：任务备份打包（docs/43）
-  packBackupBatch: (input: PackBackupInput) => ipcRenderer.invoke('pack:backupBatch', input)
+  packBackupBatch: (input: PackBackupInput) => ipcRenderer.invoke('pack:backupBatch', input),
+
+  // 第 62 批（docs/45）：PS 插件联动
+  pluginStatus: () => ipcRenderer.invoke('plugin:status'),
+  pluginGetConfig: () => ipcRenderer.invoke('plugin:getConfig'),
+  pluginSetConfig: (patch: { enabled?: boolean; dataDir?: string }) =>
+    ipcRenderer.invoke('plugin:setConfig', patch),
+  pluginPickDataDir: () => ipcRenderer.invoke('plugin:pickDataDir'),
+  pluginSyncNow: () => ipcRenderer.invoke('plugin:syncNow')
 }
 
 if (process.contextIsolated) {

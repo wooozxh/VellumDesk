@@ -48,5 +48,8 @@ export type {
   WecomCliSource,
   WecomAuthState,
   WecomCliInfo,
-  WecomAuthStart
+  WecomAuthStart,
+  PluginLinkStatus,
+  PluginLinkConfig,
+  PluginLinkSyncResult
 } from '../../shared/types'

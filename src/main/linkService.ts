@@ -73,11 +73,12 @@ export async function startLinkService(opts: {
   workspaceRoot: string
 }): Promise<void> {
   stopLinkService()
+  // 硬开关（排障 / 测试壳）：**连 appDataDir 都不记** —— 免得之后手动同步误写真实插件目录
+  if (process.env.VELLUM_PLUGIN_SYNC === '0') return
   state.appDataDir = opts.appDataDir
   state.appVersion = opts.appVersion
   state.workspaceRoot = opts.workspaceRoot
 
-  if (process.env.VELLUM_PLUGIN_SYNC === '0') return // 硬开关（排障 / 测试壳）：与设置里的开关无关
   if (!getLinkConfig().enabled) return
   state.targets = discoverTargets(opts.appDataDir)
   if (state.targets.length === 0) return

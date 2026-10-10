@@ -1225,5 +1225,28 @@ export const COPY = {
     syncHint: '已回到工单队列 —— 想立刻拉数据，点一下「{btn}」。',
     /** 手动入口 */
     openWizard: '重新打开配置向导'
+  },
+
+  // ==================== 第 62 批：PS 插件联动（docs/45） ====================
+  pluginLink: {
+    entry: '插件',
+    title: 'PS 插件联动',
+    intro:
+      '把「任务库」同步给 PS 插件（Vellum 工具箱）。数据只写进插件自己的数据目录，不走网络、不上传云端。',
+    autoLabel: '变更时自动同步',
+    autoHint: '扫描 / 建包 / 编辑 / 认领后自动重写镜像；软件启动时也会对一次。',
+    dirLabel: '插件数据目录',
+    dirHint: '自动发现失败时手填（路径含 PS 大版本号，装了 PS 插件后一般能自动找到）。',
+    pick: '选择目录',
+    foundTitle: '已发现 {n} 个插件目录',
+    foundNone: '未找到插件目录 —— 装好 PS 插件后会自动出现，也可以在上面手填。',
+    psMajor: 'PS {v}',
+    syncBtn: '同步到插件',
+    syncing: '同步中…',
+    syncDone: '已同步：{dirs} 个目录 · {count} 条素材 · {thumbs} 张缩略图 · revision {rev}',
+    syncNone: '没找到插件目录，这次什么都没写',
+    syncFail: '同步失败：{msg}',
+    lastLabel: '上次同步',
+    lastNone: '还没同步过'
   }
 } as const
