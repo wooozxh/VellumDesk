@@ -11,7 +11,7 @@
 - 原型目标（用户 2026-09-24 明确）：**先要能向领导汇报的原型**，不是先要扛得住量产的工具
 
 - **分支与版本现状（2026-10-10 第 61 次会话）**：**远程只剩 `main`**（`origin/HEAD → origin/main`）；
-  本地 `main` = `origin/main` = **本批提交**（第 59/60 批 `aaa6de4` + 版本 1.9.7 + 文档同步，**已 push**）；
+  本地 `main` = `origin/main` = **`2a2b905`**（第 59/60 批 `aaa6de4` + 版本 1.9.7 + 文档同步，**已 push**）；
   **第 59/60 批、`CHANGELOG.md`、`LINK-CONTRACT.md` 指针均已入库**。
   本地无残留旧分支。
   工作区未跟踪项：`deliver/`（PPT 版手册的 slides 生成目录 + 723 KB 的 pptx，一次性交付产物）
@@ -24,7 +24,8 @@
   第 54 批 1062 → 1097（+35）；第 55 批 1097 → 1116（+19）；第 58 批 1115 → 1155（+40）；**第 59 批 1155 → 1163（+8）**。以本机 `accept-result.txt` 为准（口径详见 NEXT.md 顶部「验收基线」段）。
   **出包与发布现状**：本机已有 **`D:\_release\v1.9.7\VellumDesk-1.9.7-Setup.exe`**
   （**193,956,560 字节**，2026-10-10 出；含**第 47~60 批**全集，包内 ffmpeg / wecom-cli / exe 已逐个核对）。
-  **已发 GitHub Release `v1.9.7`**（附件：exe + 使用手册单文件版 + A4 PDF）。**GitHub Release 最新 = v1.9.7**。
+  **已发 GitHub Release `v1.9.7`**（tag → `2a2b905`；附件：exe + 手册 `VellumDesk-1.9.7-Manual.html` / `VellumDesk-1.9.7-Manual-A4.pdf`）。
+  地址：https://github.com/wooozxh/VellumDesk/releases/tag/v1.9.7 。**GitHub Release 最新 = v1.9.7**。
   `CHANGELOG.md`（1.8.3 → 1.9.7 的面向用户更新说明）已作为 Release 说明发布、并复制一份到出包目录。
 ## 分支现状（2026-09-30 晚核对 —— 历史快照，仅供追溯）
 
@@ -2034,7 +2035,7 @@ versions / category / tickets / export / unassigned / wizard）。
 3. **文档同步**：`CHANGELOG.md` 改为 1.8.3 → 1.9.7（补第 59/60 批、改为「已发布」）；手册 `index.html` / `styleguide.html` 封面版本与日期同步到 1.9.7 / 2026-10-10；`.gitignore` 补进手册两个大产物；`PROGRESS` / `NEXT` / `README` 台账刷新。
 4. **验收三件套**：typecheck 0 错；重打三 bundle + `electron-vite build`；**accept 1163 项全过**；**15 个界面场景全绿、0 失败**。
 5. **出包**：`npm run build` → `npx electron-builder --win --config.directories.output=D:/_release/v1.9.7`（项目外全新目录）；产物 `VellumDesk-1.9.7-Setup.exe` = **193,956,560 字节**；包内 ffmpeg / ffprobe / wecom-cli / exe 逐个核对。
-6. **发 Release**：`v1.9.7`（tag 指向 main HEAD），附件 exe + 手册单文件版 + A4 PDF；`CHANGELOG.md` 复制到出包目录。
+6. **发 Release**：`v1.9.7`（tag → `2a2b905` = main HEAD），附件 exe + 手册 `VellumDesk-1.9.7-Manual.html` / `VellumDesk-1.9.7-Manual-A4.pdf`（**GitHub 会吞中文附件名**，故用 ASCII 名）；`CHANGELOG.md` 复制到出包目录。地址 https://github.com/wooozxh/VellumDesk/releases/tag/v1.9.7
 
 **环境要点**：git / gh 操作**一律摘掉代理变量**（`env -u http_proxy …`）；判定推送用 `git rev-parse origin/main`，不信 push 输出；`GH_TOKEN` 从 GCM 取（`printf "protocol=https\nhost=github.com\n\n" | git credential fill`，令牌只落临时文件、用完即删）。
 迁移号仍 **21**；下一批 docs 编号 **45**。
