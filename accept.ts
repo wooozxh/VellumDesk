@@ -9,7 +9,8 @@ import {
   readdirSync,
   statSync,
   readFileSync,
-  copyFileSync
+  copyFileSync,
+  utimesSync
 } from 'fs'
 import { join, basename, dirname } from 'path'
 // 第 52 批：分级名改从文案字典取（不再硬编码 S/A/B/C，改名时断言自动跟着变）
@@ -30,6 +31,14 @@ import {
   HANDOFF_DIR,
   THUMB_DIR
 } from './src/main/linkMirror'
+// 第 62 批（docs/45 §3.4）：handoff 搬运（轮询 req.json → 拷原图 → 回 res.json）
+import {
+  HandoffEngine,
+  HANDOFF_ALLOWED_EXTS,
+  DEFAULT_MAX_BYTES,
+  writeHandoffRequest,
+  readHandoffResult
+} from './src/main/linkHandoff'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -7034,6 +7043,143 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(t62Root)
+  }
+
+  log('\n[55] 第 62 批：插件联动（一）—— handoff 搬运（轮询 req.json → 拷原图 → 回 res.json，docs/45 §3.4）')
+  {
+    const t55Root = join('D:\\_accept_ws', `wstest55_${RUN_ID}`)
+    const t55Ws = join(t55Root, 'ws')
+    const t55AppData = join(t55Root, 'appdata')
+    const t55PluginData = join(
+      t55AppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    const t55Handoff = join(t55PluginData, MIRROR_DIR, HANDOFF_DIR)
+
+    hardRm(t55Root)
+    mkdirSync(t55PluginData, { recursive: true })
+    mkdirSync(t55Ws, { recursive: true })
+    closeDb()
+    openDb(t55Ws)
+    initWorkspace(t55Ws)
+
+    const proj55 = createProject({ name: '联动测试项目', workspaceRoot: t55Ws }).project!
+    const pack55 = mkPack({ name: '交接测试任务', projectId: proj55.id, workspaceRoot: t55Ws })
+    const srcPng55 = join(pack55.folder_path, '01-成品', '原图.png')
+    makePng(srcPng55, 24, 24)
+    makePng(join(pack55.folder_path, '01-成品', '大图.png'), 40, 40)
+    writeFileSync(join(pack55.folder_path, '01-成品', '奇怪.xyz'), 'not supported here', 'utf-8')
+    scanAll(t55Ws)
+
+    const rows55 = getDb()
+      .prepare('SELECT id, file_name, abs_path, size FROM assets WHERE pack_id = ?')
+      .all(pack55.id) as Array<{ id: number; file_name: string; abs_path: string; size: number }>
+    const png55 = rows55.find((r) => r.file_name === '原图.png')!
+    const big55 = rows55.find((r) => r.file_name === '大图.png')!
+    const xyz55 = rows55.find((r) => r.file_name === '奇怪.xyz')!
+
+    const hits55 = discoverPluginDataDirs(t55AppData)
+    await syncTaskMirror(t55Ws, hits55, { appVersion: '1.9.7' }) // 预建 library\ + handoff\
+    mkdirSync(t55Handoff, { recursive: true })
+
+    const engine = new HandoffEngine({ workspaceRoot: t55Ws, targets: hits55 })
+    const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+    ok(
+      HANDOFF_ALLOWED_EXTS.has('png') && HANDOFF_ALLOWED_EXTS.has('psd') && !HANDOFF_ALLOWED_EXTS.has('xyz'),
+      '可置入白名单 = 常见位图 + psd/psb（docs/45 §7 拍板）'
+    )
+    ok(DEFAULT_MAX_BYTES === 300 * 1024 * 1024, 'handoff 体积阈值 = 300 MB（用户 2026-10-10 拍板）')
+
+    // ① 正常取图
+    writeHandoffRequest(t55PluginData, { reqId: 'r-ok-1', assetId: png55.id })
+    const h1 = await engine.tick()
+    ok(
+      h1.length === 1 && h1[0].ok === true && h1[0].file === 'handoff/incoming.png',
+      '轮询到 req.json → 成功投递 handoff/incoming.png'
+    )
+    const res1 = readHandoffResult(t55PluginData)!
+    ok(res1.reqId === 'r-ok-1', '【核心】res.json 的 reqId 原样回填（插件只按它认领结果）')
+    ok(res1.ok === true && res1.file === 'handoff/incoming.png' && (res1.size as number) > 0, 'res.json 的 ok / file / size 正确')
+    ok(/\+08:00$/.test(String(res1.at)), 'res.json.at 带 +08:00（契约 §五 时间格式）')
+    const inPng55 = join(t55Handoff, 'incoming.png')
+    ok(existsSync(inPng55), 'incoming.png 已落盘')
+    ok(readFileSync(inPng55).equals(readFileSync(srcPng55)), '【字节一致】incoming 与工作区原图逐字节相同（真拷了那张原图）')
+    ok(!existsSync(join(t55Handoff, 'incoming.png.tmp')), '拷图是原子的（无 .tmp 残骸）')
+
+    // ② req.json 未变 → 不重复处理
+    const h2 = await engine.tick()
+    ok(h2.length === 0, 'req.json 未变（mtime/size 同）→ 不重复处理（轮询只在变化时动手）')
+
+    // ③ 新 reqId（同素材）→ 再次处理
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-ok-22', assetId: png55.id })
+    const h3 = await engine.tick()
+    ok(h3.length === 1 && h3[0].ok === true && h3[0].reqId === 'r-ok-22', '新 reqId → 再次处理并回填新 reqId')
+
+    // ④ 同一 reqId 再来 → 去重
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-ok-22', assetId: png55.id })
+    const h4 = await engine.tick()
+    ok(h4.length === 1 && h4[0].reqId === 'r-ok-22', '同一 reqId 再来：命中去重（不重复拷）')
+
+    // ⑤ 未知 assetId
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-nf-333', assetId: 999999 })
+    const h5 = await engine.tick()
+    ok(h5[0].ok === false && h5[0].error === 'not_found', '未知 assetId → ok:false / not_found（不抛不崩）')
+    ok(readHandoffResult(t55PluginData)!.ok === false, '失败也照样写 res.json（插件不会干等超时）')
+
+    // ⑥ 不支持的扩展名
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-unsup-55555', assetId: xyz55.id })
+    const h6 = await engine.tick()
+    ok(h6[0].ok === false && h6[0].error === 'unsupported', '不在白名单的扩展名 → error:unsupported')
+
+    // ⑦ 超阈值（用极小阈值的引擎，等价于超过 300MB）
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-big-666666', assetId: big55.id })
+    const smallEngine = new HandoffEngine({ workspaceRoot: t55Ws, targets: hits55, maxBytes: 1 })
+    const h7 = await smallEngine.tick()
+    ok(h7[0].ok === false && h7[0].error === 'too_large', '体积超阈值 → error:too_large（阈值可配，生产为 300MB）')
+
+    // ⑧ 原图丢失
+    hardRm(srcPng55)
+    scanAll(t55Ws)
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-miss-4444', assetId: png55.id })
+    const h8 = await engine.tick()
+    ok(h8[0].ok === false && h8[0].error === 'missing', '原图已丢失（missing_at 非空）→ error:missing')
+
+    // ⑨ 契约前缀不对
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, {
+      reqId: 'r-bad-7777777',
+      assetId: big55.id,
+      contract: 'other-thing/9'
+    })
+    const h9 = await engine.tick()
+    ok(h9[0].ok === false && h9[0].error === 'bad_contract', 'contract 前缀不对 → ok:false（不崩、不猜）')
+
+    // ⑩ 清理过期（>10 分钟的 res.json / incoming.* 归软件侧删；req.json 不动）
+    const oldT = new Date(Date.now() - 60 * 60 * 1000)
+    utimesSync(join(t55Handoff, 'res.json'), oldT, oldT)
+    utimesSync(inPng55, oldT, oldT)
+    const cleaned55 = engine.cleanup()
+    ok(
+      cleaned55 >= 2 && !existsSync(join(t55Handoff, 'res.json')) && !existsSync(inPng55),
+      '清理：>10 分钟的 res.json / incoming.* 被删（req.json 不碰）'
+    )
+
+    closeDb()
+    hardRm(t55Root)
   }
 
 // ============ 汇总 ============

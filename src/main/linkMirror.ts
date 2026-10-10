@@ -61,7 +61,7 @@ export function isoLocal(d: Date = new Date()): string {
 }
 
 /** 原子写 JSON：先写 `.tmp` 再 `rename` 覆盖（Windows 上 rename 会替换已存在文件） */
-function atomicWriteJson(file: string, obj: unknown): void {
+export function atomicWriteJson(file: string, obj: unknown): void {
   const tmp = `${file}.tmp`
   writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf-8')
   renameSync(tmp, file)
