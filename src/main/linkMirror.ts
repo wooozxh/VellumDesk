@@ -348,7 +348,14 @@ export async function syncTaskMirror(
     const sig = createHash('sha1').update(JSON.stringify(content)).digest('hex')
     const prevSig = getMeta(META_SIG)
     const prevRev = Number(getMeta(META_REV) || '0')
-    const unchanged = !opts.force && prevSig === sig
+    // 短路的前提：内容没变 **且每个目标都已有镜像** ——
+    // 新加的手填目录 / 新装的 PS 版本不能因为"内容没变"就被漏掉（否则那个目录永远是空的）。
+    const allTargetsPopulated = targets.every(
+      (t) =>
+        existsSync(join(t.pluginDataDir, MIRROR_DIR, MANIFEST_FILE)) &&
+        existsSync(join(t.pluginDataDir, MIRROR_DIR, TASK_FILE))
+    )
+    const unchanged = !opts.force && prevSig === sig && allTargetsPopulated
 
     if (unchanged) {
       return { ok: true, wrote: false, revision: prevRev, count, thumbs: 0, targets }

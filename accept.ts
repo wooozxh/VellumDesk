@@ -39,6 +39,16 @@ import {
   writeHandoffRequest,
   readHandoffResult
 } from './src/main/linkHandoff'
+// 第 62 批（docs/45 §4）：插件联动服务层（启动装配 = 发现目标 + 起轮询 + 首扫）
+import {
+  startLinkService,
+  stopLinkService,
+  syncNow,
+  pollHandoffOnce,
+  getLinkStatus,
+  refreshLinkTargets
+} from './src/main/linkService'
+import { setLinkConfig } from './src/main/linkConfig'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -7180,6 +7190,80 @@ async function main(): Promise<void> {
 
     closeDb()
     hardRm(t55Root)
+  }
+
+  log('\n[56] 第 62 批：插件联动服务层（启动装配 —— 发现目标 / 首扫镜像 / 常驻轮询 / 开关，docs/45 §4）')
+  {
+    const t56Root = join('D:\\_accept_ws', `wstest56_${RUN_ID}`)
+    const t56Ws = join(t56Root, 'ws')
+    const t56AppData = join(t56Root, 'appdata')
+    const t56Pd = join(
+      t56AppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    hardRm(t56Root)
+    mkdirSync(t56Pd, { recursive: true })
+    mkdirSync(t56Ws, { recursive: true })
+    closeDb()
+    openDb(t56Ws)
+    initWorkspace(t56Ws)
+
+    const proj56 = createProject({ name: '服务测试项目', workspaceRoot: t56Ws }).project!
+    const pack56 = mkPack({ name: '服务测试任务', projectId: proj56.id, workspaceRoot: t56Ws })
+    makePng(join(pack56.folder_path, '01-成品', '图.png'), 20, 20)
+    scanAll(t56Ws)
+
+    // 默认：开关开、无手填目录
+    setLinkConfig({ enabled: true, dataDir: '' })
+    await startLinkService({ appDataDir: t56AppData, appVersion: '1.9.7', workspaceRoot: t56Ws })
+
+    const st56 = getLinkStatus()
+    ok(st56.enabled === true && st56.running === true, '服务启动：enabled + 轮询在跑')
+    ok(st56.targets.length === 1 && st56.targets[0].psMajor === '27', '发现目标：自动命中假 PluginData（psMajor=27）')
+    ok(
+      existsSync(join(t56Pd, MIRROR_DIR, MANIFEST_FILE)) && existsSync(join(t56Pd, MIRROR_DIR, TASK_FILE)),
+      '启动即首扫：镜像已写出（manifest + task）'
+    )
+    ok(existsSync(join(t56Pd, MIRROR_DIR, HANDOFF_DIR)), 'handoff/ 已预建（软件侧负责）')
+    ok(!!st56.lastSyncAt && /ok rev=/.test(String(st56.lastResult)), '同步结果已记录（lastSyncAt / lastResult）')
+
+    // 手填兜底目录：也写（多目标，谁都不漏）
+    const t56Manual = join(t56Root, 'manual-pd')
+    mkdirSync(t56Manual, { recursive: true })
+    setLinkConfig({ dataDir: t56Manual })
+    const nTargets = await refreshLinkTargets()
+    ok(nTargets === 2, '手填目录加入后目标变 2 个（自动命中 + 手填）')
+    const r56 = await syncNow()
+    ok(r56.ok && existsSync(join(t56Manual, MIRROR_DIR, TASK_FILE)), '手填目录也写出了镜像')
+
+    // 常驻轮询：写 req → 服务上的 engine 处理
+    const row56 = getDb().prepare("SELECT id FROM assets WHERE file_name = '图.png'").get() as {
+      id: number
+    }
+    writeHandoffRequest(t56Pd, { reqId: 'svc-1', assetId: row56.id })
+    const hr56 = await pollHandoffOnce()
+    ok(hr56.length === 1 && hr56[0].ok === true, '常驻轮询：req.json → 投递成功（engine 挂在服务上）')
+
+    // 开关关闭 → 重启服务不起轮询
+    stopLinkService()
+    setLinkConfig({ enabled: false })
+    await startLinkService({ appDataDir: t56AppData, appVersion: '1.9.7', workspaceRoot: t56Ws })
+    ok(getLinkStatus().running === false, '开关关闭：服务不起轮询（enabled = false）')
+
+    // 复原默认，收尾
+    setLinkConfig({ enabled: true, dataDir: '' })
+    stopLinkService()
+    ok(getLinkStatus().running === false, '停止后轮询确已停（不会在临时目录被删后继续动手）')
+
+    closeDb()
+    hardRm(t56Root)
   }
 
 // ============ 汇总 ============

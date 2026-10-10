@@ -5,6 +5,7 @@ import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
+import { startLinkService, stopLinkService } from './linkService'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
 import { locateBundledExe, setBundledCliExe } from './wecomCli'
 import {
@@ -153,6 +154,14 @@ app.whenReady().then(() => {
     void enrichAllPdfMeta().catch((e) =>
       console.error('[meta] PDF 页数补齐失败：', e)
     )
+
+    // 第 62 批（docs/45）：插件联动 —— 启动后起 handoff 轮询 + 首扫镜像。
+    // 一个插件目录都没找到 / 开关关着 → startLinkService 内部静默不启，不影响其它功能。
+    void startLinkService({
+      appDataDir: app.getPath('appData'),
+      appVersion: app.getVersion(),
+      workspaceRoot: root
+    }).catch((e) => console.error('[link] 插件联动服务启动失败：', e))
   } catch (e) {
     console.error('[workspace] 初始化失败：', e)
   }
@@ -169,6 +178,11 @@ app.whenReady().then(() => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('will-quit', () => {
+  // 第 62 批（docs/45）：停掉插件联动的 handoff 轮询（照 ipc.ts 的 stopTicketScheduler 路数）
+  stopLinkService()
 })
 
 app.on('window-all-closed', () => {
