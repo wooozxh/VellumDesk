@@ -206,7 +206,23 @@ const api = {
   pluginSetConfig: (patch: { enabled?: boolean; dataDir?: string }) =>
     ipcRenderer.invoke('plugin:setConfig', patch),
   pluginPickDataDir: () => ipcRenderer.invoke('plugin:pickDataDir'),
-  pluginSyncNow: () => ipcRenderer.invoke('plugin:syncNow')
+  pluginSyncNow: () => ipcRenderer.invoke('plugin:syncNow'),
+
+  // 第 62 批（docs/46）：通用素材库
+  brandList: (opts) => ipcRenderer.invoke('brand:list', opts),
+  brandScan: () => ipcRenderer.invoke('brand:scan'),
+  brandCreateFolder: (input) => ipcRenderer.invoke('brand:createFolder', input),
+  brandRenameFolder: (input) => ipcRenderer.invoke('brand:renameFolder', input),
+  brandDeleteFolder: (id) => ipcRenderer.invoke('brand:deleteFolder', id),
+  brandSetFolderSync: (input) => ipcRenderer.invoke('brand:setFolderSync', input),
+  brandPinFolder: (id) => ipcRenderer.invoke('brand:pinFolder', id),
+  brandPickFiles: () => ipcRenderer.invoke('brand:pickFiles'),
+  brandPickFolder: () => ipcRenderer.invoke('brand:pickFolder'),
+  brandImport: (input) => ipcRenderer.invoke('brand:import', input),
+  brandRemoveAsset: (id) => ipcRenderer.invoke('brand:removeAsset', id),
+  brandForgetAsset: (id) => ipcRenderer.invoke('brand:forgetAsset', id),
+  brandPromote: (input) => ipcRenderer.invoke('brand:promote', input),
+  brandCopyToPack: (input) => ipcRenderer.invoke('brand:copyToPack', input)
 }
 
 if (process.contextIsolated) {

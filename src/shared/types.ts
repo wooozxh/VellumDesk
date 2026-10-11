@@ -1098,6 +1098,48 @@ export interface Api {
   pluginPickDataDir: () => Promise<{ ok: boolean; canceled?: boolean; dir?: string }>
   /** 手动把「任务库」镜像同步到插件目录 */
   pluginSyncNow: () => Promise<PluginLinkSyncResult>
+
+  // ---------------- 第 62 批（docs/46）：通用素材库 ----------------
+  /** 通用库视图数据：组树 + 素材（可按组/关键字过滤）+ 统计 */
+  brandList: (opts?: {
+    folderId?: number
+    keyword?: string
+  }) => Promise<BrandListView>
+  /** 扫 `<工作区>\_通用素材库\`（认领手建文件夹 / 补缩略图 / 标记丢失） */
+  brandScan: () => Promise<{ ok: boolean; added: number; folders: number; missing: number }>
+  brandCreateFolder: (input: {
+    name: string
+    parentId?: number | null
+  }) => Promise<{ ok: boolean; error?: string; id?: number }>
+  brandRenameFolder: (input: {
+    id: number
+    name: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  brandDeleteFolder: (id: number) => Promise<{ ok: boolean; error?: string; moved?: number }>
+  brandSetFolderSync: (input: { id: number; on: boolean }) => Promise<{ ok: boolean }>
+  brandPinFolder: (id: number) => Promise<{ ok: boolean }>
+  /** 弹系统「选文件」对话框，返回选中的绝对路径（不直接导入） */
+  brandPickFiles: () => Promise<{ ok: boolean; canceled?: boolean; paths: string[] }>
+  /** 弹系统「选文件夹」对话框（用于拖拽/批量导入整组） */
+  brandPickFolder: () => Promise<{ ok: boolean; canceled?: boolean; paths: string[] }>
+  brandImport: (input: {
+    paths: string[]
+    folderId?: number | null
+  }) => Promise<{ ok: boolean; imported: number; renamed: number; createdFolders: number }>
+  /** 从通用库移除一条（文件移进 `_回收站`，不硬删） */
+  brandRemoveAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
+  /** 只移出库记录、保留文件 */
+  brandForgetAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
+  /** 【提升】任务库素材 → 复制进通用库 */
+  brandPromote: (input: {
+    assetId: number
+    folderId: number
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** 【复制到任务】通用库素材 → 复制进某个任务包的 02-素材 */
+  brandCopyToPack: (input: {
+    brandAssetId: number
+    packId: number
+  }) => Promise<{ ok: boolean; error?: string; dest?: string }>
 }
 
 /** 第 62 批（docs/45）：PS 插件联动状态 */
@@ -1110,6 +1152,8 @@ export interface PluginLinkStatus {
   running: boolean
   lastSyncAt: string | null
   lastResult: string | null
+  /** 手填的插件目录落在工作区内部、已被防呆忽略（界面据此提示，第 63 批 docs/47） */
+  manualDirIgnored?: boolean
 }
 
 /** 第 62 批（docs/45）：PS 插件联动设置 */
@@ -1130,4 +1174,59 @@ export interface PluginLinkSyncResult {
   /** 这次写了几个目录（0 = 没找到插件目录） */
   dirs: number
   error?: string
+  /** 第 62 批 Step 4（docs/46）：通用库那次同步的条数 / 缩略图数 */
+  brandCount?: number
+  brandThumbs?: number
+}
+
+// ---------------- 第 62 批（docs/46）：通用素材库 ----------------
+
+/** 通用库分组（两层：depth 1 = 顶层，2 = 子组） */
+export interface BrandFolderNode {
+  id: number
+  parentId: number | null
+  name: string
+  depth: number
+  sortOrder: number
+  syncToPlugin: boolean
+  /** 生效同步 = 自身与所有祖先都为 true（父关则子关） */
+  effectiveSync: boolean
+  /** 'company' | 'user' */
+  source: string
+  /** 直属素材数 */
+  assetCount: number
+  /** 含子组的素材总数 */
+  totalCount: number
+}
+
+/** 通用库素材（列表项） */
+export interface BrandAssetItem {
+  id: number
+  folderId: number | null
+  folderName: string | null
+  fileName: string
+  ext: string
+  size: number
+  width: number | null
+  height: number | null
+  source: string
+  missing: boolean
+  modifiedAt: string
+  /** 缩略图 / 原图的 dataURL（主进程读盘后塞进来，渲染层不直接碰磁盘） */
+  thumb: string | null
+}
+
+export interface BrandStats {
+  folders: number
+  assets: number
+  unsorted: number
+  missing: number
+}
+
+export interface BrandListView {
+  folders: BrandFolderNode[]
+  assets: BrandAssetItem[]
+  stats: BrandStats
+  /** 三层及以上被跳过的目录数（只做两层，给界面一个提示口径） */
+  skippedDeep: number
 }

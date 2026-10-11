@@ -24,6 +24,55 @@ const { COPY, fmt } = require('./copy.cjs')
 /** 字典模板 → 用户实际看到的文字（去掉 <b>/<code>/<em>/<path>/<span> 内联标记） */
 const plain = (s) => String(s).replace(/<\/?(b|code|em|span|path)>/g, '')
 
+/** 手搓一张合法 PNG（zlib 压 IDAT + CRC）—— 缩略图要用 sharp 真解码，随机字节会解码失败 */
+function makePngFile(outPath, w, h, rgb) {
+  const zlib = require('zlib')
+  const raw = Buffer.alloc((w * 3 + 1) * h)
+  let o = 0
+  for (let y = 0; y < h; y++) {
+    raw[o++] = 0
+    for (let x = 0; x < w; x++) {
+      raw[o++] = (rgb[0] + x * 3) % 256
+      raw[o++] = (rgb[1] + y * 3) % 256
+      raw[o++] = rgb[2]
+    }
+  }
+  const idat = zlib.deflateSync(raw)
+  const crcTable = []
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    crcTable[n] = c >>> 0
+  }
+  const crc = (buf) => {
+    let c = 0xffffffff
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const cc = Buffer.alloc(4)
+    cc.writeUInt32BE(crc(body))
+    return Buffer.concat([len, body, cc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8
+  ihdr[9] = 2
+  writeFileSync(
+    outPath,
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', ihdr),
+      chunk('IDAT', idat),
+      chunk('IEND', Buffer.alloc(0))
+    ])
+  )
+}
+
 const ROOT = join(__dirname, '..', '..')
 process.env.MEDIA_FFMPEG_DIR = join(ROOT, 'resources', 'ffmpeg')
 
@@ -108,6 +157,20 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_gencover'),
     workspaceRoot: join(BASE, 'shot_wsgc'),
     shot: 'shot-b59-1-gen-cover-grid.png'
+  },
+  // 第 62 批（docs/45 Step 3b）：PS 插件联动 UI（顶栏「插件」入口 + 设置弹窗降级态）
+  // ⚠️ 跑这个场景务必带 VELLUM_PLUGIN_SYNC=0（硬开关），否则会往真实插件目录写镜像
+  pluginlink: {
+    userData: join(BASE, 'shot4_pluginlink'),
+    workspaceRoot: join(BASE, 'shot_wspl'),
+    shot: 'shot-b62-4-plugin-modal-final.png'
+  },
+  // 第 62 批 Step 4（docs/46）：通用素材库（组树 / 网格 / 扫描 / 同步开关）
+  // ⚠️ 同样要带 VELLUM_PLUGIN_SYNC=0（通用库改动会自动刷镜像）
+  brandlib: {
+    userData: join(BASE, 'shot4_brandlib'),
+    workspaceRoot: join(BASE, 'shot_wsbl'),
+    shot: 'shot-b62b-4-brandlib-final.png'
   },
   // 第 25 批：未归属池入口（用户报的 bug —— 点虚线「未归属」卡片时弹窗一直「加载中」）
   unassigned: {
@@ -894,6 +957,66 @@ app.whenReady().then(async () => {
     d.close()
     wsm.scanAll(ws)
     say('seeded gencover: A=' + PA.color + ' B=' + PB.color + ' | loose=' + join(ws, '还没归类的任务'))
+  }
+
+  // ============================================================
+  // 第 62 批（docs/45 Step 3b）：PS 插件联动 UI
+  //   建一个「像在用」的小工作区（1 个项目 + 2 个任务）——只为界面有东西可看。
+  //   真正要验的是**插件设置弹窗的降级路由**：本场景以 VELLUM_PLUGIN_SYNC=0 跑
+  //   （硬开关：服务层不发现目标、也不碰真实插件目录），所以只能命中「未找到插件目录」；
+  //   「找到目录 → 写镜像」那条由 accept [56] 覆盖。
+  //   ⚠️ 必须预建库（initWorkspace）—— 否则首次配置引导会弹出来挡住弹窗。
+  // ============================================================
+  if (SCEN === 'pluginlink') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+
+    const wsm = require(join(ROOT, 'out/test/workspace.cjs'))
+    wsm.initWorkspace(ws)
+
+    const Database = require('better-sqlite3')
+    const d = new Database(join(ws, '_system', 'media.db'))
+    d.pragma('foreign_keys = ON')
+    const now = new Date().toISOString()
+    const SUB = ['01-成品', '02-素材', '03-工程']
+    const addPack = d.prepare(
+      `INSERT INTO packs (name, category, folder_path, project_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    const PA = d.prepare('SELECT id, folder_name, color FROM projects WHERE name = ?').get('海南升学集训营')
+    const mk = (parentDir, name, projectId) => {
+      const dir = join(parentDir, name)
+      for (const sub of SUB) mkdirSync(join(dir, sub), { recursive: true })
+      writeFileSync(join(dir, '01-成品', '说明.txt'), 'x', 'utf-8')
+      addPack.run(name, '海报', dir, projectId, now, now)
+      return dir
+    }
+    mk(join(ws, PA.folder_name), '开学海报-A3', PA.id)
+    mk(join(ws, PA.folder_name), '招生折页', PA.id)
+    d.close()
+    wsm.scanAll(ws)
+    say('seeded pluginlink    : project=' + PA.color + ' packs=2')
+  }
+
+  // ============================================================
+  // 第 62 批 Step 4（docs/46）：通用素材库 —— 只摆**磁盘**，库由软件的「扫描磁盘」去认领
+  //   （顺带验证「资源管理器里手建文件夹 → 软件自动认领」这条铁律）
+  // ============================================================
+  if (SCEN === 'brandlib') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+    // 预建库 → 不弹首次配置向导（否则向导会盖住通用库视图）
+    require(join(ROOT, 'out/test/workspace.cjs')).initWorkspace(ws)
+
+    const brand = join(ws, '_通用素材库')
+    const logoDir = join(brand, '公司素材', '品牌logo')
+    const bgDir = join(brand, '个人收藏', '背景')
+    mkdirSync(logoDir, { recursive: true })
+    mkdirSync(bgDir, { recursive: true })
+    makePngFile(join(logoDir, 'logo-红.png'), 64, 64, [230, 0, 18])
+    makePngFile(join(logoDir, 'logo-蓝.png'), 64, 64, [38, 128, 235])
+    makePngFile(join(bgDir, '背景-灰.png'), 64, 64, [120, 120, 120])
+    say('seeded brandlib      : 3 files / 2 groups')
   }
 
   // ============================================================
@@ -3508,12 +3631,16 @@ app.whenReady().then(async () => {
     await wait(1200)
 
     // (1b) 第 21 批：顶栏三格按使用逻辑重排 —— 工单队列在最前（先看单、再回任务、最后查文件）
+    //      第 62 批 Step 4：末尾新增第 4 格「通用库」（docs/46），故这里是 4 格
     const tabBar = await js(
       `(() => { const bs = [...document.querySelectorAll('.tabs button')]; return { n: bs.length, first: bs[0] ? bs[0].innerText.trim() : '', order: bs.map(b => b.innerText.trim()) } })()`
     )
     ok(
-      !!tabBar && tabBar.n === 3 && tabBar.first.startsWith(plain(COPY.ticket.viewTab)),
-      `顶栏第一格是「${plain(COPY.ticket.viewTab)}」（实际顺序：${tabBar ? tabBar.order.join(' / ') : '—'}）`
+      !!tabBar &&
+        tabBar.n === 4 &&
+        tabBar.first.startsWith(plain(COPY.ticket.viewTab)) &&
+        tabBar.order[3] === plain(COPY.brand.entry),
+      `顶栏第一格是「${plain(COPY.ticket.viewTab)}」、第四格是「${plain(COPY.brand.entry)}」（实际顺序：${tabBar ? tabBar.order.join(' / ') : '—'}）`
     )
     ok(
       !!tabBar && tabBar.order[1] && tabBar.order[1].startsWith(plain(COPY.top.viewPacks)),
@@ -4929,7 +5056,295 @@ app.whenReady().then(async () => {
     await shot('shot-m-15-project-del.png')
     await popModal()
 
+    // ⑯ 通用素材库（第 62 批 docs/46）—— 首次进入是空的，先用**软件自己的接口**导入几张真图。
+    //    走 window.api（而不是直接写库）是为了顺带验证真实链路：建组 → 导入（复制）→ 自动重扫 → 缩略图。
+    const brandSeed = await js(`(async () => {
+      const api = window.api
+      const d = await api.brandList()
+      if (!d || !d.folders) return 'no-api'
+      if (d.assets && d.assets.length > 0) return 'already'
+      const topId = (n) => { const f = d.folders.find(x => x.name === n); return f ? f.id : null }
+      const co = topId('公司素材')
+      const me = topId('个人收藏')
+      const mk = async (name, parentId) => { const r = await api.brandCreateFolder({ name, parentId }); return (r && r.id) || null }
+      const logo = await mk('品牌logo', co)
+      const cover = await mk('教材封面', co)
+      const bg = await mk('背景纹理', me)
+      const S = 'D:\\\\_accept_ws\\\\_manual_assets\\\\'
+      await api.brandImport({ paths: [S + '海报-秋季招生主视觉.png', S + '折页封面-A4三折.png'], folderId: logo })
+      await api.brandImport({ paths: [S + 'KV-电子屏主视觉.png', S + '海报-寒假班预告.png'], folderId: cover })
+      await api.brandImport({ paths: [S + '素材-几何底纹.jpg', S + '素材-暗色渐变.jpg'], folderId: bg })
+      return 'seeded'
+    })()`)
+    say('brand seed            : ' + brandSeed)
+    await wait(1200)
+
+    await clickTxt('.tabs button', '通用库')
+    await wait(1800)
+    await shot('shot-m-16-brandlib.png')
+
+    // ⑰ PS 插件联动设置弹窗（第 62 批 docs/45 Step 3b）
+    await clickTxt('.topbar .btn', '插件')
+    await wait(1400)
+    await shot('shot-m-17-plugin-modal.png')
+    await popModal()
+
     say('manual screenshots    : done')
+  } else if (SCEN === 'pluginlink') {
+    // ============================================================
+    // 第 62 批（docs/45 Step 3b）：PS 插件联动的界面接入
+    //   本场景**以 VELLUM_PLUGIN_SYNC=0 跑**（硬开关：不发现目标、不碰真实插件目录）——
+    //   只验「未找到插件目录」这条降级路由；「找到目录 → 写镜像」由 accept [56] 覆盖。
+    //   要验的是：顶栏入口在 / 弹窗能开 / 开关·输入框·按钮齐 / 降级文案对 / 点同步不闯祸。
+    // ============================================================
+    await wait(1200)
+
+    // ① 顶栏常驻入口存在、文案与悬停提示对
+    const entry = await js(`(() => {
+      const btn = [...document.querySelectorAll('.topbar .btn')]
+        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
+      return btn ? { text: btn.innerText.trim(), title: btn.getAttribute('title') || '' } : null
+    })()`)
+    ok(!!entry, '顶栏出现「' + plain(COPY.pluginLink.entry) + '」常驻入口')
+    ok(
+      !!entry && entry.title === plain(COPY.pluginLink.title),
+      '入口悬停提示 = ' + plain(COPY.pluginLink.title)
+    )
+
+    // ② 点开弹窗，逐项核对
+    await js(`(() => {
+      const btn = [...document.querySelectorAll('.topbar .btn')]
+        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
+      if (btn) btn.click()
+      return 'ok'
+    })()`)
+    await wait(900)
+    const m = await js(`(() => {
+      const modal = document.querySelector('.modal')
+      if (!modal) return null
+      const h3 = modal.querySelector('h3')
+      const chk = modal.querySelector('.pl-autosync input[type=checkbox]')
+      const dirInput = modal.querySelector('.tk-linkrow input[type=text]')
+      const pickBtn = [...modal.querySelectorAll('.tk-linkrow .btn')]
+        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.pick))})
+      const syncBtn = [...modal.querySelectorAll('.tk-actions .btn')]
+        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.syncBtn))})
+      const none = modal.querySelector('.pl-none')
+      const lastV = modal.querySelector('.pl-last .v')
+      return {
+        title: h3 ? h3.innerText.replace(/\\s+/g, ' ').trim() : '',
+        hasChk: !!chk,
+        chkOn: !!(chk && chk.checked),
+        hasDir: !!dirInput,
+        hasPick: !!pickBtn,
+        hasSync: !!syncBtn,
+        noneText: none ? none.innerText.trim() : '',
+        lastText: lastV ? lastV.innerText.trim() : ''
+      }
+    })()`)
+    ok(!!m, '「插件」入口能打开设置弹窗')
+    ok(!!m && m.title.includes(plain(COPY.pluginLink.title)), '弹窗标题 = ' + plain(COPY.pluginLink.title))
+    ok(!!m && m.hasChk && m.chkOn === true, '「' + plain(COPY.pluginLink.autoLabel) + '」开关默认打开')
+    ok(!!m && m.hasDir === true, '有可手填的「' + plain(COPY.pluginLink.dirLabel) + '」输入框')
+    ok(!!m && m.hasPick === true, '有「' + plain(COPY.pluginLink.pick) + '」按钮')
+    ok(!!m && m.hasSync === true, '有「' + plain(COPY.pluginLink.syncBtn) + '」按钮主体')
+    ok(
+      !!m && m.noneText === plain(COPY.pluginLink.foundNone),
+      '降级态：显示「未找到插件目录」提示'
+    )
+    ok(
+      !!m && m.lastText === plain(COPY.pluginLink.lastNone),
+      '降级态：上次同步显示「' + plain(COPY.pluginLink.lastNone) + '」'
+    )
+    // 弹窗刚打开时 capturePage 会连着几帧返回空图（Electron 合成器抖动）——
+    // 轮询到拿到非空图再落盘（第一次写出来是 0 KB 会误导人工复核）
+    let modalShot = null
+    for (let i = 0; i < 12; i++) {
+      const img = await win.webContents.capturePage()
+      if (img.toPNG().length > 1024) {
+        modalShot = img
+        break
+      }
+      await wait(400)
+    }
+    if (modalShot) {
+      writeFileSync(join(ROOT, 'shot-b62-1-plugin-modal.png'), modalShot.toPNG())
+      say(
+        'screenshot            : shot-b62-1-plugin-modal.png (' +
+          Math.round(modalShot.toPNG().length / 1024) +
+          ' KB)'
+      )
+    } else {
+      ok(false, '弹窗打开后截图始终为空')
+    }
+
+    // ③ 点「同步到插件」→ 没目录，给友好提示（不报错、不写任何东西）
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.modal .tk-actions .btn')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.syncBtn))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(900)
+    const after = await js(`(() => {
+      const modal = document.querySelector('.modal')
+      const okEl = modal ? modal.querySelector('.pl-msg') : null
+      const errEl = modal ? modal.querySelector('.tk-err') : null
+      return { ok: okEl ? okEl.innerText.trim() : '', err: errEl ? errEl.innerText.trim() : '' }
+    })()`)
+    ok(
+      !!after && after.ok === plain(COPY.pluginLink.syncNone),
+      '无目录时点同步 → 提示「' + plain(COPY.pluginLink.syncNone) + '」'
+    )
+    ok(!!after && after.err === '', '无目录时点同步 → 不弹红色错误（降级不报错）')
+    await shot('shot-b62-2-plugin-sync-none.png')
+
+    // ④ 关掉弹窗
+    await js(`(() => {
+      const c = document.querySelector('.modal h3 .close')
+      if (c) c.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    const closed = await js(`document.querySelectorAll('.modal').length`)
+    ok(closed === 0, '点 ✕ 能关掉弹窗，实际残留 ' + closed + ' 个')
+    await shot('shot-b62-3-plugin-closed.png')
+
+    // ⑤ 重新打开弹窗并**留在屏幕上** —— 场景壳最后会统一截一次 s.shot，
+    //    那才是给人工复核看的「正经截图」，所以末态必须是弹窗打开（不是关掉的空壳）
+    await js(`(() => {
+      const btn = [...document.querySelectorAll('.topbar .btn')]
+        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
+      if (btn) btn.click()
+      return 'ok'
+    })()`)
+    await wait(800)
+    const reopened = await js(`document.querySelectorAll('.modal').length`)
+    ok(reopened === 1, '再次点入口能重新打开弹窗（末态留给总截图），实际 ' + reopened + ' 个')
+  } else if (SCEN === 'brandlib') {
+    // ============================================================
+    // 第 62 批 Step 4（docs/46）：通用素材库视图
+    //   ⚠️ 以 VELLUM_PLUGIN_SYNC=0 跑（库改动会自动刷镜像，别碰真实插件目录）
+    //   布景只摆磁盘，库靠界面的「扫描磁盘」去认领 —— 顺带验「软件视图 = 磁盘现实」
+    // ============================================================
+    await wait(1200)
+
+    // ① 顶栏有「通用库」格
+    const tabs = await js(
+      `[...document.querySelectorAll('.topbar .tabs button')].map(b => b.innerText.trim())`
+    )
+    ok(
+      Array.isArray(tabs) && tabs.includes(plain(COPY.brand.entry)),
+      '顶栏出现「' + plain(COPY.brand.entry) + '」格：' + JSON.stringify(tabs)
+    )
+
+    // ② 点进通用库视图
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .tabs button')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.brand.entry))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(900)
+    const v = await js(`(() => {
+      const root = document.querySelector('.brand-view')
+      if (!root) return null
+      const nodes = [...root.querySelectorAll('.brand-node')].map(n => ({
+        all: n.classList.contains('all'),
+        unsorted: n.classList.contains('unsorted')
+      }))
+      return {
+        hasTop: !!root.querySelector('.brand-top'),
+        hasSearch: !!root.querySelector('.brand-search'),
+        nodes
+      }
+    })()`)
+    ok(!!v, '「通用库」格能打开通用素材库视图')
+    ok(!!v && v.hasTop && v.hasSearch, '工具条（标题 / 统计 / 搜索框 / 按钮）就位')
+    ok(
+      !!v && (v.nodes ?? []).some((n) => n.all) && (v.nodes ?? []).some((n) => n.unsorted),
+      '左栏有「全部素材」与「未分组」两个固定入口'
+    )
+    await shot('shot-b62b-1-brandlib-empty.png')
+
+    // ③ 点「扫描磁盘」→ 认领磁盘上手摆的两层结构
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .brand-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.brand.scan))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(2800)
+    const after = await js(`(() => {
+      const root = document.querySelector('.brand-view')
+      if (!root) return null
+      const groups = [...root.querySelectorAll('.brand-node .bn-name')].map(n => n.innerText.trim())
+      const cards = [...root.querySelectorAll('.brand-card')].map(c => ({
+        name: (c.querySelector('.name') || {}).innerText || '',
+        src: (c.querySelector('.b-src') || {}).innerText || '',
+        hasImg: !!c.querySelector('.thumb img'),
+        folder: (c.querySelector('.meta .sub') || {}).innerText || ''
+      }))
+      return { groups, cards }
+    })()`)
+    ok(!!after && after.groups.includes('品牌logo'), '扫描后自动认领手建的「品牌logo」子组')
+    ok(!!after && after.groups.includes('背景'), '扫描后自动认领手建的「背景」子组')
+    ok(!!after && after.cards.length === 3, '网格列出 3 条素材（实际 ' + (after ? after.cards.length : '?') + '）')
+    ok(!!after && after.cards.every((c) => c.hasImg), '每条都渲染出缩略图 <img>（转码后的 png 能被渲染）')
+    const redCard = after && after.cards.find((c) => c.name === 'logo-红.png')
+    ok(!!redCard && redCard.src === plain(COPY.brand.company), '公司素材下的图带「公司」来源角标')
+    ok(!!redCard && redCard.folder === '品牌logo', '卡片副行显示所属分组：' + (redCard ? redCard.folder : '—'))
+    await shot('shot-b62b-2-brandlib-scanned.png')
+
+    // ④ 点「未分组」→ 空态
+    await js(`(() => {
+      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.classList.contains('unsorted'))
+      if (n) n.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 0,
+      '「未分组」当前是空的（素材都在分组里）'
+    )
+    const emptyText = await js(
+      `(() => { const e = document.querySelector('.brand-view .brand-empty'); return e ? e.innerText.trim() : '' })()`
+    )
+    ok(!!emptyText, '空态给了提示文案：' + emptyText)
+
+    // ⑤ 组上的「插件」同步开关
+    const readSync = () =>
+      js(`(() => {
+        const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+        const p = n ? n.querySelector('.b-sync') : null
+        return p ? p.innerText.trim() : ''
+      })()`)
+    ok((await readSync()) === plain(COPY.brand.syncOn), '顶层组「公司素材」默认标「同步」')
+    await js(`(() => {
+      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+      const p = n ? n.querySelector('.b-sync') : null
+      if (p) p.click()
+      return 'ok'
+    })()`)
+    await wait(900)
+    ok((await readSync()) === plain(COPY.brand.syncOff), '点一下 → 变「不同步」（生效值 = 自身与祖先都为 1）')
+    await shot('shot-b62b-3-brandlib-sync-toggle.png')
+    // 复位
+    await js(`(() => {
+      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+      const p = n ? n.querySelector('.b-sync') : null
+      if (p) p.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+
+    // ⑥ 回「全部素材」，末态留给总截图
+    await js(`(() => { const n = document.querySelector('.brand-view .brand-node.all'); if (n) n.click(); return 'ok' })()`)
+    await wait(800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 3,
+      '回到「全部素材」→ 3 条素材（末态留给总截图）'
+    )
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
     ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')

@@ -13,7 +13,7 @@
  * · `revision` 单调递增；用**内容签名短路** —— 内容没变就**整文件不重写**（省 IO，插件也不抖动）。
  * · 所有 JSON **原子写**（先写 `.tmp` 再 `rename`）—— 插件每 3 秒 stat 一次，绝不能读到半个文件。
  */
-import { join, extname } from 'path'
+import { join, extname, resolve } from 'path'
 import {
   existsSync,
   mkdirSync,
@@ -34,6 +34,7 @@ export const PLUGIN_ID = 'com.vellum.toolbox'
 export const MIRROR_DIR = 'library'
 export const MANIFEST_FILE = 'manifest.json'
 export const TASK_FILE = 'task.json'
+export const BRAND_FILE = 'brand.json'
 export const THUMB_DIR = 'thumb'
 export const HANDOFF_DIR = 'handoff'
 export const LAYOUT_VERSION = '3'
@@ -41,6 +42,9 @@ export const LAYOUT_VERSION = '3'
 // meta 键（照 report.ts / tickets.ts 的路数集中定义）
 const META_REV = 'plugin_rev_task'
 const META_SIG = 'plugin_sig_task'
+/** 第 62 批 Step 4（docs/46）：通用库的 revision / 内容签名（与任务库各自独立） */
+const META_REV_BRAND = 'plugin_rev_brand'
+const META_SIG_BRAND = 'plugin_sig_brand'
 
 /** 图片/PSD/PDF 的镜像缩略图统一落 png，视频落 jpg（契约 §5.5：只允许 png / jpg） */
 const PNG_EXTS = new Set(['png'])
@@ -77,10 +81,10 @@ function kindOf(ext: string): string {
 }
 
 /** 缩略图在镜像里的文件名（命名空间 + id）：`t12.png` / `t12.jpg` */
-function mirrorThumbName(id: number, srcExt: string): string {
+function mirrorThumbName(id: number, srcExt: string, prefix = 't'): string {
   const e = srcExt.replace(/^\./, '').toLowerCase()
   const out = e === 'jpg' || e === 'jpeg' ? 'jpg' : 'png'
-  return `t${id}.${out}`
+  return `${prefix}${id}.${out}`
 }
 
 // ---------------------------------------------------------------- 路径发现（契约 §七）
@@ -106,7 +110,19 @@ export function discoverPluginDataDirs(appDataDir: string): MirrorTarget[] {
   }
   for (const v of versions) {
     if (!/^\d+$/.test(v)) continue
-    for (const container of ['Developer', 'External', 'Plugins']) {
+    /**
+     * 容器「区」名**不写死**（插件侧 2026-10-11 提醒）：UXP 把插件按安装来源分区存放 ——
+     * 开发态（UDT 加载）= `Developer`；**正式安装（.ccx）= `External`**；另有 `Plugins` 等。
+     * 一个插件在**某一时刻只会存在于一个区**，所以把 `<ver>\` 下的**所有子目录**都当成候选扫一遍，
+     * 扫到哪个用哪个 —— 免得插件发正式版之后镜像写去旧位置、插件里素材库变空（而且不报错，最难查）。
+     */
+    let containers: string[]
+    try {
+      containers = readdirSync(join(base, v))
+    } catch {
+      continue
+    }
+    for (const container of containers) {
       const pd = join(base, v, container, PLUGIN_ID, 'PluginData')
       if (existsSync(pd)) hits.push({ psMajor: v, pluginDataDir: pd })
     }
@@ -278,18 +294,30 @@ async function ensureTaskThumbs(workspaceRoot: string): Promise<void> {
 
 // ---------------------------------------------------------------- 缩略图转码 / 拷贝
 
-/** 把一个 `_thumbs\*.webp|.jpg` 落到镜像 `thumb\t<id>.png|jpg`；返回镜像内相对路径（失败 null） */
+/** 把一个 `_thumbs\*.webp|.jpg` 落到镜像 `thumb\<前缀><id>.png|jpg`；返回镜像内相对路径（失败 null）
+ *  `prefix`：任务库 `t`、通用库 `b`（契约 §5.5 命名空间，防两库 id 撞名）。 */
 async function writeMirrorThumb(
   workspaceRoot: string,
   thumbDir: string,
   id: number,
-  thumbPath: string
+  thumbPath: string,
+  prefix = 't'
 ): Promise<string | null> {
   const srcAbs = join(workspaceRoot, thumbPath)
   if (!existsSync(srcAbs)) return null
   const srcExt = extname(srcAbs).replace(/^\./, '').toLowerCase()
-  const name = mirrorThumbName(id, srcExt)
+  const name = mirrorThumbName(id, srcExt, prefix)
   const dstAbs = join(thumbDir, name)
+  // 增量（第 63 批 docs/47）：目标比源新 → 已是最新，跳过。
+  // 有了「变更后自动同步」之后，每次都全量重转（webp→png 走 sharp）会让大库很卡。
+  // 注意：png/jpg 是**直接拷贝**（copyFileSync 会把源 mtime 一起搬过来 → 两者相等 → 命中跳过）。
+  if (existsSync(dstAbs)) {
+    try {
+      if (statSync(dstAbs).mtimeMs >= statSync(srcAbs).mtimeMs) return `${THUMB_DIR}/${name}`
+    } catch {
+      /* 比不了时间就照转 */
+    }
+  }
   try {
     if (PNG_EXTS.has(srcExt)) {
       // 已经是 png → 直接拷
@@ -306,6 +334,82 @@ async function writeMirrorThumb(
   } catch {
     return null
   }
+}
+
+// ---------------------------------------------------------------- manifest（合并写）
+
+/**
+ * 镜像当前是**哪个工作区**写出来的（读 manifest 里的 `workspaceRoot`）；读不到给 null。
+ *
+ * 为什么需要它（第 63 批 docs/47，插件侧点出来的真坑）：
+ * 镜像目录在磁盘上是**多个工作区共用**的，而「内容签名短路」用的 `meta` 是**按工作区各存一份**。
+ * 于是「切到 B 再切回 A」时，A 的签名和 A 的内容仍然一致 → 短路 → **不写盘** →
+ * 插件一直显示 **B 的数据**（"数据是旧的、界面却一切正常"，最难归因）。
+ * 解法：短路之前先核对 manifest 里的 workspaceRoot 是不是当前工作区；不是就**强制重写**。
+ */
+function mirrorWorkspaceOf(pluginDataDir: string): string | null {
+  const p = join(pluginDataDir, MIRROR_DIR, MANIFEST_FILE)
+  if (!existsSync(p)) return null
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf-8')) as { workspaceRoot?: unknown }
+    return typeof j.workspaceRoot === 'string' ? j.workspaceRoot : null
+  } catch {
+    return null
+  }
+}
+
+/** 两个工作区根是否同一个（Windows 路径大小写不敏感 → 归一化后比） */
+function sameRoot(a: string | null, b: string): boolean {
+  if (!a) return false
+  try {
+    return resolve(a).toLowerCase() === resolve(b).toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+interface ManifestScopeEntry {
+  id: string
+  label: string
+  file: string
+  revision: number
+  count: number
+}
+
+/**
+ * 合并式写 `manifest.json`：**保留另一个 scope 的条目**。
+ *
+ * 任务库与通用库**各自独立同步**（各自的 revision 与内容签名短路），谁同步就更新谁那条。
+ * 若两边都整文件覆盖，后写的会把先写的 scope 从 `scopes[]` 里抹掉 ——
+ * 而 `scopes[]` 是插件**列库的唯一依据**，抹掉的后果就是插件里那个库**整个消失**。
+ */
+function refreshManifest(
+  lib: string,
+  meta: { psMajor: string; appVersion: string; workspaceRoot: string },
+  entry: ManifestScopeEntry
+): void {
+  const p = join(lib, MANIFEST_FILE)
+  let prevScopes: ManifestScopeEntry[] = []
+  if (existsSync(p)) {
+    try {
+      const j = JSON.parse(readFileSync(p, 'utf-8')) as { scopes?: ManifestScopeEntry[] }
+      if (Array.isArray(j.scopes)) prevScopes = j.scopes
+    } catch {
+      prevScopes = []
+    }
+  }
+  const others = prevScopes.filter((s) => s && s.id !== entry.id)
+  // task 恒在前、brand 在后（稳定顺序，便于人工核对）
+  const rank = (id: string): number => (id === 'task' ? 0 : id === 'brand' ? 1 : 2)
+  const scopes = [entry, ...others].sort((a, b) => rank(a.id) - rank(b.id))
+  atomicWriteJson(p, {
+    contract: CONTRACT_VERSION,
+    generatedAt: isoLocal(),
+    generator: { app: 'VellumDesk', version: meta.appVersion, layoutVersion: LAYOUT_VERSION },
+    workspaceRoot: meta.workspaceRoot,
+    psMajor: meta.psMajor,
+    scopes
+  })
 }
 
 // ---------------------------------------------------------------- 写镜像（主入口）
@@ -353,7 +457,9 @@ export async function syncTaskMirror(
     const allTargetsPopulated = targets.every(
       (t) =>
         existsSync(join(t.pluginDataDir, MIRROR_DIR, MANIFEST_FILE)) &&
-        existsSync(join(t.pluginDataDir, MIRROR_DIR, TASK_FILE))
+        existsSync(join(t.pluginDataDir, MIRROR_DIR, TASK_FILE)) &&
+        // 镜像必须是**当前工作区**写出来的，否则强制重写（切工作区后不能让插件看旧数据）
+        sameRoot(mirrorWorkspaceOf(t.pluginDataDir), workspaceRoot)
     )
     const unchanged = !opts.force && prevSig === sig && allTargetsPopulated
 
@@ -386,16 +492,14 @@ export async function syncTaskMirror(
       const taskJson = { ...content, revision, generatedAt }
       atomicWriteJson(join(lib, TASK_FILE), taskJson)
 
-      // manifest.json
-      const manifest = {
-        contract: CONTRACT_VERSION,
-        generatedAt,
-        generator: { app: 'VellumDesk', version: opts.appVersion, layoutVersion: LAYOUT_VERSION },
-        workspaceRoot,
-        psMajor: t.psMajor,
-        scopes: [{ id: 'task', label: '任务库', file: TASK_FILE, revision, count }]
-      }
-      atomicWriteJson(join(lib, MANIFEST_FILE), manifest)
+      // manifest.json（合并式：保留通用库那条，别把它抹掉）
+      refreshManifest(lib, { psMajor: t.psMajor, appVersion: opts.appVersion, workspaceRoot }, {
+        id: 'task',
+        label: '任务库',
+        file: TASK_FILE,
+        revision,
+        count
+      })
     }
 
     setMeta(META_SIG, sig)
@@ -407,6 +511,205 @@ export async function syncTaskMirror(
       ok: false,
       wrote: false,
       revision: Number(getMeta(META_REV) || '0'),
+      count: 0,
+      thumbs: 0,
+      targets,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 通用素材库镜像（docs/46）
+
+/** 单条通用库素材 → 契约 §5.4 的 asset 结构（与 task 同源，多一个可选 `source`） */
+function brandAssetToJson(a: {
+  id: number
+  file_name: string
+  ext: string
+  size: number
+  width: number | null
+  height: number | null
+  thumb_path: string | null
+  missing_at: string | null
+  modified_at: string
+  abs_path: string
+  source: string
+}): Record<string, unknown> {
+  const srcExt = a.thumb_path ? extname(a.thumb_path).replace(/^\./, '') : ''
+  return {
+    id: a.id,
+    name: a.file_name,
+    ext: a.ext,
+    kind: kindOf(a.ext),
+    // 通用库没有「成品/素材/工程」三组子目录的老规矩，统一记「素材」
+    role: '素材',
+    size: a.size,
+    width: a.width,
+    height: a.height,
+    versionId: null,
+    thumb: a.thumb_path ? `${THUMB_DIR}/${mirrorThumbName(a.id, srcExt, 'b')}` : null,
+    missing: a.missing_at !== null,
+    modifiedAt: a.modified_at,
+    absPath: a.abs_path,
+    tags: [],
+    source: a.source === 'company' ? 'company' : 'user'
+  }
+}
+
+interface BrandContent {
+  contract: string
+  scope: 'brand'
+  groups: unknown[]
+}
+
+/**
+ * 组装 `brand.json` 的**内容**（不含 revision / generatedAt —— 那两个由写盘时补）。
+ * 只含 **`sync_to_plugin` 生效** 的分组：生效值 = **自身与所有祖先都为 1**（父关则子关）。
+ */
+function buildBrandContent(): BrandContent {
+  const db = getDb()
+  const folders = db
+    .prepare('SELECT id, parent_id, name, sort_order, sync_to_plugin, source FROM brand_folders')
+    .all() as Array<{
+    id: number
+    parent_id: number | null
+    name: string
+    sort_order: number
+    sync_to_plugin: number
+    source: string
+  }>
+  const byId = new Map(folders.map((f) => [f.id, f]))
+  const cache = new Map<number, boolean>()
+  const effective = (id: number): boolean => {
+    const hit = cache.get(id)
+    if (hit !== undefined) return hit
+    const f = byId.get(id)
+    if (!f) return false
+    const v = f.sync_to_plugin === 1 && (f.parent_id === null ? true : effective(f.parent_id))
+    cache.set(id, v)
+    return v
+  }
+
+  const assets = db
+    .prepare(
+      `SELECT id, folder_id, file_name, ext, size, width, height, thumb_path, missing_at,
+              modified_at, abs_path, source FROM brand_assets`
+    )
+    .all() as Array<Parameters<typeof brandAssetToJson>[0] & { folder_id: number | null }>
+
+  const groups = folders
+    .filter((f) => effective(f.id))
+    .sort((a, b) => {
+      const pa = a.parent_id ?? 0
+      const pb = b.parent_id ?? 0
+      if (pa !== pb) return pa - pb
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+      return a.id - b.id
+    })
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      // 顶层省略 parentId（契约 §5.3：顶层「省略或 null」）
+      ...(f.parent_id !== null ? { parentId: f.parent_id } : {}),
+      sortOrder: f.sort_order,
+      source: f.source === 'company' ? 'company' : 'user',
+      assets: assets.filter((a) => a.folder_id === f.id).map(brandAssetToJson)
+    }))
+
+  return { contract: CONTRACT_VERSION, scope: 'brand', groups }
+}
+
+/** 同步前把通用库里缺的缩略图补一遍（图片/视频/PSD/PDF），失败不阻断 */
+async function ensureBrandThumbs(workspaceRoot: string): Promise<void> {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, abs_path, ext, size, modified_at FROM brand_assets WHERE thumb_path IS NULL`
+    )
+    .all() as Array<{ id: number; abs_path: string; ext: string; size: number; modified_at: string }>
+  if (rows.length === 0) return
+  const upd = getDb().prepare('UPDATE brand_assets SET thumb_path = ? WHERE id = ?')
+  for (const r of rows) {
+    if (!(isImage(r.ext) || isVideo(r.ext) || isPsd(r.ext) || isPdf(r.ext))) continue
+    const rel = await ensureAnyThumb(
+      workspaceRoot,
+      r.abs_path,
+      r.size,
+      r.ext,
+      new Date(r.modified_at).getTime()
+    )
+    if (rel) upd.run(rel, r.id)
+  }
+}
+
+export interface BrandMirrorResult extends MirrorWriteResult {}
+
+/**
+ * 把「通用素材库」镜像写进给定的每个插件目录（第 62 批 Step 4 · docs/46 §6）。
+ * 与任务库同一套办法：内容签名短路 + 原子写 + 命名空间缩略图（`b<id>`）。
+ */
+export async function syncBrandMirror(
+  workspaceRoot: string,
+  targets: MirrorTarget[],
+  opts: { appVersion: string; force?: boolean }
+): Promise<BrandMirrorResult> {
+  try {
+    await ensureBrandThumbs(workspaceRoot)
+
+    const content = buildBrandContent()
+    const count = content.groups.reduce<number>(
+      (n, g) => n + (((g as { assets?: unknown[] }).assets?.length as number) || 0),
+      0
+    )
+    const sig = createHash('sha1').update(JSON.stringify(content)).digest('hex')
+    const prevSig = getMeta(META_SIG_BRAND)
+    const prevRev = Number(getMeta(META_REV_BRAND) || '0')
+    const allTargetsPopulated = targets.every(
+      (t) =>
+        existsSync(join(t.pluginDataDir, MIRROR_DIR, BRAND_FILE)) &&
+        sameRoot(mirrorWorkspaceOf(t.pluginDataDir), workspaceRoot)
+    )
+    const unchanged = !opts.force && prevSig === sig && allTargetsPopulated
+
+    if (unchanged) {
+      return { ok: true, wrote: false, revision: prevRev, count, thumbs: 0, targets }
+    }
+
+    const revision = prevRev + 1
+    const generatedAt = isoLocal()
+
+    let thumbs = 0
+    for (const t of targets) {
+      const lib = join(t.pluginDataDir, MIRROR_DIR)
+      const thumbDir = join(lib, THUMB_DIR)
+      mkdirSync(thumbDir, { recursive: true })
+
+      const assetRows = getDb()
+        .prepare('SELECT id, thumb_path FROM brand_assets WHERE thumb_path IS NOT NULL')
+        .all() as Array<{ id: number; thumb_path: string }>
+      for (const a of assetRows) {
+        const rel = await writeMirrorThumb(workspaceRoot, thumbDir, a.id, a.thumb_path, 'b')
+        if (rel) thumbs += 1
+      }
+
+      atomicWriteJson(join(lib, BRAND_FILE), { ...content, revision, generatedAt })
+
+      refreshManifest(lib, { psMajor: t.psMajor, appVersion: opts.appVersion, workspaceRoot }, {
+        id: 'brand',
+        label: '通用库',
+        file: BRAND_FILE,
+        revision,
+        count
+      })
+    }
+
+    setMeta(META_SIG_BRAND, sig)
+    setMeta(META_REV_BRAND, String(revision))
+    return { ok: true, wrote: true, revision, count, thumbs, targets }
+  } catch (e) {
+    return {
+      ok: false,
+      wrote: false,
+      revision: Number(getMeta(META_REV_BRAND) || '0'),
       count: 0,
       thumbs: 0,
       targets,

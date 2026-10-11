@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
-import { startLinkService, stopLinkService } from './linkService'
+import { startLinkService, stopLinkService, flushMirrorNow, hasPendingMirror } from './linkService'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
 import { locateBundledExe, setBundledCliExe } from './wecomCli'
 import {
@@ -178,6 +178,18 @@ app.whenReady().then(() => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+let linkFlushDone = false
+
+app.on('before-quit', (e) => {
+  // 第 63 批（docs/47）：退出前把还没写盘的镜像变更冲刷掉（防抖计时器里可能还挂着一次）。
+  if (linkFlushDone || !hasPendingMirror()) return
+  linkFlushDone = true
+  e.preventDefault()
+  void flushMirrorNow()
+    .catch(() => undefined)
+    .finally(() => app.quit())
 })
 
 app.on('will-quit', () => {

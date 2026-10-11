@@ -1,5 +1,5 @@
 import { COPY, fmt } from '../shared/copy'
-import { BrowserWindow, ipcMain, shell, app, dialog } from 'electron'
+import { BrowserWindow, ipcMain, shell, app, dialog, type IpcMainInvokeEvent } from 'electron'
 import { join, basename } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { openDb } from './db'
@@ -157,7 +157,25 @@ import { executePackExport, listDeliveryRecords, previewPackExport } from './exp
 // 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
 import { backupPacks } from './backupPack'
 import { getLinkConfig, setLinkConfig } from './linkConfig'
-import { getLinkStatus, refreshLinkTargets, syncNow } from './linkService'
+import { getLinkStatus, refreshLinkTargets, refreshLinkWorkspace, scheduleMirror, syncNow } from './linkService'
+// 第 62 批 Step 4（docs/46）：通用素材库
+import {
+  ensureBrandRoot,
+  listBrandFolders,
+  listBrandAssets,
+  brandStats,
+  scanBrand,
+  createBrandFolder,
+  renameBrandFolder,
+  deleteBrandFolder,
+  setBrandFolderSync,
+  pinBrandFolder,
+  importBrandPaths,
+  removeBrandAsset,
+  forgetBrandAsset,
+  promoteAssetToBrand,
+  copyBrandAssetToPack
+} from './brandLib'
 // 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
 import {
   startTicketScheduler,
@@ -208,6 +226,74 @@ export function registerIpc(opts?: {
   firstRunThisSession?: boolean
 }): void {
   const appData = app.getPath('userData')
+
+  /**
+   * 第 63 批（docs/47）：镜像自动同步 —— 给 `ipcMain.handle` 套一层。
+   * 凡是「改数据」的通道，成功返回后自动排一次 **防抖同步**（1.5s 合并），
+   * 任务库 / 通用库全覆盖 —— 比在一个一个 handler 里手插调用更不易漏。
+   * 内容没变时同步内部签名短路，一个字节都不写，所以多挂几个通道无成本。
+   */
+  /**
+   * 纯读 / 纯弹框的通道 —— 明确列出来**跳过**，其余**一律**当作"可能改数据"排同步。
+   * 判据刻意**反着写**：不枚举"像内容变更的操作"（枚举必漏 —— 插件侧在自检里也踩过同族坑），
+   * 而是「**除了这几个明确只读的，其余全排**」。同步内部有内容签名短路，没变就一个字节都不写，
+   * 所以多排几个通道无成本。（原方案按"白名单"枚举，插件侧指出会漏 rename/update/归档一类，已改。）
+   */
+  const NO_MIRROR_CHANNELS = new Set<string>([
+    'plugin:status',
+    'plugin:getConfig',
+    'plugin:pickDataDir',
+    'plugin:syncNow',
+    'ws:info',
+    'ws:list',
+    'ws:openRoot',
+    'ws:pickRoot',
+    'ws:ackLayout',
+    'project:list',
+    'view:packs',
+    'view:assets',
+    'view:packDetail',
+    'version:list',
+    'version:bindable',
+    'asset:pickRelocateDir',
+    'asset:relocateSuggest',
+    'tag:dimensions',
+    'tag:usage',
+    'tag:ofAssets',
+    'tag:suggest',
+    'brand:list',
+    'brand:pickFiles',
+    'brand:pickFolder',
+    'ticket:status',
+    'ticket:list',
+    'ticket:detail',
+    'ticket:unassignedCount',
+    'ticket:metricsGet',
+    'ticket:assignInfo',
+    'ticket:purgePreview',
+    'ticket:purgeDisabled',
+    'ticket:autoSyncGet',
+    'report:status',
+    'file:open',
+    'file:reveal',
+    'shell:openPath',
+    'dialog:pickOutputDir',
+    'setup:wizardDone'
+  ])
+  /** 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容） */
+  const WS_CHANNELS = new Set<string>(['ws:switch', 'ws:setRoot', 'ws:add', 'ws:move'])
+
+  const handleIpc = (
+    channel: string,
+    fn: (e: IpcMainInvokeEvent, ...args: any[]) => any
+  ): void => {
+    ipcMain.handle(channel, async (e, ...args) => {
+      const r = await fn(e, ...args)
+      if (WS_CHANNELS.has(channel)) await refreshLinkWorkspace(getWorkspaceRoot(appData))
+      if (!NO_MIRROR_CHANNELS.has(channel)) scheduleMirror(channel)
+      return r
+    })
+  }
   const documentsDir = app.getPath('documents')
 
   // ---------- 工作区 ----------
@@ -230,7 +316,7 @@ export function registerIpc(opts?: {
    * - 首次启动、还没有任何配置 → 已在 resolveWorkspace 里自动择址，正常情况必然可用
    * - 已有配置但位置连不上（移动硬盘拔了 / 盘符没了）→ 绝不偷偷换位置，只如实报告 + 界面给提示
    */
-  ipcMain.handle('ws:info', (_e, opts?: { refresh?: boolean }) => {
+  handleIpc('ws:info', (_e, opts?: { refresh?: boolean }) => {
     // refresh 用于「插上移动硬盘后重试」：丢掉缓存重新探测一次
     if (opts?.refresh) resetWorkspaceState()
     const st = getWorkspaceState(appData, documentsDir)
@@ -284,7 +370,7 @@ export function registerIpc(opts?: {
   })
 
   /** 界面已经提示过目录结构升级了 → 清掉标记，保证提示条只出现一次 */
-  ipcMain.handle('ws:ackLayout', () => {
+  handleIpc('ws:ackLayout', () => {
     ackLayoutNotice()
   })
 
@@ -292,7 +378,7 @@ export function registerIpc(opts?: {
    * 第 54 批（docs/40 §4.2）：标记「首次配置引导已走过」。
    * 只在点「完成」或「我以后再说」时写；关窗口（✕ / Esc）**不写** —— 下次启动还会弹。
    */
-  ipcMain.handle('setup:wizardDone', () => {
+  handleIpc('setup:wizardDone', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     setMeta('setup_wizard_done', '1')
@@ -300,20 +386,20 @@ export function registerIpc(opts?: {
   })
 
   // ---------- 项目维护 ----------
-  ipcMain.handle('project:list', () => {
+  handleIpc('project:list', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return listProjectsWithCount()
   })
 
-  ipcMain.handle('project:create', (_e, input: { name: string; color?: string; note?: string }) => {
+  handleIpc('project:create', (_e, input: { name: string; color?: string; note?: string }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     // 第 6 批：顺手在磁盘上建出项目文件夹，界面上的项目与本地文件夹一一对应
     return createProject({ ...input, workspaceRoot: root })
   })
 
-  ipcMain.handle(
+  handleIpc(
     'project:update',
     (_e, args: { id: number; patch: { name?: string; color?: string; note?: string } }) => {
       const root = getWorkspaceRoot(appData)
@@ -323,7 +409,7 @@ export function registerIpc(opts?: {
     }
   )
 
-  ipcMain.handle(
+  handleIpc(
     'project:remove',
     (_e, args: { id: number; moveTo: number | null; toTrash?: boolean }) => {
       const root = getWorkspaceRoot(appData)
@@ -336,20 +422,20 @@ export function registerIpc(opts?: {
   )
 
   // 第 7 批 ④：解绑（结项留底，软件里不显示、本地全保留）/ 还原
-  ipcMain.handle('project:unbind', (_e, id: number) => {
+  handleIpc('project:unbind', (_e, id: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unbindProject(id, root)
   })
 
-  ipcMain.handle('project:restore', (_e, id: number) => {
+  handleIpc('project:restore', (_e, id: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return restoreProject(id, root)
   })
 
   // 第 7 批 ②③：改包信息（名称 / 类别 / 所属项目）—— 改项目 = 搬文件夹
-  ipcMain.handle(
+  handleIpc(
     'pack:update',
     (_e, args: { id: number; patch: { name?: string; category?: string; channel?: string; grade?: string; projectId?: number | null } }) => {
       const root = getWorkspaceRoot(appData)
@@ -363,7 +449,7 @@ export function registerIpc(opts?: {
   )
 
   // 调整项目在左栏的显示顺序（上移 / 下移一位）
-  ipcMain.handle('project:move', (_e, args: { id: number; direction: 'up' | 'down' }) => {
+  handleIpc('project:move', (_e, args: { id: number; direction: 'up' | 'down' }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return moveProject(args.id, args.direction)
@@ -436,7 +522,7 @@ export function registerIpc(opts?: {
    *   closeDb() → 写 activeId → resetWorkspaceState() → initWorkspace(新根)
    * 老版本这里漏了关数据库（closeDb 全项目从未被调用），切换后进程内仍读写旧库 —— 已修。
    */
-  ipcMain.handle('ws:setRoot', (_e, root: string) => {
+  handleIpc('ws:setRoot', (_e, root: string) => {
     if (!root) return { ok: false, workspaceRoot: root, error: COPY.ipc.pathEmpty }
     const r = addWorkspace(appData, root, { rewrite: true })
     if (!r.ok) return { ok: false, workspaceRoot: root, error: r.error || COPY.ipc.switchFailed }
@@ -449,7 +535,7 @@ export function registerIpc(opts?: {
    * （媒体库就存在该目录的 `_system/media.db` 里）——
    * 这就是需求文档 M8-05「换电脑或换盘后指过去即恢复，无需重新登记」。
    */
-  ipcMain.handle('ws:pickRoot', async () => {
+  handleIpc('ws:pickRoot', async () => {
     const r = await dialog.showOpenDialog({
       title: COPY.ipc.pickWsTitle,
       buttonLabel: COPY.ipc.useHere,
@@ -460,9 +546,9 @@ export function registerIpc(opts?: {
   })
 
   // ---------------- 第 5 批：工作区管理与迁移（方案 07）----------------
-  ipcMain.handle('ws:list', () => listWorkspaces(appData))
+  handleIpc('ws:list', () => listWorkspaces(appData))
 
-  ipcMain.handle('ws:add', async (_e, opts?: { root?: string; rewrite?: boolean }) => {
+  handleIpc('ws:add', async (_e, opts?: { root?: string; rewrite?: boolean }) => {
     let root = opts?.root
     if (!root) {
       const r = await dialog.showOpenDialog({
@@ -476,7 +562,7 @@ export function registerIpc(opts?: {
     return addWorkspaceFlow(root, opts?.rewrite === true)
   })
 
-  ipcMain.handle('ws:switch', (_e, id: string) => {
+  handleIpc('ws:switch', (_e, id: string) => {
     const r = switchWorkspace(appData, id)
     return r.ok
       ? { ok: true, workspaceRoot: r.root, name: r.name }
@@ -484,9 +570,9 @@ export function registerIpc(opts?: {
   })
 
   // 只删配置里的一条记录，磁盘上一个字节都不动
-  ipcMain.handle('ws:remove', (_e, id: string) => removeWorkspace(appData, id))
+  handleIpc('ws:remove', (_e, id: string) => removeWorkspace(appData, id))
 
-  ipcMain.handle('ws:move', async (_e, opts?: { targetParentDir?: string }) => {
+  handleIpc('ws:move', async (_e, opts?: { targetParentDir?: string }) => {
     let parent = opts?.targetParentDir
     if (!parent) {
       const r = await dialog.showOpenDialog({
@@ -519,7 +605,7 @@ export function registerIpc(opts?: {
     return res
   })
 
-  ipcMain.handle('ws:openRoot', async () => {
+  handleIpc('ws:openRoot', async () => {
     const root = getWorkspaceRoot(appData)
     if (!existsSync(root)) return { ok: false, error: COPY.ipc.wsDirMissing }
     const err = await shell.openPath(root)
@@ -527,7 +613,7 @@ export function registerIpc(opts?: {
   })
 
   // ---------- A-01 建包 ----------
-  ipcMain.handle(
+  handleIpc(
     'pack:create',
     (_e, input: { name?: string; projectId?: number | null; category?: string; channel?: string; grade?: string }) => {
       const root = getWorkspaceRoot(appData)
@@ -544,7 +630,7 @@ export function registerIpc(opts?: {
   )
 
   // ---------- A-10 刷新扫描 ----------
-  ipcMain.handle('scan:refresh', async (e) => {
+  handleIpc('scan:refresh', async (e) => {
     const root = getWorkspaceRoot(appData)
 
     /**
@@ -613,7 +699,7 @@ export function registerIpc(opts?: {
     return { ...result, thumbs, metas, videoMetas, psdMetas, pdfMetas }
   })
   // ---------- A-06 包视图 ----------
-  ipcMain.handle('view:packs', () => {
+  handleIpc('view:packs', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const packs = listPacks()
@@ -649,7 +735,7 @@ export function registerIpc(opts?: {
   })
 
   // ---------- A-07 文件视图 ----------
-  ipcMain.handle(
+  handleIpc(
     'view:assets',
     (
       _e,
@@ -709,7 +795,7 @@ export function registerIpc(opts?: {
   )
 
   // ---------- A-08 点开包 ----------
-  ipcMain.handle('view:packDetail', (_e, packId: number) => {
+  handleIpc('view:packDetail', (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     const detail = getPackDetail(packId)
     const vmap = new Map(listVersionMap().map((v) => [v.id, v]))
@@ -741,49 +827,49 @@ export function registerIpc(opts?: {
 
   // ---------- 第 9 批：版本管理（M6，docs/11） ----------
   /** 某包的全部稿（含文件数 / 占用 / 文件夹是否还在） */
-  ipcMain.handle('version:list', (_e, packId: number) => {
+  handleIpc('version:list', (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return listVersions(packId)
   })
 
   /** 新建一稿：建 `V<n>/` + 三组空文件夹（可选收编现有文件、可选复制上一稿） */
-  ipcMain.handle('version:create', (_e, input: CreateVersionInput) => {
+  handleIpc('version:create', (_e, input: CreateVersionInput) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return createVersion(root, input)
   })
 
   /** 绑定候选：这个包文件夹下还没被认领的子文件夹 */
-  ipcMain.handle('version:bindable', (_e, packId: number) => {
+  handleIpc('version:bindable', (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return listBindableFolders(packId)
   })
 
   /** 把用户自己建好的文件夹绑定成某一稿 */
-  ipcMain.handle('version:bind', (_e, input: BindVersionInput) => {
+  handleIpc('version:bind', (_e, input: BindVersionInput) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return bindVersion(root, input)
   })
 
   /** 解绑：只解除管理关系，文件夹和文件一个都不动 */
-  ipcMain.handle('version:unbind', (_e, versionId: number) => {
+  handleIpc('version:unbind', (_e, versionId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unbindVersion(versionId)
   })
 
   /** 设为当前版本（= 回滚）：纯库操作，磁盘零改动 */
-  ipcMain.handle('version:setCurrent', (_e, versionId: number) => {
+  handleIpc('version:setCurrent', (_e, versionId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return setCurrentVersion(versionId)
   })
 
   // ---------- A-09 认领 ----------
-  ipcMain.handle(
+  handleIpc(
     'asset:claim',
     (_e, args: { paths: string[]; packId: number; subFolder: SubFolder; versionId?: number | null }) => {
       const root = getWorkspaceRoot(appData)
@@ -793,19 +879,19 @@ export function registerIpc(opts?: {
   )
 
   // ---------- A-11 双击打开 ----------
-  ipcMain.handle('file:open', async (_e, absPath: string) => {
+  handleIpc('file:open', async (_e, absPath: string) => {
     if (!existsSync(absPath)) return { ok: false, error: COPY.ipc.fileMissingColon + basename(absPath) }
     const err = await shell.openPath(absPath)
     return err ? { ok: false, error: err } : { ok: true }
   })
 
-  ipcMain.handle('file:reveal', (_e, absPath: string) => {
+  handleIpc('file:reveal', (_e, absPath: string) => {
     if (!existsSync(absPath)) return { ok: false, error: COPY.ipc.fileMissing }
     shell.showItemInFolder(absPath)
     return { ok: true }
   })
 
-  ipcMain.handle('shell:openPath', async (_e, p: string) => {
+  handleIpc('shell:openPath', async (_e, p: string) => {
     if (!existsSync(p)) return { ok: false, error: COPY.ipc.pathMissing }
     const err = await shell.openPath(p)
     return err ? { ok: false, error: err } : { ok: true }
@@ -816,7 +902,7 @@ export function registerIpc(opts?: {
    * 单条：弹系统文件选择框 → 校验（文件名 + 扩展名 + 大小，用户拍板）→ 通过才落库。
    * 校验不过就把原因原样返回，界面照实说"哪儿对不上"。
    */
-  ipcMain.handle('asset:relocate', async (_e, assetId: number) => {
+  handleIpc('asset:relocate', async (_e, assetId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const r = await dialog.showOpenDialog({
@@ -829,7 +915,7 @@ export function registerIpc(opts?: {
   })
 
   /** 批量第一步：选一个目录（"整个文件夹被搬走了"的场景） */
-  ipcMain.handle('asset:pickRelocateDir', async () => {
+  handleIpc('asset:pickRelocateDir', async () => {
     const r = await dialog.showOpenDialog({
       title: COPY.ipc.findFilesTitle,
       buttonLabel: COPY.ipc.searchHere,
@@ -840,14 +926,14 @@ export function registerIpc(opts?: {
   })
 
   /** 批量第二步：出候选清单（**只读**，不落库 —— 用户勾选前一个字节都不改） */
-  ipcMain.handle('asset:relocateSuggest', (_e, dir: string) => {
+  handleIpc('asset:relocateSuggest', (_e, dir: string) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return { ok: true, items: suggestRelocateBatch(dir, root) }
   })
 
   /** 批量第三步：用户勾选后才写 */
-  ipcMain.handle(
+  handleIpc(
     'asset:relocateApply',
     (_e, items: Array<{ assetId: number; newAbsPath: string }>) => {
       const root = getWorkspaceRoot(appData)
@@ -861,14 +947,14 @@ export function registerIpc(opts?: {
    * **只写标记** —— 记录、标签、包内位置一个不动；随时可用下面的 unignore 撤销。
    * 界面上的三个入口（行尾 / 工具栏批量 / 已忽略列表里的恢复）都走这两个通道。
    */
-  ipcMain.handle('asset:ignoreMissing', (_e, ids: number[]) => {
+  handleIpc('asset:ignoreMissing', (_e, ids: number[]) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return ignoreMissingAssets(ids ?? [])
   })
 
   /** 第 47 批：撤销忽略 → 这条记录回到「丢失待处理」 */
-  ipcMain.handle('asset:unignoreMissing', (_e, ids: number[]) => {
+  handleIpc('asset:unignoreMissing', (_e, ids: number[]) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unignoreMissingAssets(ids ?? [])
@@ -878,21 +964,21 @@ export function registerIpc(opts?: {
    * 第 51 批（docs/36）：清掉「已忽略」的记录（只删库记录，磁盘零改动）。
    * 严格限定「文件已不在 + 用户已忽略」的双重门槛，见 `purgeIgnoredAssets` 注释。
    */
-  ipcMain.handle('asset:purgeIgnored', (_e, ids: number[]) => {
+  handleIpc('asset:purgeIgnored', (_e, ids: number[]) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return purgeIgnoredAssets(ids ?? [])
   })
 
   // ---------- 第 3 批：标签体系（M2） ----------
-  ipcMain.handle('tag:dimensions', (_e, scope?: { projectId?: number | null }) => {
+  handleIpc('tag:dimensions', (_e, scope?: { projectId?: number | null }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     // 第 7 批补：标签计数跟随左栏当前项目范围（不传 = 全部）
     return listTagDimensions(scope)
   })
 
-  ipcMain.handle(
+  handleIpc(
     'tag:create',
     (_e, input: { dimension: string; name: string; color?: string }) => {
       const root = getWorkspaceRoot(appData)
@@ -901,7 +987,7 @@ export function registerIpc(opts?: {
     }
   )
 
-  ipcMain.handle(
+  handleIpc(
     'tag:update',
     (_e, args: { id: number; patch: { name?: string; color?: string } }) => {
       const root = getWorkspaceRoot(appData)
@@ -910,44 +996,44 @@ export function registerIpc(opts?: {
     }
   )
 
-  ipcMain.handle('tag:remove', (_e, id: number) => {
+  handleIpc('tag:remove', (_e, id: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return removeTag(id)
   })
 
-  ipcMain.handle('tag:usage', (_e, id: number) => {
+  handleIpc('tag:usage', (_e, id: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return tagUsage(id)
   })
 
-  ipcMain.handle('tag:apply', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
+  handleIpc('tag:apply', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return applyTags(args)
   })
 
-  ipcMain.handle('tag:removeFrom', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
+  handleIpc('tag:removeFrom', (_e, args: { assetIds: number[]; tagIds: number[] }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return removeTagsFrom(args)
   })
 
-  ipcMain.handle('tag:ofAssets', (_e, assetIds: number[]) => {
+  handleIpc('tag:ofAssets', (_e, assetIds: number[]) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return tagsOfAssets(assetIds)
   })
 
-  ipcMain.handle('tag:suggest', (_e, assetIds: number[]) => {
+  handleIpc('tag:suggest', (_e, assetIds: number[]) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return suggestTagsForAssets(assetIds)
   })
 
   // ---------- 第 13 批：工单（docs/15） ----------
-  ipcMain.handle('ticket:status', () => {
+  handleIpc('ticket:status', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const cfg = readTicketConfig()
@@ -974,7 +1060,7 @@ export function registerIpc(opts?: {
     }
   })
 
-  ipcMain.handle(
+  handleIpc(
     'ticket:saveConfig',
     async (
       _e,
@@ -1116,10 +1202,10 @@ export function registerIpc(opts?: {
   }
 
   /** 手动同步（工单工具栏那个「同步」按钮）—— 与后台自动同步走同一个 doTicketSync */
-  ipcMain.handle('ticket:sync', () => doTicketSync())
+  handleIpc('ticket:sync', () => doTicketSync())
 
   /** 自动同步配置 + 「上次同步」状态（工单设置里读、工单视图头部显示） */
-  ipcMain.handle('ticket:autoSyncGet', () => {
+  handleIpc('ticket:autoSyncGet', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return {
@@ -1133,7 +1219,7 @@ export function registerIpc(opts?: {
    * 改自动同步设置 —— 改完**立即重排定时器**（不用重启软件）：关掉 = 停表、改间隔 = 按新间隔重排。
    * 与「允许指派」同一个模式：改动即存，不走「保存」按钮。
    */
-  ipcMain.handle('ticket:autoSyncSet', (_e, input: { enabled?: boolean; intervalMin?: number }) => {
+  handleIpc('ticket:autoSyncSet', (_e, input: { enabled?: boolean; intervalMin?: number }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     if (typeof input?.enabled === 'boolean') setAutoSyncEnabled(input.enabled)
@@ -1189,7 +1275,7 @@ export function registerIpc(opts?: {
   // 退出前清掉定时器，不然 Electron 进程可能退不干净
   app.on('will-quit', () => stopTicketScheduler())
 
-  ipcMain.handle(
+  handleIpc(
     'ticket:list',
     (_e, view?: 'all' | 'mine' | 'unassigned' | 'history' | 'reassigned' | 'pending' | 'abnormal') => {
       const root = getWorkspaceRoot(appData)
@@ -1270,7 +1356,7 @@ export function registerIpc(opts?: {
     }
   )
 
-  ipcMain.handle('ticket:detail', (_e, ticketNo: string) => {
+  handleIpc('ticket:detail', (_e, ticketNo: string) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const db = getDb()
@@ -1348,7 +1434,7 @@ export function registerIpc(opts?: {
     }
   })
 
-  ipcMain.handle('ticket:confirmBatch', () => {
+  handleIpc('ticket:confirmBatch', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const cfg = readTicketConfig()
@@ -1356,13 +1442,13 @@ export function registerIpc(opts?: {
     return confirmPendingTickets(cfg.identity, root)
   })
 
-  ipcMain.handle('ticket:createTask', (_e, ticketNo: string) => {
+  handleIpc('ticket:createTask', (_e, ticketNo: string) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return createTaskForTicketManually(ticketNo, root)
   })
 
-  ipcMain.handle('ticket:openApproval', async (_e, url: string) => {
+  handleIpc('ticket:openApproval', async (_e, url: string) => {
     try {
       await shell.openExternal(url)
       return { ok: true }
@@ -1400,7 +1486,7 @@ export function registerIpc(opts?: {
   }
 
   /** 详情弹窗的指派区原料：开关状态 + 列可用性 + 候选池 + 表格链接（逃生口） */
-  ipcMain.handle('ticket:assignInfo', () => {
+  handleIpc('ticket:assignInfo', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const cfg = readTicketConfig()
@@ -1412,7 +1498,7 @@ export function registerIpc(opts?: {
     }
   })
 
-  ipcMain.handle('ticket:assignDesigner', async (_e, input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) => {
+  handleIpc('ticket:assignDesigner', async (_e, input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     // 「本机开关」门槛（docs/19 §10 #3 用户拍板：开关即门槛，不做身份校验）
@@ -1423,14 +1509,14 @@ export function registerIpc(opts?: {
     return executeAssignDesigners(input.ticketNo, input.designers, wecomDesignerAdapter, cfg.identity?.userid ?? null)
   })
 
-  ipcMain.handle('ticket:setAllowAssign', (_e, v: boolean) => {
+  handleIpc('ticket:setAllowAssign', (_e, v: boolean) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     setAllowAssignEnabled(!!v)
     return { ok: true, allow: allowAssignEnabled() }
   })
 
-  ipcMain.handle('ticket:unassignedCount', () => {
+  handleIpc('ticket:unassignedCount', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return unassignedTicketCount()
@@ -1442,14 +1528,14 @@ export function registerIpc(opts?: {
    * 只算不删：给设置弹窗的二次确认用（将删 N 条 / 跳过 M 条）。
    * 不碰网络、不改数据 —— 纯读配置 + 查本地库。
    */
-  ipcMain.handle('ticket:purgePreview', () => {
+  handleIpc('ticket:purgePreview', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return previewPurgeDisabledSheetTickets()
   })
 
   /** 真删：已关闭子表同步进来的工单（有任务包的跳过；删前留痕，留痕失败则中止） */
-  ipcMain.handle('ticket:purgeDisabled', () => {
+  handleIpc('ticket:purgeDisabled', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return purgeDisabledSheetTickets(root)
@@ -1461,7 +1547,7 @@ export function registerIpc(opts?: {
    * 连接状态快照：内置组件在不在 / 从哪来 / 什么版本 / 授权了没。
    * `onboardSeen` = 首次启动的授权引导是否已经弹过一次（弹过就不再自动弹，入口仍常驻设置里）。
    */
-  ipcMain.handle(
+  handleIpc(
     'wecom:cliInfo',
     async (): Promise<WecomCliInfo & { onboardSeen: boolean }> => {
       const root = getWorkspaceRoot(appData)
@@ -1472,7 +1558,7 @@ export function registerIpc(opts?: {
   )
 
   /** 只读授权状态（引导页每 2 秒轮询一次；查不到就说查不到，不猜） */
-  ipcMain.handle('wecom:authStatus', async () => {
+  handleIpc('wecom:authStatus', async () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return { auth: await readAuthStatus() }
@@ -1482,20 +1568,20 @@ export function registerIpc(opts?: {
    * 发起扫码授权：调 `auth init --noninteractive --output-qrcode <临时图>`，
    * 等二维码出现就返回（data URL 给界面），**不等扫码**；进程留着，界面轮询 authStatus。
    */
-  ipcMain.handle('wecom:authStart', async () => {
+  handleIpc('wecom:authStart', async () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return startWecomAuth()
   })
 
   /** 取消授权（用户关弹窗 / 点取消）—— 杀掉等待中的 CLI，清掉临时二维码 */
-  ipcMain.handle('wecom:authCancel', () => {
+  handleIpc('wecom:authCancel', () => {
     cancelWecomAuth()
     return { ok: true }
   })
 
   /** 授权成功后读本机身份（显示名字；userid 只在本机流转，不出界面） */
-  ipcMain.handle('wecom:identity', async () => {
+  handleIpc('wecom:identity', async () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const r = await fetchIdentity()
@@ -1504,7 +1590,7 @@ export function registerIpc(opts?: {
   })
 
   /** 标记「首次启动引导已看过」—— 只影响自动弹窗，不影响设置里的入口 */
-  ipcMain.handle('wecom:onboardSeen', () => {
+  handleIpc('wecom:onboardSeen', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     setMeta('wecom_onboard_seen', '1')
@@ -1514,14 +1600,14 @@ export function registerIpc(opts?: {
   // ---------- 第 19 批：导出报表（docs/22） ----------
 
   /** 本地扩展字段（印刷金额 / 绩效金额 / 备注）读 */
-  ipcMain.handle('ticket:metricsGet', (_e, ticketNo: string) => {
+  handleIpc('ticket:metricsGet', (_e, ticketNo: string) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return readTicketMetrics(ticketNo)
   })
 
   /** 本地扩展字段写（upsert；三值全空删行） */
-  ipcMain.handle(
+  handleIpc(
     'ticket:metricsSet',
     (_e, input: { ticketNo: string; printCost: number | null; performanceCost: number | null; remark: string | null }) => {
       const root = getWorkspaceRoot(appData)
@@ -1542,7 +1628,7 @@ export function registerIpc(opts?: {
    * 第 27 批（issue #2）：最新版本的**全部成品**逐张上传、写回同一图片列（多图）。
    * 单张上传失败不拖累其余（尽力而为），但要如实计数返回给界面 —— 不静默丢张。
    */
-  ipcMain.handle('ticket:completeByPack', async (_e, packId: number) => {
+  handleIpc('ticket:completeByPack', async (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     // 第 50 批（docs/35）：**先判列可用，再干活** —— 列缺失 / 类型不对时直接回绝，
@@ -1602,7 +1688,7 @@ export function registerIpc(opts?: {
   })
 
   /** 报表配置状态（导出弹窗预填链接 / 模板子表名） */
-  ipcMain.handle('report:status', () => {
+  handleIpc('report:status', () => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return readReportConfig()
@@ -1617,7 +1703,7 @@ export function registerIpc(opts?: {
   }
 
   /** 导出报表：起止日期 → 建子表（复制字段）→ 写记录（含图片列重新上传） */
-  ipcMain.handle(
+  handleIpc(
     'report:export',
     async (_e, input: { link: string; start: string; end: string }) => {
       const root = getWorkspaceRoot(appData)
@@ -1642,7 +1728,7 @@ export function registerIpc(opts?: {
    * 首次配置引导的「配置报表表」用 —— 原来这条链接是搭着「导出」才落库的，
    * 向导里没有导出这一步，所以单独开一个只写配置的口子。
    */
-  ipcMain.handle('report:saveLink', (_e, link: string) => {
+  handleIpc('report:saveLink', (_e, link: string) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     const docid = extractDocid(String(link ?? ''))
@@ -1663,7 +1749,7 @@ export function registerIpc(opts?: {
    *
    * 只写快捷方式、**不碰任务文件夹里的任何文件**（不新增/不改名/不删除）。
    */
-  ipcMain.handle(
+  handleIpc(
     'pack:createShortcut',
     (_e, args: { packId: number; overwrite?: boolean }): CreateShortcutResult => {
       const root = getWorkspaceRoot(appData)
@@ -1731,7 +1817,7 @@ export function registerIpc(opts?: {
   )
 
   // ---------- 第 15 批：交付打包（M5，docs/18） ----------
-  ipcMain.handle('pack:export', async (_e, input: PackExportInput) => {
+  handleIpc('pack:export', async (_e, input: PackExportInput) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     try {
@@ -1741,7 +1827,7 @@ export function registerIpc(opts?: {
     }
   })
 
-  ipcMain.handle('pack:exportPreview', async (_e, input: PackExportInput) => {
+  handleIpc('pack:exportPreview', async (_e, input: PackExportInput) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     try {
@@ -1751,13 +1837,13 @@ export function registerIpc(opts?: {
     }
   })
 
-  ipcMain.handle('pack:deliveryRecords', (_e, packId: number) => {
+  handleIpc('pack:deliveryRecords', (_e, packId: number) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     return listDeliveryRecords(packId)
   })
 
-  ipcMain.handle('dialog:pickOutputDir', async (_e, defaultPath?: string) => {
+  handleIpc('dialog:pickOutputDir', async (_e, defaultPath?: string) => {
     const r = await dialog.showOpenDialog({
       title: COPY.exportPack.pickOutputDirTitle,
       buttonLabel: COPY.exportPack.pickOutputDirBtn,
@@ -1769,7 +1855,7 @@ export function registerIpc(opts?: {
   })
 
   // ---------- 第 58 批：任务备份打包（docs/43） ----------
-  ipcMain.handle('pack:backupBatch', async (_e, input: PackBackupInput) => {
+  handleIpc('pack:backupBatch', async (_e, input: PackBackupInput) => {
     const root = getWorkspaceRoot(appData)
     initWorkspace(root)
     try {
@@ -1780,14 +1866,14 @@ export function registerIpc(opts?: {
   })
 
   // ---------- 第 62 批：PS 插件联动（docs/45） ----------
-  ipcMain.handle('plugin:status', () => getLinkStatus())
-  ipcMain.handle('plugin:getConfig', () => getLinkConfig())
-  ipcMain.handle('plugin:setConfig', async (_e, patch: { enabled?: boolean; dataDir?: string }) => {
+  handleIpc('plugin:status', () => getLinkStatus())
+  handleIpc('plugin:getConfig', () => getLinkConfig())
+  handleIpc('plugin:setConfig', async (_e, patch: { enabled?: boolean; dataDir?: string }) => {
     const cfg = setLinkConfig(patch)
     await refreshLinkTargets()
     return cfg
   })
-  ipcMain.handle('plugin:pickDataDir', async () => {
+  handleIpc('plugin:pickDataDir', async () => {
     const r = await dialog.showOpenDialog({
       title: COPY.pluginLink.dirLabel,
       properties: ['openDirectory', 'createDirectory']
@@ -1795,7 +1881,7 @@ export function registerIpc(opts?: {
     if (r.canceled || r.filePaths.length === 0) return { ok: false, canceled: true }
     return { ok: true, dir: r.filePaths[0] }
   })
-  ipcMain.handle('plugin:syncNow', async () => {
+  handleIpc('plugin:syncNow', async () => {
     const r = await syncNow()
     return {
       ok: r.ok,
@@ -1804,7 +1890,156 @@ export function registerIpc(opts?: {
       count: r.count,
       thumbs: r.thumbs,
       dirs: r.targets.length,
-      error: r.error
+      error: r.error,
+      brandCount: r.brandCount,
+      brandThumbs: r.brandThumbs
     }
+  })
+
+  // ---------- 第 62 批 Step 4（docs/46）：通用素材库 ----------
+  /** 通用库的磁盘根（每次现取：用户可能换了工作区） */
+  const brandRoot = (): string => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return root
+  }
+  /** 任何写操作之后都重扫一遍（镜像刷新交给 handleIpc 包装层统一排） */
+  const afterBrandChange = async (): Promise<void> => {
+    const root = brandRoot()
+    await scanBrand(root)
+  }
+
+  handleIpc(
+    'brand:list',
+    (
+      _e,
+      opts?: { folderId?: number; keyword?: string }
+    ): {
+      folders: unknown[]
+      assets: unknown[]
+      stats: unknown
+      skippedDeep: number
+    } => {
+      const root = brandRoot()
+      ensureBrandRoot(root)
+      const folders = listBrandFolders().map((f) => ({
+        id: f.id,
+        parentId: f.parent_id,
+        name: f.name,
+        depth: f.depth,
+        sortOrder: f.sort_order,
+        syncToPlugin: f.sync_to_plugin === 1,
+        effectiveSync: f.effectiveSync,
+        source: f.source,
+        assetCount: f.assetCount,
+        totalCount: f.totalCount
+      }))
+      const assets = listBrandAssets(opts).map((a) => ({
+        id: a.id,
+        folderId: a.folder_id,
+        folderName: a.folderName,
+        fileName: a.file_name,
+        ext: a.ext,
+        size: a.size,
+        width: a.width,
+        height: a.height,
+        source: a.source,
+        missing: a.missing_at !== null,
+        modifiedAt: a.modified_at,
+        thumb: a.thumb_path
+          ? readAsDataUrl(join(root, a.thumb_path))
+          : isImage(a.ext)
+            ? readAsDataUrl(a.abs_path)
+            : null
+      }))
+      return {
+        folders,
+        assets,
+        stats: brandStats(),
+        skippedDeep: Number(getMeta('brand_skipped_deep') || '0')
+      }
+    }
+  )
+
+  handleIpc('brand:scan', async () => {
+    const root = brandRoot()
+    const r = await scanBrand(root)
+    setMeta('brand_skipped_deep', String(r.skippedDeep))
+    return { ok: true, added: r.newAssets, folders: r.folders, missing: r.missing }
+  })
+
+  handleIpc('brand:createFolder', async (_e, input: { name: string; parentId?: number | null }) => {
+    const r = createBrandFolder({ workspaceRoot: brandRoot(), name: input.name, parentId: input.parentId ?? null })
+    return { ok: r.ok, error: r.error, id: r.value?.id }
+  })
+
+  handleIpc('brand:renameFolder', async (_e, input: { id: number; name: string }) => {
+    const r = renameBrandFolder({ workspaceRoot: brandRoot(), id: input.id, name: input.name })
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('brand:deleteFolder', async (_e, id: number) => {
+    const r = deleteBrandFolder({ workspaceRoot: brandRoot(), id })
+    return { ok: r.ok, error: r.error, moved: r.value?.moved }
+  })
+
+  handleIpc('brand:setFolderSync', async (_e, input: { id: number; on: boolean }) => {
+    const r = setBrandFolderSync(input.id, input.on)
+    return { ok: r.ok }
+  })
+
+  handleIpc('brand:pinFolder', async (_e, id: number) => {
+    const r = pinBrandFolder(brandRoot(), id)
+    return { ok: r.ok }
+  })
+
+  handleIpc('brand:pickFiles', async () => {
+    const r = await dialog.showOpenDialog({
+      title: COPY.brand.importFiles,
+      properties: ['openFile', 'multiSelections']
+    })
+    if (r.canceled) return { ok: false, canceled: true, paths: [] }
+    return { ok: true, paths: r.filePaths }
+  })
+
+  handleIpc('brand:pickFolder', async () => {
+    const r = await dialog.showOpenDialog({
+      title: COPY.brand.importFolder,
+      properties: ['openDirectory', 'multiSelections']
+    })
+    if (r.canceled) return { ok: false, canceled: true, paths: [] }
+    return { ok: true, paths: r.filePaths }
+  })
+
+  handleIpc('brand:import', async (_e, input: { paths: string[]; folderId?: number | null }) => {
+    const root = brandRoot()
+    const r = importBrandPaths({ workspaceRoot: root, paths: input.paths ?? [], folderId: input.folderId ?? null })
+    await afterBrandChange()
+    return { ok: r.ok, imported: r.imported, renamed: r.renamed, createdFolders: r.createdFolders }
+  })
+
+  handleIpc('brand:removeAsset', async (_e, id: number) => {
+    const r = removeBrandAsset({ workspaceRoot: brandRoot(), id })
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('brand:forgetAsset', async (_e, id: number) => {
+    const r = forgetBrandAsset(id)
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('brand:promote', async (_e, input: { assetId: number; folderId: number }) => {
+    const r = promoteAssetToBrand({ workspaceRoot: brandRoot(), assetId: input.assetId, folderId: input.folderId })
+    if (r.ok) await afterBrandChange()
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('brand:copyToPack', async (_e, input: { brandAssetId: number; packId: number }) => {
+    const r = copyBrandAssetToPack({
+      workspaceRoot: brandRoot(),
+      brandAssetId: input.brandAssetId,
+      packId: input.packId
+    })
+    return { ok: r.ok, error: r.error, dest: r.value?.dest }
   })
 }

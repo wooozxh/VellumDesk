@@ -23,14 +23,37 @@ import { backupPacks } from './src/main/backupPack'
 import {
   discoverPluginDataDirs,
   syncTaskMirror,
+  syncBrandMirror,
   isPngFile,
   fileMtimeMs,
   MIRROR_DIR,
   MANIFEST_FILE,
   TASK_FILE,
+  BRAND_FILE,
   HANDOFF_DIR,
   THUMB_DIR
 } from './src/main/linkMirror'
+// 第 62 批 Step 4（docs/46）：通用素材库
+import {
+  ensureBrandRoot,
+  brandRootPath,
+  createBrandFolder,
+  renameBrandFolder,
+  deleteBrandFolder,
+  setBrandFolderSync,
+  listBrandFolders,
+  listBrandAssets,
+  brandStats,
+  scanBrand,
+  importBrandPaths,
+  removeBrandAsset,
+  forgetBrandAsset,
+  promoteAssetToBrand,
+  copyBrandAssetToPack,
+  BRAND_ROOT_DIR,
+  BRAND_TOP_COMPANY,
+  BRAND_TOP_USER
+} from './src/main/brandLib'
 // 第 62 批（docs/45 §3.4）：handoff 搬运（轮询 req.json → 拷原图 → 回 res.json）
 import {
   HandoffEngine,
@@ -46,7 +69,12 @@ import {
   syncNow,
   pollHandoffOnce,
   getLinkStatus,
-  refreshLinkTargets
+  refreshLinkTargets,
+  scheduleMirror,
+  flushMirrorNow,
+  hasPendingMirror,
+  refreshLinkWorkspace,
+  MIRROR_DEBOUNCE_MS
 } from './src/main/linkService'
 import { setLinkConfig } from './src/main/linkConfig'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
@@ -6978,6 +7006,27 @@ async function main(): Promise<void> {
       discoverPluginDataDirs(join(t62Root, 'nope')).length === 0,
       '路径发现：base 不存在时返回空（不崩）'
     )
+    // ①b 容器「区」名不写死（插件侧 2026-10-11 提醒）：
+    //     开发态（UDT）在 `Developer`，**正式安装（.ccx）在 `External`** —— 若写死一个区名，
+    //     插件发正式版之后镜像会写去旧位置，插件里素材库变空且**不报错**（最难查）。
+    const t62Ext = join(
+      t62AppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '28',
+      'External',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    mkdirSync(t62Ext, { recursive: true })
+    const hits62b = discoverPluginDataDirs(t62AppData)
+    ok(
+      hits62b.some((t) => t.pluginDataDir === t62Ext && t.psMajor === '28'),
+      '【核心】路径发现：External（.ccx 正式安装）区也能命中 —— 容器区名不写死'
+    )
+    ok(hits62b.length === 2, '路径发现：多版本 / 多容器一起命中（全部写，契约 §7.1）')
 
     // ② 造一个任务 + 一张成品图 + 一个纯文档
     const proj62 = createProject({ name: '联动测试项目', workspaceRoot: t62Ws }).project!
@@ -7124,6 +7173,31 @@ async function main(): Promise<void> {
     ok(readFileSync(inPng55).equals(readFileSync(srcPng55)), '【字节一致】incoming 与工作区原图逐字节相同（真拷了那张原图）')
     ok(!existsSync(join(t55Handoff, 'incoming.png.tmp')), '拷图是原子的（无 .tmp 残骸）')
 
+    // ①b 【核心回归 · 2026-10-11 真机 bug】刚投递的 incoming 不能被「过期清理」误删。
+    //    根因：Windows 的 copyFileSync（CopyFile 底层）会**连源文件的 mtime 一起搬过来** ——
+    //    源图若很旧，刚写出的 incoming 就带着旧 mtime，600ms 后 cleanup()（">10 分钟即过期"）
+    //    会把它当垃圾删掉；而 res.json 是刚写的、mtime 新、活下来 ⇒
+    //    插件看到 res 说 ok，却怎么也读不到文件（**置入失败**）。
+    //    这里把源图 mtime 设成 3 小时前再投一次，投递后立刻跑 cleanup()，文件必须还在。
+    const oldSrc55 = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    utimesSync(srcPng55, oldSrc55, oldSrc55)
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-old-mtime-88', assetId: png55.id })
+    const h1b = await engine.tick()
+    ok(h1b.length === 1 && h1b[0].ok === true, '源图 mtime 很旧（3 小时前）时，投递仍成功')
+    const inAge55 = Date.now() - statSync(inPng55).mtimeMs
+    ok(
+      inAge55 < 60000,
+      '【核心回归】投递出的 incoming.png 带"现在"的时间戳、不是源图的旧 mtime（实测年龄 ' +
+        Math.round(inAge55 / 1000) +
+        's）'
+    )
+    const cleanedAfterCopy55 = engine.cleanup()
+    ok(
+      existsSync(inPng55) && cleanedAfterCopy55 === 0,
+      '【核心回归】投递后紧接着跑 cleanup() → 刚写的 incoming 不会被当过期文件删掉'
+    )
+
     // ② req.json 未变 → 不重复处理
     const h2 = await engine.tick()
     ok(h2.length === 0, 'req.json 未变（mtime/size 同）→ 不重复处理（轮询只在变化时动手）')
@@ -7160,7 +7234,85 @@ async function main(): Promise<void> {
     const h7 = await smallEngine.tick()
     ok(h7[0].ok === false && h7[0].error === 'too_large', '体积超阈值 → error:too_large（阈值可配，生产为 300MB）')
 
-    // ⑧ 原图丢失
+    // ⑧ 通用素材库置入（docs/48 修复）：按 scope 选表反查 ——
+    //    修复前 linkHandoff 里有一段 Step 2 的残留桩（scope==='brand' → 一律 not_found），
+    //    通用库做出来之后忘了拆 ⇒ 通用库素材**永远无法置入**。
+    ensureBrandRoot(t55Ws)
+    const bTop55 = listBrandFolders().find((f) => f.name === BRAND_TOP_COMPANY)!
+    const bFolder55 = createBrandFolder({ workspaceRoot: t55Ws, name: '置入测试组', parentId: bTop55.id })
+    ok(bFolder55.ok && !!bFolder55.value, '通用库：建「置入测试组」子组')
+    const bFolderId55 = bFolder55.value!.id
+    const brandSrc55 = join(t55Root, 'brand-src', '品牌图.png')
+    mkdirSync(dirname(brandSrc55), { recursive: true })
+    makePng(brandSrc55, 32, 32, [255, 0, 0])
+    const bImp55 = importBrandPaths({ workspaceRoot: t55Ws, paths: [brandSrc55], folderId: bFolderId55 })
+    ok(bImp55.ok && bImp55.imported === 1, '通用库：导入 1 个文件（复制，不动源文件）')
+    await scanBrand(t55Ws)
+    const bAsset55 = listBrandAssets({ folderId: bFolderId55 }).find((a) => a.file_name === '品牌图.png')!
+    ok(!!bAsset55, '通用库：图片已登记（scanBrand）')
+
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-brand-ok-1', assetId: bAsset55.id, scope: 'brand' })
+    const hB1 = await engine.tick()
+    ok(
+      hB1.length === 1 && hB1[0].ok === true && hB1[0].file === 'handoff/incoming.png',
+      '【本次修复】通用库素材 scope=brand → 成功投递（修复前一律 not_found）'
+    )
+    const inBrand55 = join(t55Handoff, 'incoming.png')
+    ok(
+      existsSync(inBrand55) && readFileSync(inBrand55).equals(readFileSync(bAsset55.abs_path)),
+      '【字节一致】拷的是通用库那张原图'
+    )
+
+    // ⑧b 🔴【核心回归】防串库：两库 **同一个 asset.id**、指向不同文件 —— 必须各拿各的图。
+    //     （两库 id 各自从 1 起，若只按 id 查会拷回另一张图 ⇒ "置入成功但图不对"，极难归因）
+    const collideId = png55.id
+    if (bAsset55.id !== collideId) {
+      getDb().prepare('UPDATE brand_assets SET id = ? WHERE id = ?').run(collideId, bAsset55.id)
+    }
+    ok(
+      !!getDb().prepare('SELECT id FROM assets WHERE id = ?').get(collideId) &&
+        !!getDb().prepare('SELECT id FROM brand_assets WHERE id = ?').get(collideId) &&
+        png55.abs_path !== bAsset55.abs_path,
+      '构造撞名：两库同时存在 asset.id=' + collideId + '，且指向不同文件'
+    )
+
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-collide-brand', assetId: collideId, scope: 'brand' })
+    const hB2 = await engine.tick()
+    ok(hB2[0].ok === true, '同 id 撞名：scope=brand → 成功')
+    ok(
+      readFileSync(inBrand55).equals(readFileSync(bAsset55.abs_path)),
+      '【核心回归】scope=brand 拿到的是【通用库】那张图（不串到任务库）'
+    )
+
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-collide-task', assetId: collideId, scope: 'task' })
+    const hB3 = await engine.tick()
+    ok(hB3[0].ok === true, '同 id 撞名：scope=task → 成功')
+    ok(
+      readFileSync(inBrand55).equals(readFileSync(png55.abs_path)),
+      '【核心回归】scope=task 拿到的是【任务库】那张图（各自查各自的表，绝不串库）'
+    )
+
+    // ⑧c 通用库：未知 id / 未知 scope / 已标记丢失
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-brand-nf', assetId: 999999, scope: 'brand' })
+    const hB4 = await engine.tick()
+    ok(hB4[0].ok === false && hB4[0].error === 'not_found', '通用库未知 id → not_found')
+
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-scope-bad', assetId: bAsset55.id, scope: 'foo' })
+    const hB5 = await engine.tick()
+    ok(hB5[0].ok === false && hB5[0].error === 'bad_request', '未知 scope → bad_request（不猜、不误投）')
+
+    getDb().prepare('UPDATE brand_assets SET missing_at = ? WHERE id = ?').run(new Date().toISOString(), collideId)
+    await sleep(25)
+    writeHandoffRequest(t55PluginData, { reqId: 'r-brand-miss', assetId: collideId, scope: 'brand' })
+    const hB6 = await engine.tick()
+    ok(hB6[0].ok === false && hB6[0].error === 'missing', '通用库素材已标记丢失 → error:missing')
+
+    // ⑨ 原图丢失
     hardRm(srcPng55)
     scanAll(t55Ws)
     await sleep(25)
@@ -7168,7 +7320,7 @@ async function main(): Promise<void> {
     const h8 = await engine.tick()
     ok(h8[0].ok === false && h8[0].error === 'missing', '原图已丢失（missing_at 非空）→ error:missing')
 
-    // ⑨ 契约前缀不对
+    // ⑩ 契约前缀不对
     await sleep(25)
     writeHandoffRequest(t55PluginData, {
       reqId: 'r-bad-7777777',
@@ -7178,7 +7330,7 @@ async function main(): Promise<void> {
     const h9 = await engine.tick()
     ok(h9[0].ok === false && h9[0].error === 'bad_contract', 'contract 前缀不对 → ok:false（不崩、不猜）')
 
-    // ⑩ 清理过期（>10 分钟的 res.json / incoming.* 归软件侧删；req.json 不动）
+    // ⑪ 清理过期（>10 分钟的 res.json / incoming.* 归软件侧删；req.json 不动）
     const oldT = new Date(Date.now() - 60 * 60 * 1000)
     utimesSync(join(t55Handoff, 'res.json'), oldT, oldT)
     utimesSync(inPng55, oldT, oldT)
@@ -7265,6 +7417,430 @@ async function main(): Promise<void> {
     closeDb()
     hardRm(t56Root)
   }
+
+  log('\n[57] 第 62 批 Step 4：通用素材库（迁移 22 / 组树 / 导入 / 父关子关 / brand.json 镜像，docs/46）')
+  {
+    const bRoot = join('D:\\_accept_ws', `wstest57_${RUN_ID}`)
+    const bWs = join(bRoot, 'ws')
+    const bAppData = join(bRoot, 'appdata')
+    const bPluginData = join(
+      bAppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    const bLib = join(bPluginData, MIRROR_DIR)
+    const bThumb = join(bLib, THUMB_DIR)
+
+    hardRm(bRoot)
+    mkdirSync(bPluginData, { recursive: true })
+    mkdirSync(bWs, { recursive: true })
+    closeDb()
+    openDb(bWs)
+    initWorkspace(bWs)
+
+    // ① 迁移 22：两张独立表
+    const bTables = (
+      getDb().prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string
+      }>
+    ).map((t) => t.name)
+    ok(
+      bTables.includes('brand_folders') && bTables.includes('brand_assets'),
+      '迁移 22：建出 brand_folders / brand_assets 两张独立表（不复用 assets，零污染）'
+    )
+
+    // ② 根 + 两个顶层组
+    ensureBrandRoot(bWs)
+    ok(existsSync(brandRootPath(bWs)), `自动建 <工作区>\\${BRAND_ROOT_DIR}\\ 根目录`)
+    let bFolders = listBrandFolders()
+    ok(bFolders.length === 2 && bFolders.every((f) => f.depth === 1), `首次使用落两个顶层组（实际 ${bFolders.length}）`)
+    const bCompany = bFolders.find((f) => f.name === BRAND_TOP_COMPANY)!
+    const bUser = bFolders.find((f) => f.name === BRAND_TOP_USER)!
+    ok(!!bCompany && bCompany.source === 'company', `「${BRAND_TOP_COMPANY}」顶层组 source = company`)
+    ok(!!bUser && bUser.source === 'user', `「${BRAND_TOP_USER}」顶层组 source = user`)
+    ok(
+      existsSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY)),
+      '顶层组的磁盘目录已建（软件视图 = 磁盘现实）'
+    )
+
+    // ③ 子组 + 两层封顶
+    const bLogo = createBrandFolder({ workspaceRoot: bWs, name: '品牌logo', parentId: bCompany.id })
+    ok(bLogo.ok && !!bLogo.value, '在顶层组下建子组「品牌logo」')
+    const bLogoId = bLogo.value!.id
+    ok(existsSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '品牌logo')), '子组磁盘目录已建')
+    const bThird = createBrandFolder({ workspaceRoot: bWs, name: '第三层', parentId: bLogoId })
+    ok(!bThird.ok && bThird.error === 'depth', '【两层封顶】第三层被拒（error=depth）')
+    const bDup = createBrandFolder({ workspaceRoot: bWs, name: '品牌logo', parentId: bCompany.id })
+    ok(!bDup.ok && bDup.error === 'duplicate', '同层重名被拒（UNIQUE(parent_id, name)）')
+
+    // ④ 导入（复制，不动源文件）
+    const bSrcDir = join(bRoot, 'src')
+    mkdirSync(bSrcDir, { recursive: true })
+    const bS1 = join(bSrcDir, 'logo-主.png')
+    const bS2 = join(bSrcDir, 'logo-副.png')
+    makePng(bS1, 20, 20, [255, 0, 0])
+    makePng(bS2, 20, 20, [0, 255, 0])
+    const bImp = importBrandPaths({ workspaceRoot: bWs, paths: [bS1, bS2], folderId: bLogoId })
+    ok(bImp.ok && bImp.imported === 2, `导入 2 个文件（实际 ${bImp.imported}）`)
+    ok(
+      existsSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '品牌logo', 'logo-主.png')),
+      '文件已【复制】进目标组'
+    )
+    ok(existsSync(bS1), '【不动源文件】导入后源文件仍在原处')
+
+    // 同名再导一次 → 自动改名，不覆盖
+    const bImp2 = importBrandPaths({ workspaceRoot: bWs, paths: [bS1], folderId: bLogoId })
+    ok(bImp2.imported === 1 && bImp2.renamed === 1, '重复导入同名文件 → 自动 -2 改名，不覆盖')
+
+    // ⑤ 扫描（缩略图 + 元信息）
+    const bScan = await scanBrand(bWs)
+    ok(bScan.assets === 3 && bScan.thumbs >= 3, `扫描登记 3 条素材 / 生成缩略图 ${bScan.thumbs} 张`)
+    const bLogoAssets = listBrandAssets({ folderId: bLogoId })
+    ok(bLogoAssets.length === 3, '按组列素材（含子组）= 3 条')
+    ok(
+      bLogoAssets.every((a) => a.thumb_path !== null && existsSync(join(bWs, a.thumb_path!))),
+      '缩略图走既有 _thumbs 缓存（不新建第二套）'
+    )
+    ok(
+      bLogoAssets.every((a) => a.width === 20 && a.height === 20),
+      '图片宽高已采集（sharp 元信息）'
+    )
+
+    // ⑥ 三层以上目录被跳过
+    const bDeep = join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '子组A', '三层')
+    mkdirSync(bDeep, { recursive: true })
+    makePng(join(bDeep, '深处.png'), 12, 12, [1, 2, 3])
+    const bScan2 = await scanBrand(bWs)
+    ok(bScan2.skippedDeep >= 1, `三层以上的目录被跳过并计数（${bScan2.skippedDeep}）`)
+    ok(
+      !listBrandAssets({}).some((a) => a.file_name === '深处.png'),
+      '三层里的文件不进库（只做两层）'
+    )
+
+    // ⑦ 进镜像：brand.json + b<id> 缩略图 + 两层 parentId + source
+    const bHits = discoverPluginDataDirs(bAppData)
+    const br1 = await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
+    ok(br1.ok && br1.wrote === true && br1.revision === 1, '首次同步通用库：写入成功 + revision = 1')
+    ok(existsSync(join(bLib, BRAND_FILE)), '写出 brand.json')
+    const bMan = JSON.parse(readFileSync(join(bLib, MANIFEST_FILE), 'utf-8')) as {
+      scopes: Array<{ id: string; file: string; revision: number; count: number }>
+    }
+    ok(
+      bMan.scopes.some((s) => s.id === 'brand' && s.file === BRAND_FILE),
+      '【合并写】manifest.scopes 里同时有 brand（与 task 合并，缺了插件就没这个库）'
+    )
+    const bJson1 = JSON.parse(readFileSync(join(bLib, BRAND_FILE), 'utf-8')) as {
+      scope: string
+      revision: number
+      groups: Array<{
+        id: number
+        name: string
+        parentId?: number
+        assets: Array<Record<string, unknown>>
+      }>
+    }
+    ok(bJson1.scope === 'brand' && bJson1.revision === 1, 'brand.json scope=brand / revision=1')
+    const bG0 = bJson1.groups.find((g) => g.name === BRAND_TOP_COMPANY)
+    const bG1 = bJson1.groups.find((g) => g.name === '品牌logo')
+    ok(!!bG0 && !('parentId' in bG0), '顶层组【省略 parentId】（契约 §5.3：顶层省略或 null）')
+    ok(!!bG1 && bG1.parentId === bG0!.id, '子组带 parentId = 父组 id（两层分组落地）')
+    const bA0 = bG1!.assets[0] as { thumb: string; source: string; role: string; kind: string }
+    ok(bA0.source === 'company', 'asset.source 继承顶层组 = company（契约 §5.4 可选字段）')
+    ok(bA0.role === '素材' && bA0.kind === 'image', 'asset.role / kind 由软件侧归好')
+    ok(/^thumb\/b\d+\.png$/.test(bA0.thumb), `【核心】通用库缩略图走命名空间 b<id>.png：${bA0.thumb}`)
+    ok(isPngFile(join(bLib, bA0.thumb)), '缩略图确为 PNG（webp→png 转码，契约 §5.5）')
+
+    // ⑧ 父关子关
+    setBrandFolderSync(bCompany.id, false)
+    await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
+    const bJson2 = JSON.parse(readFileSync(join(bLib, BRAND_FILE), 'utf-8')) as {
+      groups: Array<{ name: string }>
+    }
+    ok(
+      !bJson2.groups.some((g) => g.name === BRAND_TOP_COMPANY) &&
+        !bJson2.groups.some((g) => g.name === '品牌logo'),
+      '【父关子关】关掉顶层组 → 它和它的子组一起不进镜像'
+    )
+    setBrandFolderSync(bCompany.id, true)
+    setBrandFolderSync(bLogoId, false)
+    await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
+    const bJson3 = JSON.parse(readFileSync(join(bLib, BRAND_FILE), 'utf-8')) as {
+      groups: Array<{ name: string }>
+    }
+    ok(
+      bJson3.groups.some((g) => g.name === BRAND_TOP_COMPANY) &&
+        !bJson3.groups.some((g) => g.name === '品牌logo'),
+      '只关子组 → 顶层组仍在、子组不进（生效值 = 自身与祖先都为 1）'
+    )
+    setBrandFolderSync(bLogoId, true)
+    // 复位后先落一次（否则下面的「内容未变」测的是"刚改过还没写"的状态）
+    await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
+
+    // ⑨ 内容签名短路
+    const bRevBefore = (
+      JSON.parse(readFileSync(join(bLib, BRAND_FILE), 'utf-8')) as { revision: number }
+    ).revision
+    const bMtime1 = fileMtimeMs(join(bLib, BRAND_FILE))
+    await new Promise((r) => setTimeout(r, 1100))
+    const br2 = await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
+    ok(
+      br2.wrote === false && br2.revision === bRevBefore,
+      `通用库内容未变 → 不重写 + revision 不涨（内容签名短路，rev 仍 ${bRevBefore}）`
+    )
+    ok(fileMtimeMs(join(bLib, BRAND_FILE)) === bMtime1, 'brand.json mtime 未变（确实一个字节都没写）')
+
+    // ⑩ 删组：文件移到「未分组」，一条不删
+    const bAssetsBefore = brandStats().assets
+    const bDel = deleteBrandFolder({ workspaceRoot: bWs, id: bLogoId })
+    ok(bDel.ok && bDel.value!.moved === 3, `删组：3 条素材移到「未分组」（实际 ${bDel.value?.moved}）`)
+    ok(
+      !existsSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '品牌logo')),
+      '组目录已删（只剩空目录才清）'
+    )
+    const bUnsorted = listBrandAssets({ folderId: -1 })
+    ok(bUnsorted.length === 3, '【永不删文件】3 条素材现在归「未分组」')
+    ok(bUnsorted.every((a) => existsSync(a.abs_path)), '【永不删文件】文件都还在磁盘上')
+    ok(brandStats().assets === bAssetsBefore, '素材记录一条没少')
+
+    // ⑪ 移出通用库 → 进 _回收站（不硬删）
+    const bVictim = bUnsorted[0]
+    const bRm = removeBrandAsset({ workspaceRoot: bWs, id: bVictim.id })
+    ok(bRm.ok && !existsSync(bVictim.abs_path), '移出通用库：文件从原位消失')
+    ok(existsSync(join(bWs, '_回收站', bVictim.file_name)), '文件进了 `_回收站`（软件永不静默删）')
+
+    // ⑫ 只移出记录（保留文件）
+    const bKeep = listBrandAssets({ folderId: -1 })[0]
+    const bForget = forgetBrandAsset(bKeep.id)
+    ok(bForget.ok && existsSync(bKeep.abs_path), '「只移出记录」：记录没了、文件仍在原处')
+
+    // ⑬ 提升（任务 → 通用库）
+    const bProj = createProject({ name: '通用库测试项目', workspaceRoot: bWs }).project!
+    const bPack = mkPack({ name: '通用库测试任务', projectId: bProj.id, workspaceRoot: bWs })
+    makePng(join(bPack.folder_path, '01-成品', '成品图.png'), 16, 16, [9, 9, 9])
+    scanAll(bWs)
+    const bTaskAsset = getDb()
+      .prepare("SELECT id, abs_path FROM assets WHERE file_name = '成品图.png'")
+      .get() as { id: number; abs_path: string }
+    const bPromote = promoteAssetToBrand({
+      workspaceRoot: bWs,
+      assetId: bTaskAsset.id,
+      folderId: bUser.id
+    })
+    ok(bPromote.ok, '【提升】任务素材复制进通用库')
+    await scanBrand(bWs)
+    ok(
+      listBrandAssets({ folderId: bUser.id }).some((a) => a.file_name === '成品图.png'),
+      '通用库里出现了这条素材'
+    )
+    ok(existsSync(bTaskAsset.abs_path), '【不动原文件】任务里那份仍在')
+
+    // ⑭ 复制到任务（通用库 → 任务）
+    const bAny = listBrandAssets({}).find((a) => existsSync(a.abs_path))!
+    const bCopy = copyBrandAssetToPack({
+      workspaceRoot: bWs,
+      brandAssetId: bAny.id,
+      packId: bPack.id
+    })
+    ok(bCopy.ok && !!bCopy.value?.dest, '【复制到任务】通用库素材复制进任务包的 02-素材')
+    ok(
+      !!getDb()
+        .prepare("SELECT id FROM assets WHERE pack_id = ? AND file_name = ?")
+        .get(bPack.id, bAny.file_name),
+      '复制过去的文件已被登记进 assets（复用扫描通路）'
+    )
+
+    // ⑮ 原文件丢失 → 打 missing 标记（不删记录）
+    const bMiss = listBrandAssets({}).find((a) => existsSync(a.abs_path) && a.id !== bAny.id)!
+    hardRm(bMiss.abs_path)
+    await scanBrand(bWs)
+    const bMissAfter = listBrandAssets({}).find((a) => a.id === bMiss.id)
+    ok(!!bMissAfter && bMissAfter.missing_at !== null, '原文件被删 → 打 missing 标记（记录不删，口径同第 8 批）')
+
+    // ⑯ 磁盘手建文件夹 → 扫描自动认领
+    mkdirSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '手建的子组'), { recursive: true })
+    makePng(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '手建的子组', '手放的.png'), 10, 10, [7, 7, 7])
+    await scanBrand(bWs)
+    ok(
+      listBrandFolders().some((f) => f.name === '手建的子组' && f.parent_id === bUser.id),
+      '资源管理器里手建的文件夹 → 扫描自动认领成子组'
+    )
+    ok(
+      listBrandAssets({}).some((a) => a.file_name === '手放的.png'),
+      '手建子组里的文件也被登记'
+    )
+
+    ok(bThumb.endsWith('thumb'), '镜像缩略图目录约定 thumb/')
+
+    closeDb()
+    hardRm(bRoot)
+  }
+
+
+  log('\n[58] 第 63 批：镜像「变更后自动重写」（防抖合并 / 串行写 / 缩略图增量 / 换工作区，docs/47）')
+  {
+    delete process.env.VELLUM_PLUGIN_SYNC
+    const sRoot = join('D:\\_accept_ws', `wstest58_${RUN_ID}`)
+    const sWs = join(sRoot, 'ws')
+    const sAppData = join(sRoot, 'appdata')
+    const sPluginData = join(
+      sAppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    const sLib = join(sPluginData, MIRROR_DIR)
+    const sTask = join(sLib, TASK_FILE)
+    const sBrand = join(sLib, BRAND_FILE)
+    const sThumb = join(sLib, THUMB_DIR)
+
+    hardRm(sRoot)
+    mkdirSync(sPluginData, { recursive: true })
+    mkdirSync(sWs, { recursive: true })
+    closeDb()
+    openDb(sWs)
+    initWorkspace(sWs)
+    ensureBrandRoot(sWs)
+
+    // 种一份通用库内容（走真实导入通路）
+    const sSrc = join(sRoot, 'src')
+    mkdirSync(sSrc, { recursive: true })
+    makePng(join(sSrc, 'seed1.png'), 12, 12, [20, 120, 200])
+    const sTop = createBrandFolder({ workspaceRoot: sWs, name: '公司素材X' })
+    ok(sTop.ok, '【准备】通用库建一个顶层组')
+    const sTopId = sTop.value!.id
+    importBrandPaths({ workspaceRoot: sWs, paths: [join(sSrc, 'seed1.png')], folderId: sTopId })
+    await scanBrand(sWs)
+    const sAsset = listBrandAssets({}).find((a) => a.file_name === 'seed1.png')
+    ok(!!sAsset, '【准备】素材已入库')
+
+    // ① 启动服务：首扫写镜像（revision = 1）
+    await startLinkService({ appDataDir: sAppData, appVersion: '9.9.9', workspaceRoot: sWs })
+    ok(existsSync(sTask) && existsSync(sBrand), '① 首扫写出了 task.json + brand.json')
+    const st1 = getLinkStatus()
+    ok(st1.targets.length === 1 && st1.running, '① 服务已启动（1 个目标 + handoff 轮询在跑）')
+    ok(
+      (JSON.parse(readFileSync(sBrand, 'utf-8')) as { revision: number }).revision === 1,
+      '① 首扫 brand revision = 1'
+    )
+
+    // ② 内容没变 → 到点后也是「签名短路」，一个字节都不写
+    const bMtimeA = statSync(sBrand).mtimeMs
+    scheduleMirror('noop')
+    ok(hasPendingMirror(), '② scheduleMirror 后进入待写状态')
+    await new Promise((r) => setTimeout(r, MIRROR_DEBOUNCE_MS + 600))
+    ok(!hasPendingMirror(), '② 防抖到点后待写清空')
+    ok(statSync(sBrand).mtimeMs === bMtimeA, '② 内容未变 → brand.json 不被重写（签名短路）')
+
+    // ③④ 内容变化 + 连续 3 次 scheduleMirror → 只写一次（防抖合并）
+    makePng(join(sSrc, 'seed2.png'), 12, 12, [200, 60, 60])
+    importBrandPaths({ workspaceRoot: sWs, paths: [join(sSrc, 'seed2.png')], folderId: sTopId })
+    await scanBrand(sWs)
+    scheduleMirror('a')
+    scheduleMirror('b')
+    scheduleMirror('c')
+    await new Promise((r) => setTimeout(r, 300))
+    ok(statSync(sBrand).mtimeMs === bMtimeA, '③ 防抖窗口内不写盘（连续 3 次只排一次）')
+    await new Promise((r) => setTimeout(r, MIRROR_DEBOUNCE_MS + 700))
+    ok(
+      (JSON.parse(readFileSync(sBrand, 'utf-8')) as { revision: number }).revision === 2,
+      '④ 三次变更合并成一次写：revision 只 +1（=2）'
+    )
+    ok(!hasPendingMirror(), '④ 写完后没有遗留待写')
+
+    // ③b 节流（不是防抖）：排上之后再调**不推迟** —— "最迟 1.5 秒写盘"是硬保证
+    makePng(join(sSrc, 'seed3.png'), 12, 12, [10, 10, 200])
+    importBrandPaths({ workspaceRoot: sWs, paths: [join(sSrc, 'seed3.png')], folderId: sTopId })
+    await scanBrand(sWs)
+    scheduleMirror('t0')
+    await new Promise((r) => setTimeout(r, 1100))
+    scheduleMirror('t1')
+    await new Promise((r) => setTimeout(r, 700))
+    ok(
+      (JSON.parse(readFileSync(sBrand, 'utf-8')) as { revision: number }).revision === 3,
+      '③b 节流：排上后再调不推迟 —— 1.8s 内已写盘（revision 3）'
+    )
+
+    // ⑤ 缩略图增量：内容变但缩略图未变 → 不重转
+    const thumbFile = join(sThumb, `b${sAsset!.id}.png`)
+    ok(existsSync(thumbFile), '⑤ 镜像 thumb 里有 b<id>.png')
+    const tMtime = statSync(thumbFile).mtimeMs
+    setBrandFolderSync(sTopId, false)
+    scheduleMirror('sync-off')
+    await new Promise((r) => setTimeout(r, MIRROR_DEBOUNCE_MS + 700))
+    ok(statSync(sBrand).mtimeMs > bMtimeA, '⑤ 关掉分组同步开关 → brand.json 确实重写了（revision 4）')
+    ok(statSync(thumbFile).mtimeMs === tMtime, '⑤ 缩略图未变 → 不重转（mtime 未动，增量生效）')
+
+    // ⑥ flushMirrorNow：立刻冲刷，不等防抖
+    setBrandFolderSync(sTopId, true)
+    scheduleMirror('flush')
+    ok(hasPendingMirror(), '⑥ flush 前有排着的写')
+    await flushMirrorNow()
+    ok(!hasPendingMirror(), '⑥ flushMirrorNow 立即冲刷，不再等防抖')
+    ok(
+      (JSON.parse(readFileSync(sBrand, 'utf-8')) as { revision: number }).revision === 5,
+      '⑥ flush 立即写出（revision 5）'
+    )
+
+    // ⑦ 换工作区：镜像必须**跟着换**（第 63 批 docs/47）。
+    //    先给旧工作区改个可辨识的名字并同步出去 —— 切换后镜像里绝不能再出现它。
+    //    注意：全新工作区会被软件**播种 6 个示例项目**，所以"空工作区"并不空；
+    //    判据不能是"0 个项目"，而是"镜像里是**新**工作区的数据"。
+    getDb()
+      .prepare("UPDATE projects SET name = '旧工作区专属项目' WHERE id = (SELECT MIN(id) FROM projects)")
+      .run()
+    await syncNow()
+    ok(
+      readFileSync(sTask, 'utf-8').includes('旧工作区专属项目'),
+      '⑦ 切换前：镜像里是旧工作区的数据（含「旧工作区专属项目」）'
+    )
+
+    const sWs2 = join(sRoot, 'ws2')
+    mkdirSync(sWs2, { recursive: true })
+    const sTaskMtime0 = statSync(sTask).mtimeMs
+    closeDb()
+    openDb(sWs2)
+    initWorkspace(sWs2)
+    getDb()
+      .prepare("UPDATE projects SET name = '新工作区专属项目' WHERE id = (SELECT MIN(id) FROM projects)")
+      .run()
+    await refreshLinkWorkspace(sWs2)
+    ok(getLinkStatus().workspaceRoot === sWs2, '⑦ 换工作区后服务指向新根')
+    ok(hasPendingMirror(), '⑦ 换工作区后排了一次同步')
+    await new Promise((r) => setTimeout(r, MIRROR_DEBOUNCE_MS + 700))
+    ok(statSync(sTask).mtimeMs > sTaskMtime0, '⑦ 换工作区后 task.json 被重写（不让插件继续显示旧工作区）')
+    const sTaskTxt = readFileSync(sTask, 'utf-8')
+    ok(sTaskTxt.includes('新工作区专属项目'), '⑦ 镜像已对齐新工作区（含「新工作区专属项目」）')
+    ok(!sTaskTxt.includes('旧工作区专属项目'), '⑦ 镜像里不再有旧工作区的数据（剥掉 stale 风险）')
+
+    // ⑦b 再切回去 —— 这才是真坑：签名短路会让"切回"跳过写盘，镜像留在另一个工作区
+    closeDb()
+    openDb(sWs)
+    await refreshLinkWorkspace(sWs)
+    await new Promise((r) => setTimeout(r, MIRROR_DEBOUNCE_MS + 700))
+    ok(
+      readFileSync(sTask, 'utf-8').includes('旧工作区专属项目'),
+      '⑦b 切回旧工作区 → 镜像又切回来（workspaceRoot 不符即强制重写）'
+    )
+
+    // ⑧ stop 清掉待写计时器
+    stopLinkService()
+    ok(!hasPendingMirror(), '⑧ stopLinkService 清掉待写计时器')
+
+    closeDb()
+    hardRm(sRoot)
+  }
+
 
 // ============ 汇总 ============
   log('\n' + '='.repeat(62))

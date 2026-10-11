@@ -39,8 +39,12 @@ import { TicketsView } from './components/TicketsView'
 import { SetupWizardModal } from './components/SetupWizardModal'
 // 第 54 批：向导 S3 里要打开已有的「工单同步设置」（不重造一套）
 import { TicketSettingsModal } from './components/TicketSettingsModal'
+// 第 62 批（docs/45 Step 3b）：PS 插件联动（独立设置弹窗 + 手动「同步到插件」）
+import { PluginLinkModal } from './components/PluginLinkModal'
+// 第 62 批 Step 4（docs/46）：通用素材库视图
+import { BrandLibraryView } from './components/BrandLibraryView'
 
-type ViewMode = 'packs' | 'files' | 'tickets'
+type ViewMode = 'packs' | 'files' | 'tickets' | 'brand'
 
 interface ToastMsg {
   id: number
@@ -172,6 +176,8 @@ export default function App(): React.JSX.Element {
   /** 向导 S3 打开「工单同步设置」用（这个弹窗平时由 TicketsView 自己管） */
   const [wzSettingsOpen, setWzSettingsOpen] = useState(false)
   const [wzSettingsInitial, setWzSettingsInitial] = useState<TicketStatus | null>(null)
+  /** 第 62 批（docs/45）：PS 插件联动设置弹窗（顶栏常驻入口打开） */
+  const [showPlugin, setShowPlugin] = useState(false)
 
   const toastId = useRef(0)
   const toast = useCallback((text: string, kind: 'ok' | 'err' | 'info' = 'info'): void => {
@@ -1094,7 +1100,7 @@ export default function App(): React.JSX.Element {
           {COPY.app.name}
         </div>
 
-        {view !== 'tickets' && (
+        {view !== 'tickets' && view !== 'brand' && (
           <div className="search-wrap">
             <span className="icon">
               <Icon name="search" size={13} />
@@ -1125,6 +1131,10 @@ export default function App(): React.JSX.Element {
           </button>
           <button className={view === 'files' ? 'on' : ''} onClick={() => setView('files')}>
             {COPY.top.viewFiles}
+          </button>
+          {/* 第 62 批（docs/46）：通用素材库（公司通用素材 + 个人收藏，不属于任何任务） */}
+          <button className={view === 'brand' ? 'on' : ''} onClick={() => setView('brand')}>
+            {COPY.brand.entry}
           </button>
         </div>
 
@@ -1195,6 +1205,15 @@ export default function App(): React.JSX.Element {
               </button>
             </>
           ))}
+
+        {/* 第 62 批（docs/45）：PS 插件联动常驻入口（打开独立设置弹窗 —— 开关 / 手填目录 / 同步到插件） */}
+        <button
+          className="btn"
+          title={COPY.pluginLink.title}
+          onClick={() => setShowPlugin(true)}
+        >
+          <Icon name="layers" size={13} />  {COPY.pluginLink.entry}
+        </button>
       </div>
 
       {/* 主体 */}
@@ -1207,6 +1226,11 @@ export default function App(): React.JSX.Element {
               onUnassignedCount={(n) => setTkUnassigned(n)}
               onOpenWizard={() => setShowWizard(true)}
             />
+          </div>
+        ) : view === 'brand' ? (
+          /* 第 62 批（docs/46）：通用素材库 —— 同样独占主体（自带组树与工具条，不复用左栏） */
+          <div className="main brand-main">
+            <BrandLibraryView onToast={(m, k) => toast(m, k)} />
           </div>
         ) : (
           <>
@@ -2004,6 +2028,9 @@ export default function App(): React.JSX.Element {
           onSaved={() => setWzSettingsOpen(false)}
         />
       )}
+
+      {/* 第 62 批（docs/45）：PS 插件联动设置（顶栏「插件」入口打开） */}
+      {showPlugin && <PluginLinkModal onClose={() => setShowPlugin(false)} />}
 
       {/* 提示 */}
       {toasts.map((t) => (

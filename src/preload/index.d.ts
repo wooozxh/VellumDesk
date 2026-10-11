@@ -47,5 +47,9 @@ export type {
   PackBackupResult,
   PluginLinkStatus,
   PluginLinkConfig,
-  PluginLinkSyncResult
+  PluginLinkSyncResult,
+  BrandFolderNode,
+  BrandAssetItem,
+  BrandStats,
+  BrandListView
 } from '../shared/types'

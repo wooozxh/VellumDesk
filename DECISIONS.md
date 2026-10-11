@@ -1084,3 +1084,15 @@
 - **插件侧顺带修掉一个真实缺陷**：其缩略图缓存键原用 `asset.id`，两库 id 各自从 1 起 ⇒ 同 key，**切库可能显示上一库的图**；已改为按 `asset.thumb` 做键 —— 这**反向印证**命名空间（`t`/`b`）确有必要。
 - **软件侧 Step 1 / Step 2 完工**（分支 `feature/vellum_desk-PSlink`）：`src/main/linkMirror.ts`（生成并写镜像）+ `src/main/linkHandoff.ts`（轮询 `req.json` → 拷原图 → 回 `res.json`），各配「假插件目录 / 假 req-res」桩；accept `[54]`/`[55]` → **1204 项全过**。提交 `056915e` / `acec35b`。
 - **下一步**：Step 3（接入 UI + 启动钩子 + `pluginlink` 场景）。
+
+## 2026-10-11　通用库置入修复（docs/48）：handoff 必须按 (scope, assetId) 反查
+
+- **bug**：`linkHandoff.process()` 里 `scope === 'brand'` 曾直接回 `not_found` —— 那是 **Step 2 时代**（通用库还没做）
+  留的**占位桩**；**第 62 批 Step 4** 通用库（`brand_assets`）落地后**未拆** ⇒ 通用库素材**永久无法置入**。
+- **修法（定）**：按 `scope` 选表 —— `task → assets`、`brand → brand_assets`；
+  缺省 / 空 → `task`（向后兼容）；**未知 → `bad_request`**。
+  **先按 scope 定表、再按 id 查**，从构造上杜绝「两库 `id` 各自从 1 起」造成的**串库**（拷回另一张图）。
+- **契约**：§六 新增**规则 8**（`scope` 必填 + 必须在该 scope 内反查 + 未知值 `bad_request`）；
+  §一 拓扑 `brand.json` 去星。**加法、不升版本**。
+- **规矩（新增）**：**占位桩必须随对应功能落地一并拆除。** "本步尚未实现"的桩若留在代码里，
+  会以"功能故障"的形态潜伏（本次现象与"软件没响应"几乎一样，插件侧排查方向被带偏过一次）。

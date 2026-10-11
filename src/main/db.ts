@@ -850,6 +850,58 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
   if (!packCols21.some((c) => c.name === 'backup_path')) {
     d.exec('ALTER TABLE packs ADD COLUMN backup_path TEXT')
   }
+
+  // ---- 迁移 22：通用素材库两张表（第 62 批 docs/46）----
+  // 「通用素材库」= 不属于任何任务的公司通用素材 + 个人收藏（一个跨任务包的素材池）。
+  //
+  // 为什么不复用 `assets`：复用看着省事（pack_id 置空 + 加一列 brand_folder_id），
+  // 但会**污染一大堆既有查询**（未归属池 / 文件视图 / 左栏统计 / 标签计数 … 全都要加
+  // "排除通用库" 的谓词）—— 正是坑表里「隐身类语义改动要全量过 SQL」的高危场景。
+  // **独立两张表 = 零污染**；代价只是多写一套（字段全从 `assets` 照抄）。
+  //
+  // 新表**可以自带索引**（与本文件里"老表补列时索引要另写"的规矩不同，因为这里是
+  // `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS`，老库不存在"建表被跳过"的问题）。
+  // 幂等：`IF NOT EXISTS` 全兜住，重复打开不会重复建。
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS brand_folders (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_id      INTEGER REFERENCES brand_folders(id) ON DELETE CASCADE,
+      name           TEXT    NOT NULL,
+      sort_order     INTEGER NOT NULL DEFAULT 0,
+      rel_path       TEXT    NOT NULL DEFAULT '',
+      sync_to_plugin INTEGER NOT NULL DEFAULT 1,
+      -- 来源：顶层「公司素材」= company、顶层「个人收藏」= user；子组继承父组。
+      -- 写进 brand.json 的 asset.source（契约 §5.4 可选字段，供插件跨分组筛「我的」）。
+      source         TEXT    NOT NULL DEFAULT 'user',
+      created_at     TEXT    NOT NULL,
+      UNIQUE(parent_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS brand_assets (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      folder_id    INTEGER REFERENCES brand_folders(id) ON DELETE SET NULL,
+      file_name    TEXT    NOT NULL,
+      ext          TEXT    NOT NULL DEFAULT '',
+      size         INTEGER NOT NULL DEFAULT 0,
+      abs_path     TEXT    NOT NULL UNIQUE,
+      rel_path     TEXT    NOT NULL DEFAULT '',
+      thumb_path   TEXT,
+      width        INTEGER,
+      height       INTEGER,
+      color_mode   TEXT,
+      duration_ms  INTEGER,
+      video_codec  TEXT,
+      probe_info   TEXT,
+      source       TEXT    NOT NULL DEFAULT 'user',
+      missing_at   TEXT,
+      created_at   TEXT    NOT NULL,
+      modified_at  TEXT    NOT NULL,
+      scanned_at   TEXT    NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_brand_folders_parent ON brand_folders(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_brand_assets_folder ON brand_assets(folder_id);
+  `)
 }
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义

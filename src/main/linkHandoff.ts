@@ -5,7 +5,8 @@
  * 所以用户在插件点「插入」时，**只能**由软件把那一张原图拷进 `handoff\incoming.<ext>`：
  *
  *   插件：写 handoff\req.json（覆盖）
- *   软件：按 assetId 反查 abs_path → 拷原图 → 写 handoff\res.json（reqId 原样回填）
+ *   软件：按 **(scope, assetId)** 反查 abs_path（scope=task→assets / scope=brand→brand_assets）
+ *         → 拷原图 → 写 handoff\res.json（reqId 原样回填）
  *   插件：轮询 res.json，reqId 匹配 & ok → 读 incoming → 置入
  *
  * 设计约束（同 `linkMirror`）：**不依赖 electron**，且把「轮询」做成显式的 `tick()`——
@@ -26,7 +27,9 @@ import {
   statSync,
   unlinkSync,
   copyFileSync,
-  renameSync
+  renameSync,
+  utimesSync
+
 } from 'fs'
 import { getDb } from './db'
 import {
@@ -195,25 +198,37 @@ export class HandoffEngine {
     }
     const reqId = typeof req.reqId === 'string' ? req.reqId : ''
     const assetId = typeof req.assetId === 'number' ? req.assetId : -1
-    const scope = req.scope === 'brand' ? 'brand' : 'task'
+    /**
+     * `scope` 决定**去哪张表**反查（契约 §六 规则 8，2026-10-11 加法）：
+     * · `task`  → `assets`（任务库）
+     * · `brand` → `brand_assets`（通用素材库，docs/46）
+     * 两库的 `asset.id` **各自从 1 起**（契约 §5.5 命名空间）⇒ **绝不能全局只按 id 查**，
+     * 否则 brand 的 `id=59` 撞上任务库的 `id=59` 会拷回**另一张图**（"置入成功但图不对"，极难归因）。
+     * 缺省 / 空串 → 按 `task`（向后兼容旧行为）；其它未知值 → `bad_request`（**不猜**，避免误投）。
+     */
+    const rawScope = typeof req.scope === 'string' ? req.scope.trim() : ''
+    const scope = rawScope === '' ? 'task' : rawScope
 
     if (!String(req.contract ?? '').startsWith('vellum-link/')) {
       return this.reply(handoff, reqId, scope, assetId, false, 'bad_contract')
     }
     if (!reqId) return this.reply(handoff, reqId, scope, assetId, false, 'bad_request')
+    if (scope !== 'task' && scope !== 'brand') {
+      return this.reply(handoff, reqId, scope, assetId, false, 'bad_request')
+    }
 
     // 去重：同一 reqId 不再重复拷（也不重写 res.json）
     const prev = this.done.get(reqId)
     if (prev) return prev
 
-    if (scope === 'brand') {
-      // 通用素材库（docs/46）本步尚未实现 → 当作找不到
-      return this.reply(handoff, reqId, scope, assetId, false, 'not_found')
-    }
-
-    const row = getDb()
-      .prepare('SELECT id, abs_path, ext, size, missing_at FROM assets WHERE id = ?')
-      .get(assetId) as
+    const db = getDb()
+    const row = (
+      scope === 'brand'
+        ? db
+            .prepare('SELECT id, abs_path, ext, size, missing_at FROM brand_assets WHERE id = ?')
+            .get(assetId)
+        : db.prepare('SELECT id, abs_path, ext, size, missing_at FROM assets WHERE id = ?').get(assetId)
+    ) as
       | { id: number; abs_path: string; ext: string; size: number; missing_at: string | null }
       | undefined
     if (!row) return this.reply(handoff, reqId, scope, assetId, false, 'not_found')
@@ -240,6 +255,16 @@ export class HandoffEngine {
     try {
       copyFileSync(row.abs_path, tmp)
       renameSync(tmp, dst)
+      /**
+       * 🔴 必须把 mtime 归零到现在（2026-10-11 真机 bug 修复）。
+       * Windows 的 `CopyFile`（Node `copyFileSync` 底层）会**连同源文件的修改时间一起搬过来** ——
+       * 于是刚写出的 `incoming.jpg` 带着**源图的旧 mtime**（实测一张 20 天前的图 → 年龄 29465 分钟）。
+       * 紧接着 `cleanup()`（">10 分钟即过期"）会把它**当成过期文件当场删掉**，
+       * 而`res.json` 是刚写的、mtime 新、活了下来 ⇒ 插件看到 res 说 ok，却怎么也读不到文件（置入失败）。
+       * 这里显式盖一个"现在"的时间戳，保证 incoming 永远算"新鲜"，不会被 cleanup 误杀。
+       */
+      const stamp = new Date()
+      utimesSync(dst, stamp, stamp)
     } catch {
       return this.reply(handoff, reqId, scope, assetId, false, 'copy_failed')
     }
