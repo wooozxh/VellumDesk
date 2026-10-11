@@ -48,6 +48,9 @@ MAP = [
     ("38-多人协作指派.png", "shot-b18-2-submit.png"),
     ("39-任务卡片版本徽标.png", "shot-b9-1-pack-card-version.png"),
     ("40-已忽略的丢失.png", "shot-b47-2-ignored-list.png"),
+    # 第 62 批（docs/45 / 46）：PS 插件联动 + 通用素材库（随 manual 场景一并拍出）
+    ("42-通用库视图.png", "shot-m-16-brandlib.png"),
+    ("43-插件联动设置.png", "shot-m-17-plugin-modal.png"),
 ]
 
 ok, miss = 0, []

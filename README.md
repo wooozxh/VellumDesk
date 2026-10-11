@@ -17,8 +17,10 @@
 
 | 分支 | 是什么 | 状态 |
 |---|---|---|
-| `main` | 第 1~28 批 + 第 47~60 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **唯一分支**；最新包 `VellumDesk-1.9.7-Setup.exe`（已发 GitHub Release） |
+| `main` | 第 1~28 批 + 第 47~60 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **独立版主线**；最新包 `VellumDesk-1.9.7-Setup.exe`（已发 GitHub Release） |
+| `feature/vellum_desk-PSlink` | 第 62~64 批：**PS 插件联动**（docs/45 · 镜像 + handoff）+ **通用素材库**（docs/46）+ 镜像自动同步（docs/47）+ 通用库置入修复（docs/48） | **插件版并行线**（长期维护，不按「合入即删」走）；最新包 `VellumDesk-1.10.0-Setup.exe`（已发 GitHub Pre-release `v1.10.0-pslink`） |
 
+- 2026-10-11 起**两条并行版本线**：`main` = 独立版，`feature/vellum_desk-PSlink` = 插件版；各自出包发版，功能在插件版先落地、按需再回合主线。
 - 2026-10-05 起**只保留 `main`**：历史功能分支（`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）全部合并进 `main` 后删除（`feature/wecom-bundle` 为 ff 合并，无信息丢失）。
 - 仓库：`https://github.com/wooozxh/VellumDesk`（2026-10-05 由 `media-lib_zxh` 重命名，旧链接自动重定向）。
 - 新功能**先出方案再动代码**（方案文档 `docs/NN`）；开发分支按 `feature/小写短横线` 命名，合入 `main` 后即删。
@@ -100,6 +102,8 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs backup           # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs unassigned       # 界面验证：未归属池入口（虚线卡片 → 文件视图未归属筛选 → 认领，第 25 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs wizard           # 界面验证：首次配置引导六步走完 + 完成/不再弹（第 54 批）
 NODE_OPTIONS= node _shotapp/run-verify4.cjs gencover         # 界面验证：无成品图任务的通用占位封面（第 59 批）
+NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 node _shotapp/run-verify4.cjs pluginlink  # 界面验证：PS 插件联动入口 + 设置弹窗降级态（第 62 批；⚠️ 必带 VELLUM_PLUGIN_SYNC=0，否则会写真实插件目录）
+NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 node _shotapp/run-verify4.cjs brandlib   # 界面验证：通用素材库（组树 / 扫描认领 / 网格 / 同步开关，第 62 批 Step 4；⚠️ 同样要 VELLUM_PLUGIN_SYNC=0）
 ```
 
 注意：

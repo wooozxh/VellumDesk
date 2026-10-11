@@ -27,6 +27,34 @@
   **已发 GitHub Release `v1.9.7`**（tag → `2a2b905`；附件：exe + 手册 `VellumDesk-1.9.7-Manual.html` / `VellumDesk-1.9.7-Manual-A4.pdf`）。
   地址：https://github.com/wooozxh/VellumDesk/releases/tag/v1.9.7 。**GitHub Release 最新 = v1.9.7**。
   `CHANGELOG.md`（1.8.3 → 1.9.7 的面向用户更新说明）已作为 Release 说明发布、并复制一份到出包目录。
+
+- **分支与版本现状（2026-10-11 第 62 次会话）**：新开**长期并行版本线** `feature/vellum_desk-PSlink`
+  （用户定：`main` = 独立版，此分支 = 插件版，两条线并行维护、各自出包发版，不按「合入即删」走）。
+  从 `main` 的 `4c77774` 分出，已推远端；**`main` 未动**（仍 `4c77774`）。
+  **第 62 批：PS 插件联动**（方案 `docs/45` 通路 + `docs/46` 通用素材库；契约唯一权威源 `D:\vellum-link\LINK-CONTRACT.md`，`vellum-link/1`）：
+  Step 1 `linkMirror.ts`（写镜像）/ Step 2 `linkHandoff.ts`（handoff 搬运）/ Step 3a 服务层接入主进程 /
+  Step 3b-1 五个 IPC + preload + 类型 + 文案 / **Step 3b-2 UI（`PluginLinkModal.tsx` + 顶栏「插件」入口 + `pluginlink` 场景）**。
+  最新验收基线 **accept 1268 项全过 + 18 个界面场景全绿**（2026-10-11 本机 17736 实跑；新增 `brandlib` 场景 16 条）。
+  ⚠️ **基线口径**：第 62 批 accept 1163 → 1185（Step 1，+22）→ 1204（Step 2，+19）→ 1214（Step 3a，+10）→
+  **1268（Step 4 通用库，+51）**；Step 3b 无新增 accept 断言。
+  **第 63 批（docs/47）：镜像「变更后自动重写」** —— 任务库补齐自动同步，与通用库统一走
+  `ipcMain.handle` 包装层（判据**反着写**：除只读通道外一律排同步）+ **节流 1.5s** + **串行锁**；
+  另修 `换工作区强制重写`（签名短路会让"切回旧工作区"漏写，插件显示 stale 数据）、缩略图增量、手填目录防呆。
+  **第 64 批（docs/48）：通用库置入修复（bug 修复）** —— `linkHandoff` 里一段 Step 2 残留桩
+  （`scope==='brand'` → 一律 `not_found`）在通用库落地后忘拆 ⇒ **通用库素材永久无法置入**；
+  已改为**按 scope 选表反查**（`task→assets` / `brand→brand_assets`，未知 scope → `bad_request`），
+  从构造上杜绝插件侧警告的「两库 id 相撞 → 拷错图」。契约 §六 补规则 8、§一 去星。
+  **最新基线 accept 1307 项全过 + 18 个界面场景全绿**（第 64 批 `[55]` +13；本步无界面改动、场景未重跑）。
+  **插件版独立版本号 = 1.10.0**（`main` 独立版仍是 1.9.7）—— 两条线版本号各自递增，互不干扰。
+  **本批收尾**：出包 `VellumDesk-1.10.0-Setup.exe`（`D:\_release\v1.10.0-pslink\`）；
+  **已发 GitHub Pre-release `v1.10.0-pslink`**（附件：exe + 手册单文件版 + A4 PDF；标为 **Pre-release**，
+  不占「Latest」—— 独立版 v1.9.7 仍是对外正式版）。
+  **手册已按插件版重做**：新增「**第四部分 · 通用素材库与 PS 插件**」（6.1~6.6），
+  原「速查与下载」顺延为**第五部分**（7.1~7.7）；全部界面截图按本分支重拍（顶栏已含「通用库 / 插件」）。
+  **下一步 docs 编号 49**（45/46/47/48 已用）；**迁移号 → 23**（22 已被通用库两张表用掉）。
+  ⚠️ **真机行为**：本机真实插件目录存在（`%APPDATA%\Adobe\UXP\PluginsStorage\PHSP\27\Developer\com.vellum.toolbox\PluginData`）——
+  **在此分支启动软件就会自动写镜像**（设计行为）；排障 / 跑测试用 `VELLUM_PLUGIN_SYNC=0` 硬开关挡掉。
+
 ## 分支现状（2026-09-30 晚核对 —— 历史快照，仅供追溯）
 
 | 分支 | 指向提交 | 内容 | 状态 |
@@ -2039,3 +2067,189 @@ versions / category / tickets / export / unassigned / wizard）。
 
 **环境要点**：git / gh 操作**一律摘掉代理变量**（`env -u http_proxy …`）；判定推送用 `git rev-parse origin/main`，不信 push 输出；`GH_TOKEN` 从 GCM 取（`printf "protocol=https\nhost=github.com\n\n" | git credential fill`，令牌只落临时文件、用完即删）。
 迁移号仍 **21**；下一批 docs 编号 **45**。
+
+### 第 62 批（2026-10-11 第 62 次会话）：PS 插件联动（跨项目改造，docs/45 + docs/46）
+
+**背景**：用户新开发了 PS 插件 `vellum_toolbox`，其素材库功能要和本软件打通；为此新建协同项目 `D:\vellum-link`
+（只放插件侧与软件侧共用的契约与公告板）。**契约唯一权威源 = `D:\vellum-link\LINK-CONTRACT.md`（`vellum-link/1`）**，
+两侧仓库各留一个指针 `LINK-CONTRACT.md`；软件侧是「**写方**」。本批在**长期并行分支** `feature/vellum_desk-PSlink` 上做。
+
+**方案定稿（`4e518a7`）**：`docs/45-插件联动方案.md`（通路：镜像 + handoff）+ `docs/46-通用素材库方案.md`（内容）。
+用户拍板 B 七条（唯一改动：handoff 体积阈值 **300 MB**）+ 追加「搜索框 / 常用置顶 / 从通用库复制到任务」三项。
+按契约 §十「加法」流程改了契约正文三条（**不升版本**）：
+
+- **§5.5** 缩略图命名加**命名空间** `t<id>.png`（任务）/ `b<id>.png`（通用）—— 防两库 id 撞名覆盖（对插件透明）。
+- **§5.4** 可选 `asset.source`（`company`/`user`）。
+- **§5.3** 可选 `groups[].parentId`（通用库两层分组）。
+  → 已在 `LINK-LOG.md` 追加 **[软件侧]** 公告，本仓 `DECISIONS.md` 记一条。
+
+**插件侧确认（`4e52c3f`）**：三处加法**全部接受**且 ②③ 真用到（来源筛选 + 两级筛选区，非「忽略未知字段」）；
+插件侧按命名空间提示**修掉了自己的真缺陷**（缩略图缓存键原用 `asset.id`，两库 id 都从 1 起 → 切库串图；改用 `asset.thumb`）
+—— **反向印证 `t`/`b` 命名空间确有必要**。契约 §5.3 补上插件侧宽容语义（缺失/null/空串/悬空/三层以上 → 顶层，绝不丢素材）。
+
+**施工（docs/45 §9 分步，全程「假插件目录桩」验通，不必装 PS）**：
+
+| 步 | commit | 内容 | accept |
+|---|---|---|---|
+| Step 1 | `056915e` | 新建 `src/main/linkMirror.ts`：路径发现（多 PS 版本全写）/ 组装 `task.json` / `revision` **内容签名短路** / 缩略图 `webp→png` 命名空间 `t<id>` / JSON **原子写** / 预建 `handoff\`。accept `[54]` | 1163 → **1185**（+22）|
+| Step 2 | `acec35b` | 新建 `src/main/linkHandoff.ts`：`HandoffEngine`（`tick` 显式 / `start` 常驻）—— 轮询 `req.json`（按 mtime+size）→ 校验（contract/missing/存在/白名单/300MB）→ 拷 `incoming.<ext>`（原子）→ 回 `res.json`（`reqId` 原样回填）；reqId 去重；清 >10min 过期。accept `[55]` | 1185 → **1204**（+19）|
+| Step 3a | `68aad5d` | `linkConfig.ts`（meta 设置项）+ `linkService.ts`（发现目标 / 起轮询 / 首扫 / syncNow / status）+ `index.ts` 启动钩子与 `will-quit`；硬开关 `VELLUM_PLUGIN_SYNC=0`。accept `[56]` | 1204 → **1214**（+10）|
+| Step 3b-1 | `2b0aec2` | 5 个 IPC（`plugin:status`/`getConfig`/`setConfig`/`pickDataDir`/`syncNow`）+ preload + `shared/types`（`PluginLink*` 三类型）+ `copy.ts` 新 `pluginLink` 段 | 1214（不变）|
+| **Step 3b-2** | 本批（未提交） | **UI**：新建 `src/renderer/.../PluginLinkModal.tsx`（开关 / 手填目录+选目录 / 命中目录列表 / 同步按钮 / 上次同步）+ App 顶栏加「插件」常驻入口 + `main.css` `.pl-*` 段 + `_shotapp` 新场景 `pluginlink` | 1214（不变）|
+
+**本批（Step 3b-2）验收**：`typecheck` node+web 均 **0 错**；`npm run build` 三端通过；
+**accept 1214 项全过**（本步无新增断言，UI 改动）；**界面 16 个场景全绿**（新增 `pluginlink` 15 条断言，其余 15 个无回归）；
+**手册一致性体检全部通过（0 提醒）**。
+
+**`pluginlink` 场景**（15 条断言）：顶栏入口存在且悬停提示对 → 点开弹窗（标题 / 开关默认开 / 输入框 / 选目录 / 同步按钮齐）→
+**降级态**显示「未找到插件目录」+ 上次同步「还没同步过」→ 点同步得「没找到插件目录，这次什么都没写」且**不弹红错** →
+点 ✕ 能关 → 再点能重开（末态留给总截图）；控制台零报错。
+⚠️ 该场景**以 `VELLUM_PLUGIN_SYNC=0` 跑**（硬开关：不发现目标、不碰真实插件目录），只验降级路由；
+「找到目录 → 写镜像」由 accept `[54]`/`[56]` 覆盖。
+
+**踩过的坑（记录备查）**
+
+- **内容签名短路会漏掉「新加的手填目录」**（Step 3a 发现并修）：`linkMirror` 原本「内容没变就不写」，
+  于是新填一个目录后它永远不出镜像 → 短路前提补上「**每个目标都已有镜像**」。
+- **硬开关 `VELLUM_PLUGIN_SYNC=0` 原本只挡启动**，`appDataDir` 仍被记下 → 该模式下手动点同步会顺着真实 `%APPDATA%`
+  **误写真实插件目录**；改为「**连 appDataDir 都不记**」，该模式彻底不碰真机目录。
+- **场景壳 `capturePage` 头几帧返空图**（0 KB）：弹窗刚打开时连拍会得到空 png，**轮询到非空**再落盘。
+- **场景末次总截图会覆盖同名图**：`SCENARIOS[x].shot` 在结尾统一抓一次；若中途已用同名文件抓过「弹窗打开」，
+  末态就必须**仍留在弹窗打开**（否则总截图变成关掉的空壳）。故本场景结尾**重开弹窗**、总截图另起名 `shot-b62-4-*`。
+- **16 场景批量连跑会偶发**：`threelevel` 一次 exit=127（GPU 共享上下文创建失败）、`missing` 一条 hover 断言假失败
+  （`.pact` opacity 靠**真鼠标移入**，机器一忙就时序失效——档案早已记过）。**单独重跑两个都全绿**，非回归。
+
+**🔴 真机 bug 修复（2026-10-11 · handoff 首次真机联调，docs/45 §3.7）**
+
+用户报「PS 插件里图片置入不能用」。排查结论：**是我 handoff 代码的真 bug，不是没做完。**
+
+- **现象**：软件写了 `res.json`（`ok:true` / `file:"handoff/incoming.jpg"` / `size:627927`），
+  **但 `handoff/` 里没有 `incoming.jpg`** → 插件等 5066ms 也读不到 → 置入失败。
+- **根因**：Windows 的 `CopyFile`（Node `copyFileSync` 底层）**会连源文件 mtime 一起搬过来**。
+  素材是 9/20 的图 ⇒ 刚写出的 `incoming.jpg` 带 **20 天前**时间戳（实测 29465 分钟）；
+  软件自己的**过期清理**（">10 分钟即过期"）在**下一次 600ms 轮询**就把它**当垃圾删了**，
+  而 `res.json` 是刚写的、mtime 新、活下来 ⇒ 「res 说 ok、文件却不在」（契约规则 6 的"顺序"没问题，
+  **顺序对还不够，时间戳也要对**）。
+- **定位手法**（值得记）：① 读插件侧 `boot.log`/`selfcheck.json` 拿到确切失败读数；② 用**真机探针**
+  （真实 DB + 真实插件目录直接 `tick()`）证明代码本身能落盘 ⇒ 排除路径/权限；③ 起**真实软件**复现；
+  ④ `copyFileSync` 落盘后 `stat` 一比 mtime，抓到 29465 分钟。
+- **修复**：`linkHandoff.ts` 写盘后 `utimesSync(dst, now, now)`；accept 补 **3 条回归断言**
+  （源图设旧 mtime → 投递 → 断言时间戳是"现在" + 紧接着 `cleanup()` 文件必须还在）。
+- **验收**：accept **1214 → 1217 全过**；**真机端到端复验**：起真实软件 → 投 `req.json` →
+  `incoming.jpg` 落盘 627927 B 且**扛过 33 秒持续清理轮询**不被删。
+- **同步**：契约补 **§六 规则 6b**（加法，不升版本）；`LINK-LOG.md` 回复插件侧三条问题
+  （顺序没问题 / res 写两次=进程重启后重处理残留 req，幂等无害 / brand scope 知悉）。
+- ⚠️ 用户测试时那个**在跑的实例是旧构建** —— 要用新行为需**关掉并重启软件**（源码 + `out/` 均已更新）。
+
+**Step 4（通用素材库，docs/46）完工**（2026-10-11，**未 commit**）：
+- **迁移 22** 建两张独立表 `brand_folders` / `brand_assets`（刻意不复用 `assets` —— 复用会污染未归属池/文件视图/统计/标签计数一大票查询）。
+- **新建 `src/main/brandLib.ts`**：根 `<工作区>\_通用素材库\`（首次自动建 + 落「公司素材/个人收藏」两个顶层组）/
+  两层封顶（第三层拒绝）/ 组改名连带改磁盘目录 / 删组=文件移到「未分组」**不删文件** / 移出=文件进 `_回收站` /
+  导入（复制，不动源文件；文件夹按名建组）/ 扫描认领（手建文件夹自动进库，含缩略图与元信息）/ 丢失标记 /
+  `sync_to_plugin`（**父关则子关**）/ 提升（任务→通用库）/ 复制到任务（通用库→任务）。
+- **`linkMirror.ts`** 补 `syncBrandMirror`：`brand.json` + 缩略图命名空间 **`b<id>`** + `manifest.scopes` **合并写**
+  （任务库/通用库各自短路，谁同步更新谁那条 —— 整文件覆盖会把另一个 scope 抹掉，插件里那个库就消失）。
+- **15 个 `brand:*` IPC** + preload + `shared/types` 三处同改；任何写操作后自动重扫并（尽力）刷镜像。
+- **新建 `src/renderer/.../BrandLibraryView.tsx`** + 顶栏第 4 格「通用库」；文案进 `copy.ts` 的 `brand` 段。
+
+**Step 4 验收**：typecheck node+web 0 错 · accept **1214 → 1268 全过**（新增 `[57]` 51 条）·
+界面 **18 个场景全绿**（新增 `brandlib` 16 条）· 手册体检 **0 提醒**。
+踩过的坑：① 组件把父传的 `onToast`（内联箭头，每次渲染新引用）放进 `useCallback` 依赖 → **无限重取、界面卡死**（改用 ref 存住）；
+② 场景壳加载的是 `out/test/*.cjs`，改完 IPC **必须重打三个测试 bundle**，否则报 `No handler registered`；
+③ 顶栏从 3 格变 4 格，`tickets` 场景原有 `n === 3` 断言要同步改成 4（设计内变更）。
+
+**状态**：分支 `feature/vellum_desk-PSlink`（HEAD = 已提交到 Step 3b-1 `2b0aec2`；**Step 3b-2 + bug 修复 + Step 4 均未 commit** —— 用户指示先不 push）；
+`main` 未动（仍 `4c77774`）。**剩下的**（docs/45 §9）：**Step 5 真机验收**（用户：装好插件 → 软件点同步 → PS 里看到任务库/通用库、图能出、点插入能置入）。
+
+### 第 63 批（2026-10-11 第 63 次会话）：镜像「变更后自动重写」（docs/47）
+
+**由来**：插件侧留言（经用户转达，已进 `D:\vellum-link\LINK-LOG.md`）—— 插件 `mirror.watch()` 每 3 秒读
+`manifest.json` 比 `scopes[].revision` 自动重渲染，所以**决定"什么时候能看到新素材"的是软件侧什么时候把数据写成镜像**。
+用户实测：通用库「扫描磁盘」后软件/插件同时更新，但**任务库不自动**。
+
+**现状核实（读代码，不改）**：通用库每个写 handler 后 `void syncNow()`（已自动、**无合并**）；
+**任务库完全没有自动重写**（只有手动按钮 + 启动首扫）—— 这正是"连点刷新刷不出新素材"的根因。
+写入顺序 ✅（tmp→rename；缩略图 → json → manifest）；revision ✅ 各库独立计数 + 内容签名短路；
+缩略图 ✅ png/jpg + 命名空间 `t<id>`/`b<id>`，两表 id 均 `AUTOINCREMENT` 不复用。
+另查出用户**把「插件数据目录」手填成了工作区内的 `D:\vellum_workspace\通用素材`** →
+①镜像被写进工作区 ②该文件夹被任务扫描**当成 3 个假任务**（`library`/`brand`/`logo`）。
+
+**⚠️ 顺带回答用户三问（写进档案）**：通用库入库有「导入」与**「扫描磁盘」**两条路（**无文件监听**，
+手放文件后要么点扫描、要么打开视图时自动扫一次）；`通用素材`（**无下划线**）不被软件认作库根
+（库根是 `_通用素材库`，靠"`_` 开头即隐身"排除），因此被当成任务；**新建分组是会建真实文件夹的**
+（`_通用素材库\公司素材\test`、`_通用素材库\12\logo` 实测都在），不是虚拟目录。
+
+**做了什么**
+- **`linkService.ts`**：`syncNow` 拆为 `syncNowCore` + **串行链**（一把锁，防并发读同一 `prevRev` 把 revision 写乱）；
+  新增 `scheduleMirror()`（**节流 1.5s** —— 排上后再调**不推迟**，保证"最迟 1.5s 写盘"，用防抖会被轮询调用无限顶后）、
+  `flushMirrorNow()`、`hasPendingMirror()`、`refreshLinkWorkspace(root)`；`discoverTargets(dir, root)` 加**手填目录防呆**。
+- **`ipc.ts`**：把 103 处 `ipcMain.handle(` 换成 `handleIpc(`（一层包装）——**除 39 个"只读/纯弹框"通道外，其余成功后一律 `scheduleMirror()`**。
+  ⚠️ 判据**反着写**是采纳插件侧意见：原方案按白名单枚举，**必漏**（初版就漏了 `project:update` 改名/改色、`archived` 归档一类）。
+  `ws:*` 四个换工作区通道：先 `refreshLinkWorkspace(新根)` 再排同步。
+- **`linkMirror.ts`**：缩略图**增量**（目标比源新则跳过，免得每次变更全量重转）；**短路前先比对 `manifest.workspaceRoot`**（见下）。
+- **`index.ts`**：`before-quit` 时若还有待写变更 → `flushMirrorNow()` 冲刷完再退。
+- **`BrandLibraryView.tsx`**：打开视图时**静默扫一次磁盘**（认领手放文件；ref 守卫 + 空依赖，绝不进 `load` 的依赖链）。
+- **`PluginLinkModal.tsx` / `copy.ts`**：手填目录落在工作区内部 → 明确提示；文案改「任务库 + 通用库」。
+
+**🔴 查出并修掉的真 bug：换工作区后镜像留旧的**
+镜像目录在磁盘上**多工作区共用**，而签名短路用的 `meta` 是**按工作区各存一份**的 ⇒
+「切到 B 再**切回 A**」时 A 的签名与内容仍一致 → **短路 → 不写盘 → 插件一直显示 B 的数据**
+（"数据是旧的、界面却一切正常"，最难归因 —— 插件侧 v0.3.2 吃过同样的亏）。
+**解法**：短路前先读 `manifest.json` 的 `workspaceRoot`，不是当前工作区就**强制重写**（零新增字段）。
+
+**验收**：typecheck node+web 0 错 · `npm run build` 三端通过 ·
+**accept 1268 → 1294 全过**（新增 `[58]` **26 条**：节流合并 / 节流不推迟 / 签名短路 / 缩略图增量 /
+`flushMirrorNow` / 换工作区对齐 / **切回旧工作区不落 stale** / stop 清计时器）·
+**界面 18 个场景全绿** · 手册体检 **0 提醒**。
+**契约已同步**：新增 **§5.6 `revision` 语义**（采用插件侧给的措辞）+ §5.4 补 `width/height` 可能为 null 与兜底约定 + §5.5 缩略图示例修正；
+`LINK-LOG.md` 追加 **[软件侧]** 回应（采纳"反着写"判据、改 SLA 口径、`revision` 措辞、换工作区真 bug 说明）。
+
+**踩过的坑**
+1. **"空工作区 = 0 项目"这个前提是错的**：全新工作区会被软件**播种 6 个示例项目**（`copy.ts` 的 `projCampName` 等）；
+   断言必须换成"镜像里是**新**工作区的数据"（用两个工作区各改一个可辨识的项目名来做判据）。
+2. 改 `ipcMain.handle` 包装层时**必须先把全量替换跑完、再插入包装层自身那段**（否则包装层里的 `ipcMain.handle` 会被一起替换成递归）。
+
+**状态**：分支 `feature/vellum_desk-PSlink`，**本批（第 62 批 Step 3b-2 / handoff mtime 修复 / Step 4 / 第 63 批）全部未 commit、未 push**（用户指示）。
+`main` 未动（`4c77774`）。迁移号仍 **23 未用**；下一批 docs 编号 **48**。
+
+---
+
+### 第 64 批（2026-10-11 第 64 次会话）：通用库置入修复（bug 修复，docs/48）
+
+**触发**：插件侧 `LINK-LOG` 2026-10-11 15:49 —— 「通用库素材无法置入，一律 `not_found`」；
+同一分钟 `scope=task` 一次就通 ⇒ handoff 链路本身正常，问题只在通用库这一条。
+
+**根因**：`src/main/linkHandoff.ts` 里有一段 **Step 2 时代的残留桩**：
+`if (scope === 'brand') return this.reply(..., 'not_found')`（注释原文"通用素材库本步尚未实现"）。
+**第 62 批 Step 4 把通用库（`brand_assets` 表）做出来之后，忘了拆这个桩** ⇒ `scope=brand` **永远**回 `not_found`。
+全仓扫过，主进程里只此一处同类桩（与素材、路径、权限都无关）。
+
+**修复**（`src/main/linkHandoff.ts`）：`process()` 改为**按 scope 选表反查** ——
+`task → assets` / `brand → brand_assets`；缺省 / 空串 → 按 `task`（向后兼容旧行为）；
+**未知取值 → `bad_request`**（不猜、不误投）。两表列一致（`id`/`abs_path`/`ext`/`size`/`missing_at`），
+所以下游校验、白名单、体积、拷贝、`utimesSync` 时间戳修复**全部不动**。
+**关键**：**先按 scope 定表、再按 id 查** —— 从构造上消灭插件侧警告的「串库」
+（两库 `asset.id` 各自从 1 起，只按 id 查会拷回**另一张图**）。
+
+**验收**：typecheck node+web 0 错 · `npm run build` 三端通过 ·
+accept **1294 → 1307 全过**（`[55]` **+13 条**：通用库正常置入 / **同 id 撞名时两库各拿各的图（核心回归）** /
+通用库未知 id → `not_found` / 未知 scope → `bad_request` / 通用库已标记丢失 → `missing`）。
+**本步无界面改动 → 界面场景未重跑**（18 场景基线不变）。
+
+**契约已同步**：§六 新增**规则 8**（`scope` 必填 + 必须在该 scope 内反查 + 未知值 `bad_request`）；
+§一 拓扑里 `brand.json` 那行的「★ 尚未实现」去掉。`LINK-LOG.md` 追加 [软件侧] 回应。
+
+**教训**：**「加法定义 ≠ 实现落地」** —— 立桩时写了"本步尚未实现"，后续步骤做完**必须回头拆桩**，
+否则桩会以"看起来像功能故障"的形态潜伏（本次现象与"软件没响应"几乎一样，插件侧排查方向被带偏过一次）。
+
+**状态**：分支 `feature/vellum_desk-PSlink`；**未 commit / 未 push**（用户指示）；
+工作树累计 **5 笔**待提交（Step 3b-2 UI / handoff mtime 修复 / Step 4 通用库 / 第 63 批 / 本批）。
+`main` 未动（`4c77774`）。下一批 docs 编号 **49**；迁移号 **23 未用**。
+
+**附带 UI 修正（同会话后半段）**：插件设置里那个勾选框原名「变更时自动同步」**名不副实** ——
+它是**总开关**（关掉会把 handoff 轮询一并停掉：插件既看不到素材、也无法插入）。
+按用户拍板**只改名 + 加说明、不动逻辑**：文案改为「**启用插件联动**」+ 一行说明
+（`copy.ts` 的 `autoLabel` / `autoHint`；弹窗改为单独一行渲染，见 docs/47 §6）。
+**验收**：`pluginlink` 场景 **16 条全过**（含「启用插件联动」开关默认打开）· accept 仍 **1307 全过** ·
+`npm run typecheck` node+web 0 错 · 手册体检 **0 提醒**。
+**遗留（未修，已记 docs/47 §6）**：`enabled=false` 时"启动不服务、轮询停，但写操作后仍会重新写镜像"，语义不一致。

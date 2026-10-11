@@ -107,9 +107,11 @@ head('②', '目录对账：目录 ↔ 正文小节')
 
     // 章节头与"第N部分"的分组对得上（粗查）
     const chHeads = [...html.matchAll(/id="ch([0-9]+)"/g)].map((x) => Number(x[1]))
+    // 目录里的「第 N 部分」分组数就是预期的章头数（原来这里写死 6，加了新部分就会误报）
     const groups = [...toc.matchAll(/<div class="grp">([^<]*)</g)].length
-    if (chHeads.length !== 6) warn(`正文有 ${chHeads.length} 个章头（<section class="chapterhead" id="chN">），预期 6`)
-    else pass('6 个章头齐')
+    if (chHeads.length !== groups)
+      warn(`正文有 ${chHeads.length} 个章头（<div class="chapterhead" id="chN">），目录里有 ${groups} 个「第 N 部分」分组 —— 对不上`)
+    else pass(`${groups} 个章头与目录分组一一对应`)
 
     // 小节编号连续性（1.1 / 1.2 …，跳号说明漏写）
     const byCh = {}
