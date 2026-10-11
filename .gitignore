@@ -24,6 +24,8 @@ _shotapp/_userdata
 _shotapp/probe.cjs
 # 场景壳的文案字典桥（run-verify4.cjs 每次跑前自动用 esbuild 从 src/shared/copy.ts 重打）
 _shotapp/v4/copy.cjs
+# 场景壳跑图时产生的缩略图缓存（相对 cwd 落下的，不入库）
+_shotapp/v4/_thumbs/
 # 文案字典工作流的中间产物
 tools/copy-sheet/_sheet_read.json
 tools/copy-sheet/_changes.json
