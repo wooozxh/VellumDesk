@@ -8,18 +8,22 @@
 
 ---
 
-## ⚠️ 先看：两条并行版本线（2026-10-11 第 62 次会话复核）
+## ⚠️ 先看：三条并行版本线（2026-10-13 第 65 次会话复核）
 
 | 分支             | 指向提交                                                          | 是什么                                        | 状态     |
 | -------------- | ------------------------------------------------------------- | ------------------------------------------ | ------ |
 | **`main`** | `4c77774` | 独立版：第 1~28 批 + 第 47 / 49~60 批；代码版本 **1.9.7**（**已发 GitHub Release v1.9.7**） | 维护中 |
-| **`feature/vellum_desk-PSlink`**（当前在开发） | `2b0aec2` 起 | **插件版**：第 62 批 **PS 插件联动**（`linkMirror`/`linkHandoff`/服务层/UI，方案 docs/45 + docs/46） | 开发中（Step 3b-2 未 commit） |
+| **`feature/vellum_desk-PSlink`** | `6767e60` | **插件版主线**：第 62~64 批（PS 插件联动 / 通用素材库 / 镜像自动同步 / 通用库置入修复，docs/45~48）；版本 **1.10.0**（已发 Pre-release `v1.10.0-pslink`） | 维护中（正式出包线） |
+| **`feature/pslink-preview`**（当前在开发） | 从 `6767e60` 分出 | **插件版预览线（试验田）**：未定论的测试功能先在此做，验证有价值再合回 PSlink；**不出包、不发版** | 开发中 |
 
 要点：
 
 - **仓库**：`origin` = `https://github.com/wooozxh/VellumDesk.git`（**PUBLIC**）。
-- **两线并行**（用户 2026-10-11 拍板）：`main` = 独立版；`feature/vellum_desk-PSlink` = 插件版，**不按「合入即删」走**。
-  常规新功能仍按 `feature/小写短横线`，合入即删。
+- **三线并行**（第三条 2026-10-13 用户拍板新建）：`main` = 独立版；`feature/vellum_desk-PSlink` = 插件版主线（正式出包）；
+  **`feature/pslink-preview` = PSlink 的预览 / 试验线**（未确定价值的测试功能在此开发，验证后合进 PSlink）。
+  三条线都**不按「合入即删」走**；常规新功能仍按 `feature/小写短横线`。
+  **preview 不出包、不发版**（版本号只用 PSlink 的，PSlink 下一版从 **1.10.1** 起）；
+  合回：`git switch feature/vellum_desk-PSlink && git merge feature/pslink-preview`（或 cherry-pick 挑功能）。
 - **软件名（docs/28 全站改名）**：界面 **Vellum工作台**；exe / 安装包 / 仓库 **VellumDesk**；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。
 - **发版渠道**：GitHub Release 已开（最新 **v1.9.7**，2026-10-10 已发）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
 - **验收基线（本机实测，2026-10-11 第 64 次会话）**：**accept 1307 项全过 + 18 个界面场景全绿**（新增 `pluginlink` / `brandlib`；第 64 批为纯后端 bug 修复，无 UI 改动）。

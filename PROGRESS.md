@@ -55,6 +55,14 @@
   ⚠️ **真机行为**：本机真实插件目录存在（`%APPDATA%\Adobe\UXP\PluginsStorage\PHSP\27\Developer\com.vellum.toolbox\PluginData`）——
   **在此分支启动软件就会自动写镜像**（设计行为）；排障 / 跑测试用 `VELLUM_PLUGIN_SYNC=0` 硬开关挡掉。
 
+- **分支与版本现状（2026-10-13 第 65 次会话）**：新建**第三条并行线** `feature/pslink-preview`
+  （用户定：**PSlink 的预览 / 试验线** —— 未确定价值的测试功能先在这上面做，验证后合进 `feature/vellum_desk-PSlink`；
+  **不出包、不发版**）。从 PSlink 的 `6767e60` 分出，已推 origin；`main`（`4c77774`）与
+  `feature/vellum_desk-PSlink`（`6767e60`）均未动。以后**三条线**：`main` 独立版 /
+  `feature/vellum_desk-PSlink` 插件版主线（正式出包）/ `feature/pslink-preview` 插件版预览线。
+  ⚠️ 全仓只有一个工作树（`D:/proj_media`），三线共用 —— 切分支前先 `git status` 确认干净；
+  判定当前分支用 `git rev-parse --abbrev-ref HEAD`（WorkBuddy 那个分支标签可能不实时刷新）。
+
 ## 分支现状（2026-09-30 晚核对 —— 历史快照，仅供追溯）
 
 | 分支 | 指向提交 | 内容 | 状态 |

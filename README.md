@@ -19,8 +19,11 @@
 |---|---|---|
 | `main` | 第 1~28 批 + 第 47~60 批全部功能 + 全站改名（Vellum工作台 / VellumDesk，docs/28） | **独立版主线**；最新包 `VellumDesk-1.9.7-Setup.exe`（已发 GitHub Release） |
 | `feature/vellum_desk-PSlink` | 第 62~64 批：**PS 插件联动**（docs/45 · 镜像 + handoff）+ **通用素材库**（docs/46）+ 镜像自动同步（docs/47）+ 通用库置入修复（docs/48） | **插件版并行线**（长期维护，不按「合入即删」走）；最新包 `VellumDesk-1.10.0-Setup.exe`（已发 GitHub Pre-release `v1.10.0-pslink`） |
+| `feature/pslink-preview` | PSlink 的**预览 / 试验线**（未定论功能先在此做，验证有价值再合回 PSlink；2026-10-13 建） | **不出包、不发版**；定期 `merge` 回 `feature/vellum_desk-PSlink` |
 
-- 2026-10-11 起**两条并行版本线**：`main` = 独立版，`feature/vellum_desk-PSlink` = 插件版；各自出包发版，功能在插件版先落地、按需再回合主线。
+- 2026-10-11 起**多条并行版本线**：`main` = 独立版；`feature/vellum_desk-PSlink` = 插件版主线（正式出包）；
+  2026-10-13 追加 `feature/pslink-preview` = 插件版**预览线**（试验田，不出包、不发版）。
+  各自出包发版，功能在插件版先落地、按需再回合主线。
 - 2026-10-05 起**只保留 `main`**：历史功能分支（`feature/incr` / `TM` / `feature/multi-designer` / `feature/export-report` / `feature/purge-disabled-sheet` / `feature/wecom-bundle`）全部合并进 `main` 后删除（`feature/wecom-bundle` 为 ff 合并，无信息丢失）。
 - 仓库：`https://github.com/wooozxh/VellumDesk`（2026-10-05 由 `media-lib_zxh` 重命名，旧链接自动重定向）。
 - 新功能**先出方案再动代码**（方案文档 `docs/NN`）；开发分支按 `feature/小写短横线` 命名，合入 `main` 后即删。
