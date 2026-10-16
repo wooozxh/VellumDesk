@@ -47,3 +47,6 @@ resources/wecom-cli/LICENSE.txt
 # 用户使用手册的两个大产物（脚本可重建：tools/manual/make_single.py 与 export_pdf.cjs，不入库）
 docs/manual/*.pdf
 docs/manual/*单文件*.html
+
+# WorkBuddy 工作区数据（记忆/会话配置，本地产物不入库）
+.workbuddy/
