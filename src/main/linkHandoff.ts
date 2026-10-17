@@ -199,10 +199,11 @@ export class HandoffEngine {
     const reqId = typeof req.reqId === 'string' ? req.reqId : ''
     const assetId = typeof req.assetId === 'number' ? req.assetId : -1
     /**
-     * `scope` 决定**去哪张表**反查（契约 §六 规则 8，2026-10-11 加法）：
+     * `scope` 决定**去哪张表**反查（契约 §六 规则 8；`tpl` 为 2026-10-17 加法）：
      * · `task`  → `assets`（任务库）
      * · `brand` → `brand_assets`（通用素材库，docs/46）
-     * 两库的 `asset.id` **各自从 1 起**（契约 §5.5 命名空间）⇒ **绝不能全局只按 id 查**，
+     * · `tpl`   → `tpl_assets`（PSD 模板库，docs/49）—— 模板走同一条通道，落成 `incoming.psd` 供插件 `app.open`
+     * 三个库的 `id` **各自从 1 起**（契约 §5.5 命名空间）⇒ **绝不能全局只按 id 查**，
      * 否则 brand 的 `id=59` 撞上任务库的 `id=59` 会拷回**另一张图**（"置入成功但图不对"，极难归因）。
      * 缺省 / 空串 → 按 `task`（向后兼容旧行为）；其它未知值 → `bad_request`（**不猜**，避免误投）。
      */
@@ -213,7 +214,7 @@ export class HandoffEngine {
       return this.reply(handoff, reqId, scope, assetId, false, 'bad_contract')
     }
     if (!reqId) return this.reply(handoff, reqId, scope, assetId, false, 'bad_request')
-    if (scope !== 'task' && scope !== 'brand') {
+    if (scope !== 'task' && scope !== 'brand' && scope !== 'tpl') {
       return this.reply(handoff, reqId, scope, assetId, false, 'bad_request')
     }
 
@@ -222,13 +223,11 @@ export class HandoffEngine {
     if (prev) return prev
 
     const db = getDb()
-    const row = (
-      scope === 'brand'
-        ? db
-            .prepare('SELECT id, abs_path, ext, size, missing_at FROM brand_assets WHERE id = ?')
-            .get(assetId)
-        : db.prepare('SELECT id, abs_path, ext, size, missing_at FROM assets WHERE id = ?').get(assetId)
-    ) as
+    // **先按 scope 定表、再按 id 查** —— 从构造上杜绝串库（三库 id 各自从 1 起）
+    const table = scope === 'brand' ? 'brand_assets' : scope === 'tpl' ? 'tpl_assets' : 'assets'
+    const row = db
+      .prepare(`SELECT id, abs_path, ext, size, missing_at FROM ${table} WHERE id = ?`)
+      .get(assetId) as
       | { id: number; abs_path: string; ext: string; size: number; missing_at: string | null }
       | undefined
     if (!row) return this.reply(handoff, reqId, scope, assetId, false, 'not_found')

@@ -50,8 +50,11 @@ export const BRAND_ROOT_DIR = '_通用素材库'
 /** 顶层固定两块（可改名；用 source 记来源，不靠名字判断） */
 export const BRAND_TOP_COMPANY = '公司素材'
 export const BRAND_TOP_USER = '个人收藏'
-/** 两层封顶：顶层 = 1，子组 = 2 */
-export const BRAND_MAX_DEPTH = 2
+/**
+ * 分组深度上限 = 5（契约 §5.3 第 1 条，2026-10-17 由「两层」放宽，**不升版本**）。
+ * ⚠️ 与模板库（`tplLib.TPL_MAX_DEPTH`）保持一致；两侧都拦，第 6 层不产出。
+ */
+export const BRAND_MAX_DEPTH = 5
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -77,8 +80,8 @@ export function safeFolderName(name: string): string {
   return cleaned || '未命名'
 }
 
-/** 磁盘上找一个不撞名的目录（组名重复时自动 -2 -3） */
-function uniqueDir(baseDir: string, name: string): string {
+/** 磁盘上找一个不撞名的目录（组名重复时自动 -2 -3）。第 66 批起 `tplLib` 也复用。 */
+export function uniqueDir(baseDir: string, name: string): string {
   let p = join(baseDir, name)
   let i = 2
   while (existsSync(p)) {
@@ -88,8 +91,8 @@ function uniqueDir(baseDir: string, name: string): string {
   return p
 }
 
-/** 磁盘上找一个不撞名的文件名（导入同名文件时自动 -2 -3） */
-function uniqueFile(dir: string, fileName: string): string {
+/** 磁盘上找一个不撞名的文件名（导入同名文件时自动 -2 -3）。第 66 批起 `tplLib` 也复用。 */
+export function uniqueFile(dir: string, fileName: string): string {
   const ext = extname(fileName)
   const stem = basename(fileName, ext)
   let p = join(dir, fileName)
@@ -115,14 +118,16 @@ export interface BrandFolderRow {
 }
 
 export interface BrandFolderNode extends BrandFolderRow {
-  /** 1 = 顶层，2 = 子组 */
+  /** 1 = 顶层，5 = 最深 */
   depth: number
   /** 生效同步 = 自身与所有祖先都为 1（父关则子关） */
   effectiveSync: boolean
   /** 直属素材数 */
   assetCount: number
-  /** 含子组的素材总数 */
+  /** 含所有子层的素材总数 */
   totalCount: number
+  /** 还能不能再往下建（depth < BRAND_MAX_DEPTH）—— 界面据此隐藏"新建子分组" */
+  canAddChild: boolean
 }
 
 export interface BrandAssetRow {
@@ -178,11 +183,52 @@ function allFolderRows(): BrandFolderRow[] {
     .all() as BrandFolderRow[]
 }
 
-/** 组树（含 depth / 生效同步 / 素材计数）。按「顶层在前、各自按 sort_order」排。 */
+/**
+ * 算某组的深度（顶层 = 1）。带 `visited` 防成环 ——
+ * 脏数据（A 父 B、B 父 A）不会把这里转成死循环。
+ */
+function depthOfFolder(rows: BrandFolderRow[], id: number | null): number {
+  let depth = 0
+  let cur = id === null ? undefined : rows.find((r) => r.id === id)
+  const visited = new Set<number>()
+  while (cur && !visited.has(cur.id)) {
+    visited.add(cur.id)
+    depth += 1
+    cur = cur.parent_id === null ? undefined : rows.find((r) => r.id === cur!.parent_id)
+  }
+  return depth
+}
+
+/** 某组的所有后代 id（不含自己）—— 多层下"含子层"的统一口径 */
+function descendantFolderIds(rows: BrandFolderRow[], id: number): number[] {
+  const out: number[] = []
+  const queue = [id]
+  const seen = new Set<number>([id])
+  while (queue.length) {
+    const cur = queue.shift() as number
+    for (const r of rows) {
+      if (r.parent_id === cur && !seen.has(r.id)) {
+        seen.add(r.id)
+        out.push(r.id)
+        queue.push(r.id)
+      }
+    }
+  }
+  return out
+}
+
+/** 组树（含 depth / 生效同步 / 素材计数）。按「浅层在前、各自按 sort_order」排。 */
 export function listBrandFolders(): BrandFolderNode[] {
   const rows = allFolderRows()
   const byId = new Map(rows.map((r) => [r.id, r]))
-  const depthOf = (r: BrandFolderRow): number => (r.parent_id === null ? 1 : 2)
+  const depthCache = new Map<number, number>()
+  const depthOf = (r: BrandFolderRow): number => {
+    const hit = depthCache.get(r.id)
+    if (hit !== undefined) return hit
+    const v = depthOfFolder(rows, r.id)
+    depthCache.set(r.id, v)
+    return v
+  }
   const effective = (r: BrandFolderRow): boolean => {
     if (r.sync_to_plugin !== 1) return false
     if (r.parent_id === null) return true
@@ -195,29 +241,35 @@ export function listBrandFolders(): BrandFolderNode[] {
     .all() as Array<{ folder_id: number | null; c: number }>) {
     if (a.folder_id !== null) counts.set(a.folder_id, a.c)
   }
-  const self: BrandFolderNode[] = rows.map((r) => {
-    const direct = counts.get(r.id) ?? 0
-    const children = rows.filter((x) => x.parent_id === r.id)
-    return {
-      ...r,
-      depth: depthOf(r),
-      effectiveSync: effective(r),
-      assetCount: direct,
-      totalCount: direct + children.reduce((n, c) => n + (counts.get(c.id) ?? 0), 0)
-    }
-  })
-  const rank = (n: BrandFolderNode): [number, number, number] => [
-    n.depth,
-    n.parent_id ?? 0,
-    n.sort_order
-  ]
+  const kids = new Map<number | null, BrandFolderRow[]>()
+  for (const r of rows) {
+    const list = kids.get(r.parent_id) ?? []
+    list.push(r)
+    kids.set(r.parent_id, list)
+  }
+  /** 含所有子层的素材总数（任意层，递归） */
+  const totalOf = (r: BrandFolderRow, guard = new Set<number>()): number => {
+    if (guard.has(r.id)) return 0 // 防成环
+    guard.add(r.id)
+    let n = counts.get(r.id) ?? 0
+    for (const c of kids.get(r.id) ?? []) n += totalOf(c, guard)
+    return n
+  }
+  const self: BrandFolderNode[] = rows.map((r) => ({
+    ...r,
+    depth: depthOf(r),
+    effectiveSync: effective(r),
+    assetCount: counts.get(r.id) ?? 0,
+    totalCount: totalOf(r, new Set<number>()),
+    canAddChild: depthOf(r) < BRAND_MAX_DEPTH
+  }))
+  // 浅层在前（父永远在子之前）；同层按 sort_order
   return self.sort((a, b) => {
-    const ra = rank(a)
-    const rb = rank(b)
-    if (ra[0] !== rb[0]) return ra[0] - rb[0]
-    // 顶层按 sort_order；子组先按父组、再按 sort_order
-    if (a.parent_id === null && b.parent_id === null) return a.sort_order - b.sort_order || a.id - b.id
-    if (ra[1] !== rb[1]) return ra[1] - rb[1]
+    if (a.depth !== b.depth) return a.depth - b.depth
+    const ra = a.parent_id ?? 0
+    const rb = b.parent_id ?? 0
+    // 同一层里先按父组、再按 sort_order；顶层（parent_id = null）按 sort_order
+    if (a.depth > 1 && ra !== rb) return ra - rb
     return a.sort_order - b.sort_order || a.id - b.id
   })
 }
@@ -259,8 +311,8 @@ export function listBrandAssets(opts?: {
   if (o.folderId === -1) {
     rows = rows.filter((r) => r.folder_id === null)
   } else if (typeof o.folderId === 'number') {
-    const ids = new Set<number>([o.folderId])
-    for (const f of allFolderRows()) if (f.parent_id === o.folderId) ids.add(f.id)
+    // 点父组看全部：**含所有子层**（多层后必须递归，不能只看直接子级）
+    const ids = new Set<number>([o.folderId, ...descendantFolderIds(allFolderRows(), o.folderId)])
     rows = rows.filter((r) => r.folder_id !== null && ids.has(r.folder_id))
   }
 
@@ -303,7 +355,7 @@ export interface BrandOpResult<T = unknown> {
   value?: T
 }
 
-/** 新建组。`parentId = null` 建顶层组；否则建子组（**两层封顶**，第三层拒绝）。 */
+/** 新建组。`parentId = null` 建顶层组；否则建子组（**深度上限 5**，契约 §5.3-1）。 */
 export function createBrandFolder(input: {
   workspaceRoot: string
   name: string
@@ -314,19 +366,16 @@ export function createBrandFolder(input: {
   const db = getDb()
   const name = safeFolderName(input.name)
   const parentId = input.parentId ?? null
+  const rows = allFolderRows()
 
   if (parentId !== null) {
-    const parent = getBrandFolder(parentId)
+    const parent = rows.find((r) => r.id === parentId)
     if (!parent) return { ok: false, error: 'no-parent' }
-    if (parent.parent_id !== null) return { ok: false, error: 'depth' } // 只做两层
+    // ⚠️ 原来是"父组本身还有父组就拒"（＝两层封顶）；2026-10-17 放开到 ≤5 层
+    if (depthOfFolder(rows, parentId) >= BRAND_MAX_DEPTH) return { ok: false, error: 'depth' }
   }
-  const dup = db
-    .prepare(
-      parentId === null
-        ? 'SELECT id FROM brand_folders WHERE parent_id IS NULL AND name = ?'
-        : 'SELECT id FROM brand_folders WHERE parent_id = ? AND name = ?'
-    )
-    .get(...(parentId === null ? [name] : [parentId, name]))
+  // 同层不允许同名。⚠️ SQLite 的 UNIQUE 对 NULL **不去重**（NULL 互不相等）⇒ 顶层必须显式查
+  const dup = rows.find((r) => r.parent_id === parentId && r.name === name)
   if (dup) return { ok: false, error: 'duplicate' }
 
   const baseDir = parentId === null ? brandRootPath(workspaceRoot) : brandFolderDir(workspaceRoot, parentId)!
@@ -388,19 +437,38 @@ export function renameBrandFolder(input: {
   const newRel = relative(workspaceRoot, newAbs)
   const tx = db.transaction(() => {
     db.prepare('UPDATE brand_folders SET name = ?, rel_path = ? WHERE id = ?').run(name, newRel, id)
-    // 子组的 rel_path 前缀跟着改；其素材的 abs_path / rel_path 也改
-    const kids = db
-      .prepare('SELECT id, rel_path FROM brand_folders WHERE parent_id = ?')
-      .all(id) as Array<{ id: number; rel_path: string }>
-    for (const k of kids) {
-      const kRel = newRel + k.rel_path.slice(f.rel_path.length)
-      db.prepare('UPDATE brand_folders SET rel_path = ? WHERE id = ?').run(kRel, k.id)
+    /** 后代组的 rel_path 前缀一起改（多层 ⇒ 按前缀匹配，不能只改直接子级） */
+    const allFolders = db.prepare('SELECT id, rel_path FROM brand_folders').all() as Array<{
+      id: number
+      rel_path: string
+    }>
+    const oldFolderPrefix = (f.rel_path + '\\').toLowerCase()
+    for (const r of allFolders) {
+      if (r.id === id) continue
+      if (!r.rel_path.toLowerCase().startsWith(oldFolderPrefix)) continue
+      const patched = newRel + r.rel_path.slice(f.rel_path.length)
+      db.prepare('UPDATE brand_folders SET rel_path = ? WHERE id = ?').run(patched, r.id)
     }
-    db.prepare(
-      `UPDATE brand_assets
-         SET rel_path = ? || substr(rel_path, ?), abs_path = ? || substr(abs_path, ?)
-       WHERE abs_path LIKE ? ESCAPE '\\'`
-    ).run(newRel, f.rel_path.length + 1, newAbs, oldAbs.length + 1, `${oldAbs}\\%`)
+    /**
+     * 组内素材的路径一起改。
+     * ⚠️ **不能用 `LIKE ? ESCAPE '\'`** —— Windows 路径分隔符与 LIKE 通配符是同一个字符族，
+     * 转义少一层就变成"匹配字面量 %"，**一条都改不到**（第 66 批在 `tplLib` 上踩过，2 条断言红）。
+     * 取出来在 JS 里比前缀，路径条数很少，稳且好读。
+     */
+    const allAssets = db
+      .prepare('SELECT id, abs_path, rel_path FROM brand_assets')
+      .all() as Array<{ id: number; abs_path: string; rel_path: string }>
+    const oldAssetPrefix = (oldAbs + '\\').toLowerCase()
+    for (const a of allAssets) {
+      if (!a.abs_path.toLowerCase().startsWith(oldAssetPrefix)) continue
+      const nextAbs = newAbs + a.abs_path.slice(oldAbs.length)
+      const nextRel = newRel + a.rel_path.slice(f.rel_path.length)
+      db.prepare('UPDATE brand_assets SET abs_path = ?, rel_path = ? WHERE id = ?').run(
+        nextAbs,
+        nextRel,
+        a.id
+      )
+    }
   })
   tx()
   return { ok: true, value: getBrandFolder(id)! }
@@ -461,7 +529,7 @@ export function deleteBrandFolder(input: {
   const db = getDb()
   const root = brandRootPath(workspaceRoot)
 
-  const ids = [id, ...allFolderRows().filter((x) => x.parent_id === id).map((x) => x.id)]
+  const ids = [id, ...descendantFolderIds(allFolderRows(), id)]
   // ⚠️ 要清的目录路径必须**提前**算好 —— 记录一删，`brandFolderDir` 就查不到了（子组会漏清）
   const dirsToClean = ids
     .map((fid) => {
@@ -489,8 +557,11 @@ export function deleteBrandFolder(input: {
         .run(dest, relative(workspaceRoot, dest), a.id)
       moved += 1
     }
-    // 子组先删，再删自己（记录级：素材已挪走，不会被 CASCADE 带走）
-    db.prepare('DELETE FROM brand_folders WHERE parent_id = ?').run(id)
+    // 后代组先删（深的先删），再删自己（记录级：素材已挪走，不会被 CASCADE 带走）
+    for (const fid of ids) {
+      if (fid === id) continue
+      db.prepare('DELETE FROM brand_folders WHERE id = ?').run(fid)
+    }
     db.prepare('DELETE FROM brand_folders WHERE id = ?').run(id)
   })
   tx()
@@ -585,30 +656,33 @@ export async function scanBrand(workspaceRoot: string): Promise<BrandScanResult>
   }
 
   const files: Array<{ abs: string; folderId: number | null; source: string }> = []
-  let order = 0
-  for (const topName of listDirs(root)) {
-    if (skipHidden(topName)) continue
-    const topDir = join(root, topName)
-    const topRel = relative(workspaceRoot, topDir)
-    const top = ensureFolder(null, topName, topRel, order++, 'user')
-    for (const abs of listFiles(topDir)) files.push({ abs, folderId: top.id, source: top.source })
-
-    let sub = 0
-    for (const subName of listDirs(topDir)) {
-      if (skipHidden(subName)) continue
-      const subDir = join(topDir, subName)
-      const subRel = relative(workspaceRoot, subDir)
-      const child = ensureFolder(top.id, subName, subRel, sub++, top.source)
-      for (const abs of listFiles(subDir)) files.push({ abs, folderId: child.id, source: child.source })
-      // 三层及以上：跳过（用户拍板 #1）
-      for (const deep of listDirs(subDir)) {
-        if (skipHidden(deep)) continue
+  /**
+   * 递归认领（**任意层，上限 BRAND_MAX_DEPTH**）。
+   * 2026-10-17 前这里是写死的两层 + 「三层及以上跳过」—— 放开多层后改成递归，
+   * 超过 5 层的目录仍然跳过并计数（`skippedDeep`，界面会提示）。
+   */
+  const walk = (
+    dir: string,
+    parentId: number | null,
+    parentSource: string,
+    level: number
+  ): void => {
+    const source = parentId === null ? 'user' : parentSource
+    for (const abs of listFiles(dir)) files.push({ abs, folderId: parentId, source })
+    let order = 0
+    for (const name of listDirs(dir)) {
+      if (skipHidden(name)) continue
+      if (level + 1 > BRAND_MAX_DEPTH) {
         out.skippedDeep += 1
+        continue // 超过 5 层：不登记，也不再往下
       }
+      const sub = join(dir, name)
+      const subRel = relative(workspaceRoot, sub)
+      const row = ensureFolder(parentId, name, subRel, order++, source)
+      walk(sub, row.id, row.source, level + 1)
     }
   }
-  // 根下直接躺着的文件 → 「未分组」
-  for (const abs of listFiles(root)) files.push({ abs, folderId: null, source: 'user' })
+  walk(root, null, 'user', 0)
 
   const existsStmt = db.prepare('SELECT id FROM brand_assets WHERE abs_path = ?')
   const upsert = db.prepare(
@@ -911,4 +985,267 @@ export function brandDirExists(workspaceRoot: string, folderId: number | null): 
   const dir =
     folderId === null ? brandRootPath(workspaceRoot) : brandFolderDir(workspaceRoot, folderId)
   return !!dir && existsSync(dir)
+}
+
+/** 第 67 批（docs/50 §6）批量移动的结果 —— 三段分开报，界面才能说清"到底发生了什么" */
+export interface MoveAssetsResult {
+  /** 真的搬走了几条（含"文件已丢、只改登记"的） */
+  moved: number
+  /** 本来就在目标分组，跳过 */
+  skipped: number
+  /** 失败的逐条带上原因（不中断整批） */
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
+/**
+ * 第 67 批（docs/50）：**批量移动素材到另一个分组**（列表视图勾选后的主操作）。
+ *
+ * 这是本批唯一会**同时改磁盘和数据库**的动作，几条口径必须钉死：
+ * 1. **磁盘先动、登记后改**：`rename` 成功才更新 `folder_id / file_name / rel_path / abs_path`。
+ *    反过来（先改登记再搬文件）一旦搬失败，就会出现"登记说在 A 组、文件还在 B 组"的幽灵记录。
+ * 2. **同名自动加序号**（复用导入那套 `uniqueFile`）：目标组里已有同名文件时改成 `x-2.png`，
+ *    **并把新的 file_name 写回登记** —— 否则界面上显示的名字和磁盘对不上。
+ * 3. **文件已丢失的只改登记**：不报错、不动磁盘；重新扫描时它会按新位置重新认领。
+ * 4. **逐条做、失败不中断**：一条被 PS 占用（EPERM/EBUSY）不该让剩下 20 条都不动。
+ *    ⇒ 返回 `{ moved, skipped, failed[] }`，界面按"成功 N / 失败 M + 第一条原因"提示。
+ * 5. **目标组必须真实存在**：组被删了 / 传了脏 id ⇒ 整批拒绝（`no-target`），
+ *    绝不把文件搬进一个"磁盘上没有对应组的目录"。
+ *
+ * 跨盘不是问题：库根与所有分组都在 `_通用素材库\` 下，天然同盘。
+ */
+export function moveBrandAssets(input: {
+  workspaceRoot: string
+  ids: number[]
+  /** **-1 = 移到「未分组」**（库根）；数字 = 目标组 id（与 `listBrandAssets` 的约定一致） */
+  targetFolderId: number
+}): BrandOpResult<MoveAssetsResult> {
+  const { workspaceRoot, ids } = input
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: 'empty' }
+
+  const targetId = input.targetFolderId === -1 ? null : input.targetFolderId
+  const db = getDb()
+  if (targetId !== null && !getBrandFolder(targetId)) return { ok: false, error: 'no-target' }
+
+  const targetDir =
+    targetId === null ? brandRootPath(workspaceRoot) : brandFolderDir(workspaceRoot, targetId)
+  if (!targetDir) return { ok: false, error: 'no-target' }
+  mkdirSync(targetDir, { recursive: true })
+
+  let moved = 0
+  let skipped = 0
+  const failed: MoveAssetsResult['failed'] = []
+
+  for (const id of ids) {
+    const a = db.prepare('SELECT * FROM brand_assets WHERE id = ?').get(id) as
+      | BrandAssetRow
+      | undefined
+    if (!a) {
+      failed.push({ id, name: `#${id}`, error: 'not-found' })
+      continue
+    }
+    if (a.folder_id === targetId) {
+      skipped += 1
+      continue
+    }
+
+    if (!existsSync(a.abs_path)) {
+      // 记录在、文件没了（缺失态）：只改登记，等下次扫描按新位置认领
+      db.prepare('UPDATE brand_assets SET folder_id = ? WHERE id = ?').run(targetId, id)
+      moved += 1
+      continue
+    }
+
+    try {
+      const dest = uniqueFile(targetDir, a.file_name)
+      renameSync(a.abs_path, dest)
+      db.prepare(
+        `UPDATE brand_assets
+            SET folder_id = ?, file_name = ?, rel_path = ?, abs_path = ?
+          WHERE id = ?`
+      ).run(targetId, basename(dest), relative(workspaceRoot, dest), dest, id)
+      moved += 1
+    } catch (e) {
+      failed.push({ id, name: a.file_name, error: (e as Error).message || 'move-failed' })
+    }
+  }
+
+  return { ok: failed.length === 0, value: { moved, skipped, failed } }
+}
+
+/** 批量「复制到任务」的结果（第 68 批 · docs/50 §6） */
+export interface BulkCopyResult {
+  copied: number
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
+/**
+ * 第 68 批（docs/50 §6）：**批量复制到任务包**（复制进任务的 `02-素材`，原文件不动）。
+ *
+ * 为什么不直接循环调 `copyBrandAssetToPack`：那条**每调一次就 `scanAll` 全盘扫一遍** ——
+ * 勾 20 条就是 20 次全盘扫描，工作区几千文件时会卡到没法用。
+ * 这里一次复制完，**只扫一次**，把新文件登记进任务库的 `assets`。
+ */
+export function copyBrandAssetsToPack(input: {
+  workspaceRoot: string
+  ids: number[]
+  packId: number
+}): BrandOpResult<BulkCopyResult> {
+  const { workspaceRoot, ids, packId } = input
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: 'empty' }
+  const db = getDb()
+  const pack = db.prepare('SELECT folder_path FROM packs WHERE id = ?').get(packId) as
+    | { folder_path: string }
+    | undefined
+  if (!pack) return { ok: false, error: 'no-pack' }
+
+  const sub = join(pack.folder_path, '02-素材')
+  mkdirSync(sub, { recursive: true })
+
+  let copied = 0
+  const failed: BulkCopyResult['failed'] = []
+  for (const id of ids) {
+    const src = db.prepare('SELECT abs_path, file_name FROM brand_assets WHERE id = ?').get(id) as
+      | { abs_path: string; file_name: string }
+      | undefined
+    if (!src) {
+      failed.push({ id, name: `#${id}`, error: 'no-asset' })
+      continue
+    }
+    if (!existsSync(src.abs_path)) {
+      failed.push({ id, name: src.file_name, error: 'missing-file' })
+      continue
+    }
+    try {
+      copyFileSync(src.abs_path, uniqueFile(sub, src.file_name))
+      copied += 1
+    } catch (e) {
+      failed.push({ id, name: src.file_name, error: (e as Error).message || 'copy-failed' })
+    }
+  }
+  // 只扫一次（有复制才扫）
+  if (copied > 0) scanAll(workspaceRoot)
+  return { ok: failed.length === 0, value: { copied, failed } }
+}
+
+/** 序号化改名的结果 */
+export interface SeqRenameResult {
+  renamed: number
+  /** 名字已经是目标样子的（没动） */
+  skipped: number
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
+/** 文件名里不能出现的字符（Windows）+ 前后空格；空则退回「素材」。模板库也用它 */
+export function safeBaseName(raw: string): string {
+  const t = raw
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\.+$/, '')
+    .trim()
+  return t || '素材'
+}
+
+/**
+ * 第 68 批（docs/50 §6）：**序号化批量改名**（模板库收模板的主场景）。
+ *
+ * 目标名 = `<前缀>-<序号><原扩展名>`，序号从 `start` 起、按传入顺序排、左补 0 到 `pad` 位。
+ *
+ * 🔴 **必须两阶段**：先把这批文件都改成临时名，再改成目标名。
+ * 否则"A 要改成 B、B 要改成 C"时，A 会先覆盖掉 B —— 文件名互换是最经典的覆盖事故。
+ *
+ * 其它口径：
+ * · 只动**没丢失**的文件；丢失的只改登记里的 `file_name`（等重扫时按新名字找不到也没关系，
+ *   因为文件本身就不在了）—— 实际上丢失的**直接跳过**更安全，免得制造"名字对不上"的假记录。
+ * · 目标名如果被**本批之外**的文件占着 ⇒ 加 `-2`/`-3`（不覆盖别人）。
+ * · 中途失败会尽力把临时名改回去，最后如实报告。
+ */
+export function renameBrandAssetsSeq(input: {
+  workspaceRoot: string
+  ids: number[]
+  prefix: string
+  start: number
+  pad: number
+}): BrandOpResult<SeqRenameResult> {
+  const { workspaceRoot, ids } = input
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: 'empty' }
+  const base = safeBaseName(input.prefix)
+  const start = Math.max(0, Math.min(9999, Math.floor(input.start || 1)))
+  const pad = Math.max(1, Math.min(4, Math.floor(input.pad || 2)))
+
+  const db = getDb()
+  const rows: BrandAssetRow[] = []
+  const failed: SeqRenameResult['failed'] = []
+  for (const id of ids) {
+    const a = db.prepare('SELECT * FROM brand_assets WHERE id = ?').get(id) as
+      | BrandAssetRow
+      | undefined
+    if (!a) {
+      failed.push({ id, name: `#${id}`, error: 'not-found' })
+      continue
+    }
+    if (!existsSync(a.abs_path)) {
+      failed.push({ id, name: a.file_name, error: 'missing-file' })
+      continue
+    }
+    rows.push(a)
+  }
+  if (rows.length === 0) return { ok: failed.length === 0, value: { renamed: 0, skipped: 0, failed } }
+
+  const wantName = (i: number, ext: string): string =>
+    `${base}-${String(start + i).padStart(pad, '0')}${ext}`
+  const takeSuffix = `${Date.now().toString(36)}`
+
+  // ---- 阶段一：全部先改成临时名（同目录，不跨盘） ----
+  // 🔴 临时名**必须同步写进 DB**：只改磁盘不改登记的话，阶段二把 `素材-03` 改成 `素材-01` 时，
+  //    登记里还留着一条旧 `素材-01` ⇒ `abs_path` 撞 UNIQUE（实测报 UNIQUE constraint failed）。
+  // 临时名用 `~seq-` 而不是 `.seq-`：`.` 开头的文件会被扫描跳过，中途崩了就成了"隐身文件"；
+  // `~` 开头会被正常认领，至少能看见、能找回。
+  const stage: Array<{ row: BrandAssetRow; tmp: string }> = []
+  for (let i = 0; i < rows.length; i += 1) {
+    const a = rows[i]
+    const ext = extname(a.file_name)
+    const tmp = join(dirname(a.abs_path), `~seq-${takeSuffix}-${i}${ext}`)
+    try {
+      renameSync(a.abs_path, tmp)
+      db.prepare(
+        'UPDATE brand_assets SET file_name = ?, abs_path = ?, rel_path = ? WHERE id = ?'
+      ).run(basename(tmp), tmp, relative(workspaceRoot, tmp), a.id)
+      stage.push({ row: a, tmp })
+    } catch (e) {
+      failed.push({ id: a.id, name: a.file_name, error: (e as Error).message || 'rename-failed' })
+    }
+  }
+
+  // ---- 阶段二：临时名 → 目标名 ----
+  let renamed = 0
+  let skipped = 0
+  /** 序号按**实际处理的顺序**连续走（不按 ids 下标）—— 中间有失败的不该留下空号 */
+  let seq = 0
+  for (const { row: a, tmp } of stage) {
+    const ext = extname(a.file_name)
+    const wanted = wantName(seq, ext)
+    seq += 1
+    const dest = uniqueFile(dirname(tmp), wanted)
+    try {
+      renameSync(tmp, dest)
+      db.prepare(
+        'UPDATE brand_assets SET file_name = ?, abs_path = ?, rel_path = ? WHERE id = ?'
+      ).run(basename(dest), dest, relative(workspaceRoot, dest), a.id)
+      if (basename(dest) === a.file_name) skipped += 1
+      else renamed += 1
+    } catch (e) {
+      // 尽力改回原名（磁盘 + 登记一起），避免留下 `~seq-*` 幽灵文件
+      try {
+        const back = join(dirname(tmp), a.file_name)
+        renameSync(tmp, back)
+        db.prepare(
+          'UPDATE brand_assets SET file_name = ?, abs_path = ?, rel_path = ? WHERE id = ?'
+        ).run(a.file_name, back, relative(workspaceRoot, back), a.id)
+      } catch {
+        /* 尽力而为 */
+      }
+      failed.push({ id: a.id, name: a.file_name, error: (e as Error).message || 'rename-failed' })
+    }
+  }
+
+  return { ok: failed.length === 0, value: { renamed, skipped, failed } }
 }

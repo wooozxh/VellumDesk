@@ -1130,6 +1130,27 @@ export interface Api {
   brandRemoveAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
   /** 只移出库记录、保留文件 */
   brandForgetAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * 第 67 批（docs/50 §6）：批量移动到分组。
+   * `targetFolderId = -1` = 移到「未分组」（库根）。
+   * `ok` 只在**全部成功**时为 true；部分失败也能从 `moved` 看出搬了几条。
+   */
+  brandMoveAssets: (input: {
+    ids: number[]
+    targetFolderId: number
+  }) => Promise<MoveAssetsResultVM>
+  /** 第 68 批（docs/50 §6）：批量复制到任务的 `02-素材`（原文件不动，只扫一次盘） */
+  brandCopyAssetsToPack: (input: {
+    ids: number[]
+    packId: number
+  }) => Promise<BulkCopyResultVM>
+  /** 第 68 批（docs/50 §6）：序号化批量改名（`前缀-01.png`） */
+  brandRenameAssetsSeq: (input: {
+    ids: number[]
+    prefix: string
+    start: number
+    pad: number
+  }) => Promise<SeqRenameResultVM>
   /** 【提升】任务库素材 → 复制进通用库 */
   brandPromote: (input: {
     assetId: number
@@ -1140,6 +1161,62 @@ export interface Api {
     brandAssetId: number
     packId: number
   }) => Promise<{ ok: boolean; error?: string; dest?: string }>
+
+  // ---- 第 66 批（docs/49）：PSD 模板库 ----
+  // 三个库（任务 / 通用 / 模板）的 id 各自从 1 起，所以模板库是**独立的一组通道**，不共用 brand:*。
+  /** 列分组树 + 模板 + 统计 + 上次扫描的未收录名单 */
+  tplList: (opts?: { folderId?: number; keyword?: string }) => Promise<unknown>
+  tplScan: () => Promise<{
+    ok: boolean
+    added: number
+    folders: number
+    missing: number
+    skippedDeep: number
+    rejected: Array<{ name: string; abs: string; reason: string }>
+  }>
+  tplCreateFolder: (input: {
+    name: string
+    parentId?: number | null
+  }) => Promise<{ ok: boolean; error?: string; id?: number }>
+  tplRenameFolder: (input: { id: number; name: string }) => Promise<{ ok: boolean; error?: string }>
+  tplDeleteFolder: (id: number) => Promise<{ ok: boolean; error?: string; moved?: number }>
+  tplSetFolderOrder: (input: {
+    id: number
+    sortOrder: number
+  }) => Promise<{ ok: boolean; error?: string }>
+  tplPickFiles: () => Promise<{ ok: boolean; canceled?: boolean; paths: string[] }>
+  tplImport: (input: {
+    paths: string[]
+    folderId?: number | null
+  }) => Promise<{
+    ok: boolean
+    error?: string
+    imported: number
+    renamed: number
+    rejected: Array<{ name: string; abs: string; reason: string }>
+  }>
+  tplRenameAsset: (input: {
+    id: number
+    name: string
+  }) => Promise<{ ok: boolean; error?: string; fileName?: string }>
+  tplRemoveAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
+  tplForgetAsset: (id: number) => Promise<{ ok: boolean; error?: string }>
+  /** 第 67 批（docs/50 §6）：批量移动到分组（与通用库同构，`-1` = 未分组） */
+  tplMoveAssets: (input: { ids: number[]; targetFolderId: number }) => Promise<MoveAssetsResultVM>
+  /** 第 68 批（docs/50 §6）：批量复制模板到任务的 `02-素材` */
+  tplCopyAssetsToPack: (input: { ids: number[]; packId: number }) => Promise<BulkCopyResultVM>
+  /**
+   * 第 69 批（docs/53）：**强制重建给 PS 插件用的卡片图**。
+   * 平时不用调 —— 扫描会自动补；只有改了卡片样式才需要（样式不在内容签名里）。
+   */
+  tplRebuildCards: () => Promise<{ ok: boolean; rendered: number }>
+  /** 第 68 批（docs/50 §6）：序号化批量改名（`易拉宝-01.psd`） */
+  tplRenameAssetsSeq: (input: {
+    ids: number[]
+    prefix: string
+    start: number
+    pad: number
+  }) => Promise<SeqRenameResultVM>
 }
 
 /** 第 62 批（docs/45）：PS 插件联动状态 */
@@ -1195,11 +1272,44 @@ export interface BrandFolderNode {
   source: string
   /** 直属素材数 */
   assetCount: number
-  /** 含子组的素材总数 */
+  /** 含所有子层的素材总数 */
   totalCount: number
+  /** 还能不能再往下建（depth < 5）—— 界面据此隐藏「新建子分组」 */
+  canAddChild: boolean
 }
 
 /** 通用库素材（列表项） */
+/**
+ * 第 67 批（docs/50 §6）：**批量移动**的结果（通用库 / 模板库共用同一份形状）。
+ *
+ * `ok` 只在**全部成功**时为 true；部分失败时 `moved` 仍如实反映"搬走了几条"——
+ * 界面据此说「移动 8 个，2 个失败：EBUSY…」，而不是笼统一句"操作失败"。
+ */
+export interface MoveAssetsResultVM {
+  ok: boolean
+  error?: string
+  moved: number
+  skipped: number
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
+/** 第 68 批（docs/50 §6）：批量复制到任务的结果（两库共用） */
+export interface BulkCopyResultVM {
+  ok: boolean
+  error?: string
+  copied: number
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
+/** 第 68 批（docs/50 §6）：序号化批量改名的结果（两库共用） */
+export interface SeqRenameResultVM {
+  ok: boolean
+  error?: string
+  renamed: number
+  skipped: number
+  failed: Array<{ id: number; name: string; error: string }>
+}
+
 export interface BrandAssetItem {
   id: number
   folderId: number | null
@@ -1227,6 +1337,6 @@ export interface BrandListView {
   folders: BrandFolderNode[]
   assets: BrandAssetItem[]
   stats: BrandStats
-  /** 三层及以上被跳过的目录数（只做两层，给界面一个提示口径） */
+  /** 超过 5 层被跳过的目录数（2026-10-17 起通用库支持多层，给界面一个提示口径） */
   skippedDeep: number
 }

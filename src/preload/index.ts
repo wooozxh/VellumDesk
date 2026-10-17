@@ -221,8 +221,28 @@ const api = {
   brandImport: (input) => ipcRenderer.invoke('brand:import', input),
   brandRemoveAsset: (id) => ipcRenderer.invoke('brand:removeAsset', id),
   brandForgetAsset: (id) => ipcRenderer.invoke('brand:forgetAsset', id),
+  brandMoveAssets: (input) => ipcRenderer.invoke('brand:moveAssets', input),
+  brandCopyAssetsToPack: (input) => ipcRenderer.invoke('brand:copyAssetsToPack', input),
+  brandRenameAssetsSeq: (input) => ipcRenderer.invoke('brand:renameAssetsSeq', input),
   brandPromote: (input) => ipcRenderer.invoke('brand:promote', input),
-  brandCopyToPack: (input) => ipcRenderer.invoke('brand:copyToPack', input)
+  brandCopyToPack: (input) => ipcRenderer.invoke('brand:copyToPack', input),
+
+  // 第 66 批（docs/49）：PSD 模板库
+  tplList: (opts) => ipcRenderer.invoke('tpl:list', opts),
+  tplScan: () => ipcRenderer.invoke('tpl:scan'),
+  tplCreateFolder: (input) => ipcRenderer.invoke('tpl:createFolder', input),
+  tplRenameFolder: (input) => ipcRenderer.invoke('tpl:renameFolder', input),
+  tplDeleteFolder: (id) => ipcRenderer.invoke('tpl:deleteFolder', id),
+  tplSetFolderOrder: (input) => ipcRenderer.invoke('tpl:setFolderOrder', input),
+  tplPickFiles: () => ipcRenderer.invoke('tpl:pickFiles'),
+  tplImport: (input) => ipcRenderer.invoke('tpl:import', input),
+  tplRenameAsset: (input) => ipcRenderer.invoke('tpl:renameAsset', input),
+  tplRemoveAsset: (id) => ipcRenderer.invoke('tpl:removeAsset', id),
+  tplForgetAsset: (id) => ipcRenderer.invoke('tpl:forgetAsset', id),
+  tplMoveAssets: (input) => ipcRenderer.invoke('tpl:moveAssets', input),
+  tplCopyAssetsToPack: (input) => ipcRenderer.invoke('tpl:copyAssetsToPack', input),
+  tplRebuildCards: () => ipcRenderer.invoke('tpl:rebuildCards'),
+  tplRenameAssetsSeq: (input) => ipcRenderer.invoke('tpl:renameAssetsSeq', input)
 }
 
 if (process.contextIsolated) {

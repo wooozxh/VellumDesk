@@ -546,6 +546,168 @@ export async function readPsdMeta(absPath: string): Promise<PsdMeta> {
 }
 
 /**
+ * 第 66 批（docs/49）：模板库要多两个 PSD 属性 —— 分辨率 ppi 与**参考线条数**。
+ *
+ * 两个都在「图像资源段」里，与内嵌预览（id 1036）同一段：
+ * - **id 1005 `ResolutionInfo`**（16 字节）：hRes(4, 16.16 定点) + hResUnit(2) + widthUnit(2)
+ *   + vRes(4) + vResUnit(2) + heightUnit(2)。`unit = 1` 是「像素/英寸」= ppi；
+ *   `unit = 2` 是「像素/厘米」⇒ 乘 2.54 折回 ppi。
+ * - **id 1032 `Grid and Guides Information`**：version(4) + 水平网格周期(4) + 垂直网格周期(4)
+ *   + **参考线条数(4)** + 每条 guide(4 坐标 + 1 方向)。**我们只要条数**，不要坐标
+ *   （坐标单位在规范里是 1/32 单位，且插件侧 `doc.guides[i]` 也只回 `_id`、读不到坐标 —— 见契约 §9.1）。
+ *
+ * 判定口径（与 docs/49 §11 一致）：
+ * · `guides = null` → **没探到**（老 PSD 没写这个资源块 / 解析失败）；
+ * · `guides = 0`    → **探到了、确认这份模板没有参考线**。
+ * 两者对用户意义不同（"未知" vs "确实没打线"），所以不合并成 0。
+ *
+ * 失败一律返回 null（**绝不阻断入库**，与同文件其它读取函数一致）。
+ */
+export interface PsdExtra {
+  resolution: number | null
+  guides: number | null
+  /**
+   * 第 69 批（docs/51）：PSD 里写的**关键词**（XnView / PS 文件简介 / ExifTool 都能写）。
+   * 模板库用它承载「成品尺寸 / 出血」这类 PSD 本身没有标准字段的印刷参数。
+   * `null` = 资源段里根本没有 IPTC/XMP 块；`[]` = 有块但没写关键词。
+   * 读 IPTC(1028) 为主、XMP(1060) 兜底 —— XnView 会**两处都写**（实测），但别的工具可能只写一处。
+   */
+  keywords: string[] | null
+}
+
+/**
+ * IPTC IIM：`0x1C <record> <tag> <len:2> <data>`，record=2 / tag=25 = Keywords（可重复多条）。
+ * 遇到扩展长度标记（len 高位为 1）就停 —— 实际 PSD 里不会出现，不值得为它加分支。
+ */
+function parseIptcKeywords(buf: Buffer): string[] {
+  const out: string[] = []
+  let i = 0
+  while (i + 5 <= buf.length) {
+    if (buf[i] !== 0x1c) {
+      i += 1
+      continue
+    }
+    const record = buf[i + 1]
+    const tag = buf[i + 2]
+    const len = buf.readUInt16BE(i + 3)
+    if (len & 0x8000) break
+    if (record === 2 && tag === 25) {
+      const t = buf.slice(i + 5, i + 5 + len).toString('utf8').trim()
+      if (t) out.push(t)
+    }
+    i += 5 + len
+  }
+  return out
+}
+
+/** XMP 兜底：从 `<dc:subject>` 的 `<rdf:li>` 里取。只做最简单的实体反转义。 */
+function parseXmpKeywords(xml: string): string[] {
+  const block = xml.match(/<dc:subject>([\s\S]*?)<\/dc:subject>/)
+  if (!block) return []
+  const items = [...block[1].matchAll(/<rdf:li[^>]*>([\s\S]*?)<\/rdf:li>/g)].map((m) =>
+    m[1]
+      .trim()
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&')
+  )
+  return items.filter(Boolean)
+}
+
+export async function readPsdExtra(absPath: string): Promise<PsdExtra> {
+  const empty: PsdExtra = { resolution: null, guides: null, keywords: null }
+  try {
+    const fs = await import('fs')
+    const fd = fs.openSync(absPath, 'r')
+    const readAt = (buf: Buffer, pos: number): number => fs.readSync(fd, buf, 0, buf.length, pos)
+
+    try {
+      const head = Buffer.alloc(26)
+      readAt(head, 0)
+      if (head.slice(0, 4).toString('ascii') !== '8BPS') return empty
+
+      // 头(26) → 颜色模式数据段长度(4) → 图像资源段
+      const lenBuf = Buffer.alloc(4)
+      readAt(lenBuf, 26)
+      let off = 30 + lenBuf.readUInt32BE(0)
+
+      readAt(lenBuf, off)
+      const irLen = lenBuf.readUInt32BE(0)
+      off += 4
+      const end = off + irLen
+      if (irLen <= 0) return empty
+
+      let resolution: number | null = null
+      let guides: number | null = null
+      let keywords: string[] | null = null
+
+      while (off + 12 <= end) {
+        const sig = Buffer.alloc(4)
+        readAt(sig, off)
+        if (sig.toString('ascii') !== '8BIM') break
+
+        const idBuf = Buffer.alloc(2)
+        readAt(idBuf, off + 4)
+        const id = idBuf.readUInt16BE(0)
+
+        // 名称：1 字节长度 + 内容，再补齐到偶数（长度字段本身算 1 字节）
+        const nameLenBuf = Buffer.alloc(1)
+        readAt(nameLenBuf, off + 6)
+        const nameFieldLen = 1 + nameLenBuf[0] + ((1 + nameLenBuf[0]) % 2)
+
+        const szBuf = Buffer.alloc(4)
+        readAt(szBuf, off + 6 + nameFieldLen)
+        const dsize = szBuf.readUInt32BE(0)
+        const dataOff = off + 6 + nameFieldLen + 4
+        const avail = Math.max(0, Math.min(dsize, end - dataOff))
+
+        if (id === 1005 && avail >= 16) {
+          const d = Buffer.alloc(16)
+          readAt(d, dataOff)
+          const hRes = d.readUInt32BE(0)
+          const hUnit = d.readUInt16BE(4)
+          const value = hRes / 65536
+          if (value > 0 && value < 100000) {
+            resolution = hUnit === 2 ? Math.round(value * 2.54 * 100) / 100 : Math.round(value * 100) / 100
+          }
+        } else if (id === 1032 && avail >= 16) {
+          const d = Buffer.alloc(16)
+          readAt(d, dataOff)
+          const version = d.readUInt32BE(0)
+          const n = d.readUInt32BE(12)
+          // 合理性：只认 version 1；条数上限宽松给 10000（导了参考线模板的工程也不会超）
+          if (version === 1 && n <= 10000) guides = n
+        } else if (id === 1028 && avail > 0) {
+          // IPTC-NAA：首选（二进制、格式固定、不受 XML 排版影响）
+          const d = Buffer.alloc(avail)
+          readAt(d, dataOff)
+          const got = parseIptcKeywords(d)
+          keywords = got.length > 0 ? got : keywords
+        } else if (id === 1060 && avail > 0) {
+          // XMP：兜底（有些工具只写 XMP 不写 IPTC）
+          const d = Buffer.alloc(avail)
+          readAt(d, dataOff)
+          const got = parseXmpKeywords(d.toString('utf8'))
+          if (got.length > 0) keywords = keywords && keywords.length > 0 ? keywords : got
+          if (keywords === null) keywords = got
+        }
+
+        if (resolution !== null && guides !== null && keywords !== null) break
+        off = dataOff + dsize + (dsize % 2)
+      }
+
+      return { resolution, guides, keywords }
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return empty
+  }
+}
+
+/**
  * B-04：从图像资源段提取内嵌合成预览 JPG。
  * 优先 id 1036（新），回退 1033（老）。失败返回 null —— 绝不阻断入库。
  */

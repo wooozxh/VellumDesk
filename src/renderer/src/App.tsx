@@ -41,10 +41,17 @@ import { SetupWizardModal } from './components/SetupWizardModal'
 import { TicketSettingsModal } from './components/TicketSettingsModal'
 // 第 62 批（docs/45 Step 3b）：PS 插件联动（独立设置弹窗 + 手动「同步到插件」）
 import { PluginLinkModal } from './components/PluginLinkModal'
+// 第 66 批（docs/49）：PSD 模板库（单列一个分区，不与通用素材库同入口）
+import { TplLibraryView } from './components/TplLibraryView'
+// 第 67 批（docs/50）：任务视图的卡片 / 列表双视图（列表里勾选 = 备份打包的多选）
+import { ListTable, fmtDateTime, type ListColumn } from './components/ListTable'
+import { ViewSwitch, useViewMode } from './components/ViewSwitch'
+// 第 68 批（docs/50 §6）：任务的批量设置（项目 / 类别 / 场景 / 分级）
+import { BulkPackSettingsModal, type BulkPackPatch } from './components/BulkPackSettingsModal'
 // 第 62 批 Step 4（docs/46）：通用素材库视图
 import { BrandLibraryView } from './components/BrandLibraryView'
 
-type ViewMode = 'packs' | 'files' | 'tickets' | 'brand'
+type ViewMode = 'packs' | 'files' | 'tickets' | 'brand' | 'tpl'
 
 interface ToastMsg {
   id: number
@@ -146,6 +153,17 @@ export default function App(): React.JSX.Element {
   const [backupSel, setBackupSel] = useState<Set<number>>(new Set())
   /** 正在打包中（按钮显示「打包中…」并禁用） */
   const [backupBusy, setBackupBusy] = useState(false)
+
+  /**
+   * 第 67 批（docs/50）：任务视图的卡片 / 列表。
+   * ⚠️ 列表视图里的勾选**复用 `backupSel`**（不是另开一套）——
+   * 用户勾一堆任务之后想做的事里，「批量打包」是现成的那个；
+   * 两套勾选并存只会让人不知道顶栏那个「批量打包（n）」数的是哪一堆。
+   */
+  const [packsView, setPacksView] = useViewMode('packs')
+  /** 第 68 批（docs/50 §6）：任务批量设置弹窗 + 执行中 */
+  const [bulkSetOpen, setBulkSetOpen] = useState(false)
+  const [bulkSetBusy, setBulkSetBusy] = useState(false)
 
   const [scanning, setScanning] = useState(false)
   /** 第 14 批：刷新扫描的阶段进度（主进程推送；null = 没有在跑） */
@@ -459,6 +477,45 @@ export default function App(): React.JSX.Element {
    * 选目录复用交付打包那条通道（`dialog:pickOutputDir`）；完成后刷新卡片（置灰 + 徽标）并退出多选模式。
    * 失败的任务逐条报出来（不闷成一句"有失败"），用户才知道哪几个没成。
    */
+  /**
+   * 第 68 批（docs/50 §6）：**任务的批量设置**。
+   *
+   * 直接循环调现成的 `pack:update` —— 它已经把「改项目要搬文件夹 + 更新记录路径 + 失败回滚」
+   * 全做完了（`movePackTo`），批量版再写一遍只会多一处出错机会。
+   * 逐条 await：搬目录会动磁盘，并发容易互相踩。
+   *
+   * ⚠️ 只把 `patch` 里**真的选了的字段**传下去（弹窗里已经过滤），没选的字段由 `updatePack`
+   * 保持原值 —— 不能图省事传空串，那会把类别/场景清成「未分类」。
+   */
+  const doBulkSettings = async (patch: BulkPackPatch): Promise<void> => {
+    const ids = Array.from(backupSel)
+    if (ids.length === 0 || bulkSetBusy) return
+    if (Object.keys(patch).length === 0) {
+      toast(COPY.common.settingsNothing, 'info')
+      return
+    }
+    setBulkSetBusy(true)
+    let okN = 0
+    let firstErr = ''
+    for (const id of ids) {
+      try {
+        const r = await window.api.updatePack(id, patch)
+        if (r.ok) okN += 1
+        else if (!firstErr) firstErr = r.error ?? ''
+      } catch (e) {
+        if (!firstErr) firstErr = (e as Error).message
+      }
+    }
+    setBulkSetBusy(false)
+    setBulkSetOpen(false)
+    const fail = ids.length - okN
+    if (fail === 0) toast(fmt(COPY.common.settingsDone, { n: okN }), 'ok')
+    else toast(fmt(COPY.common.settingsPartial, { ok: okN, fail, msg: firstErr }), 'err')
+    setBackupSel(new Set())
+    setBackupMode(false)
+    await loadPacks()
+  }
+
   const doBackup = async (): Promise<void> => {
     if (backupSel.size === 0) {
       toast(COPY.backup.noneSelected, 'err')
@@ -1081,6 +1138,96 @@ export default function App(): React.JSX.Element {
 
   const shownSize = useMemo(() => shownAssets.reduce((s, i) => s + i.size, 0), [shownAssets])
 
+  /**
+   * 第 67 批（docs/50）：任务列表的列。
+   * 和卡片视图的信息取舍不同 —— 卡片上「封面 + 版本 + 工单号」是主角，
+   * 列表里用户要的是**能横向比**：哪个项目、几稿、多少素材、多大、什么时候动过。
+   */
+  const packColumns: ListColumn<PackCardType>[] = [
+    {
+      key: 'name',
+      label: COPY.common.colName,
+      width: 'minmax(0,1.6fr)',
+      title: (p) => p.name,
+      render: (p) => (
+        <span className="dname-wrap">
+          <span className="dcell-name">{p.name}</span>
+          {/* 卡片上是「整张置灰 + 已备份徽标」，列表里没法整行置灰（会削弱可读性）⇒
+              改成名称后挂两个小徽标：**已备份** 与 **丢失文件数**。 */}
+          {p.backupPath && <span className="dchip back">{COPY.backup.chip}</span>}
+          {p.missingCount > 0 && (
+            <span className="dchip warn">{fmt(COPY.common.missingChip, { n: p.missingCount })}</span>
+          )}
+        </span>
+      )
+    },
+    {
+      key: 'project',
+      label: COPY.common.colProject,
+      width: '112px',
+      title: (p) => p.projectName ?? COPY.side.loose,
+      render: (p) =>
+        p.projectName ? (
+          <span className="dcell-sub">
+            <i className="ddot" style={{ background: p.projectColor ?? 'var(--text-3)' }} />
+            {p.projectName}
+          </span>
+        ) : (
+          <span className="dcell-sub">{COPY.side.loose}</span>
+        )
+    },
+    {
+      key: 'versions',
+      label: COPY.common.colVersions,
+      width: '54px',
+      align: 'right',
+      render: (p) => (
+        <span className="dcell-num">{p.versionCount > 0 ? p.versionCount : COPY.common.none}</span>
+      )
+    },
+    {
+      key: 'files',
+      label: COPY.common.colFiles,
+      width: '54px',
+      align: 'right',
+      render: (p) => <span className="dcell-num">{p.fileCount}</span>
+    },
+    {
+      key: 'bytes',
+      label: COPY.common.colSize,
+      width: '76px',
+      align: 'right',
+      render: (p) => <span className="dcell-num">{fmtSize(p.totalSize)}</span>
+    },
+    {
+      key: 'time',
+      label: COPY.common.colTime,
+      width: '112px',
+      align: 'right',
+      render: (p) => <span className="dcell-num">{fmtDateTime(p.updated_at)}</span>
+    },
+    {
+      key: 'acts',
+      label: '',
+      width: '30px',
+      align: 'right',
+      render: (p) => (
+        <span className="dcell-acts">
+          <button
+            className="mini"
+            title={COPY.backup.viewDetail}
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpenPackId(p.id)
+            }}
+          >
+            <Icon name="external" size={12} />
+          </button>
+        </span>
+      )
+    }
+  ]
+
   // ---------------- 渲染 ----------------
 
   const currentProjectLabel = useMemo(() => {
@@ -1100,7 +1247,7 @@ export default function App(): React.JSX.Element {
           {COPY.app.name}
         </div>
 
-        {view !== 'tickets' && view !== 'brand' && (
+        {view !== 'tickets' && view !== 'brand' && view !== 'tpl' && (
           <div className="search-wrap">
             <span className="icon">
               <Icon name="search" size={13} />
@@ -1135,6 +1282,10 @@ export default function App(): React.JSX.Element {
           {/* 第 62 批（docs/46）：通用素材库（公司通用素材 + 个人收藏，不属于任何任务） */}
           <button className={view === 'brand' ? 'on' : ''} onClick={() => setView('brand')}>
             {COPY.brand.entry}
+          </button>
+          {/* 第 66 批（docs/49）：PSD 模板库 —— 用户要求「单列一个功能，不和素材库在一起」 */}
+          <button className={view === 'tpl' ? 'on' : ''} onClick={() => setView('tpl')}>
+            {COPY.tpl.entry}
           </button>
         </div>
 
@@ -1171,40 +1322,64 @@ export default function App(): React.JSX.Element {
         </button>
 
         {/* 第 58 批（docs/43）：任务视图 —— 「新建任务」后面加「备份打包」。
-            点它 → 全部卡片进入打勾模式，按钮变「批量打包」、旁边冒「取消」。 */}
-        {view === 'packs' &&
-          (!backupMode ? (
-            <button
-              className="btn"
-              title={COPY.backup.enterTip}
-              onClick={() => {
-                setBackupMode(true)
-                setBackupSel(new Set())
-              }}
-            >
-              <Icon name="archive" size={13} />  {COPY.backup.enter}
-            </button>
-          ) : (
-            <>
-              <button
-                className="btn primary"
-                disabled={backupSel.size === 0 || backupBusy}
-                onClick={() => void doBackup()}
-              >
-                {backupBusy ? COPY.backup.packing : fmt(COPY.backup.doBatch, { n: backupSel.size })}
-              </button>
+            点它 → 全部卡片进入打勾模式，按钮变「批量打包」、旁边冒「取消」。
+            第 67 批（docs/50）：列表视图里勾选**直接就是**备份多选 ⇒
+            勾了人就该看见「批量打包（n）」，不必先去点「备份打包」进模式。 */}
+        {view === 'packs' && (
+          <>
+            {backupMode || (packsView === 'list' && backupSel.size > 0) ? (
+              <>
+                <button
+                  className="btn primary"
+                  disabled={backupSel.size === 0 || backupBusy}
+                  onClick={() => void doBackup()}
+                >
+                  {backupBusy ? COPY.backup.packing : fmt(COPY.backup.doBatch, { n: backupSel.size })}
+                </button>
+                <button
+                  className="btn"
+                  disabled={backupBusy || backupSel.size === 0}
+                  title={COPY.common.bulkSettingsTip}
+                  onClick={() => setBulkSetOpen(true)}
+                >
+                  {COPY.common.bulkSettings}
+                </button>
+                <button
+                  className="btn"
+                  disabled={backupBusy}
+                  onClick={() => {
+                    setBackupMode(false)
+                    setBackupSel(new Set())
+                  }}
+                >
+                  {COPY.common.cancel}
+                </button>
+              </>
+            ) : (
               <button
                 className="btn"
-                disabled={backupBusy}
+                title={COPY.backup.enterTip}
                 onClick={() => {
-                  setBackupMode(false)
+                  setBackupMode(true)
                   setBackupSel(new Set())
                 }}
               >
-                {COPY.common.cancel}
+                <Icon name="archive" size={13} />  {COPY.backup.enter}
               </button>
-            </>
-          ))}
+            )}
+            {/* 第 67 批（docs/50）：卡片 / 列表切换。切视图就清空勾选 ——
+                两边的勾选语义不同（卡片是"备份模式"，列表是"浏览时顺手勾"），
+                带着勾选切过去只会让人误解数量。 */}
+            <ViewSwitch
+              mode={packsView}
+              onChange={(m) => {
+                setPacksView(m)
+                setBackupSel(new Set())
+                setBackupMode(false)
+              }}
+            />
+          </>
+        )}
 
         {/* 第 62 批（docs/45）：PS 插件联动常驻入口（打开独立设置弹窗 —— 开关 / 手填目录 / 同步到插件） */}
         <button
@@ -1231,6 +1406,11 @@ export default function App(): React.JSX.Element {
           /* 第 62 批（docs/46）：通用素材库 —— 同样独占主体（自带组树与工具条，不复用左栏） */
           <div className="main brand-main">
             <BrandLibraryView onToast={(m, k) => toast(m, k)} />
+          </div>
+        ) : view === 'tpl' ? (
+          /* 第 66 批（docs/49）：PSD 模板库 —— 与通用库同一个壳，但树是任意层、卡片带参考线角标 */
+          <div className="main brand-main">
+            <TplLibraryView onToast={(m, k) => toast(m, k)} />
           </div>
         ) : (
           <>
@@ -1576,8 +1756,9 @@ export default function App(): React.JSX.Element {
             </div>
           )}
           <div className="main-scroll">
-            {/* 第 58 批（docs/43）：多选备份模式的提示条 —— 否则用户不知道现在点卡片是勾选 */}
-            {view === 'packs' && backupMode && (
+            {/* 第 58 批（docs/43）：多选备份模式的提示条 —— 否则用户不知道现在点卡片是勾选。
+                第 67 批（docs/50）：列表视图**不需要**这条 —— 表头就是全选、每行都有勾选框。 */}
+            {view === 'packs' && backupMode && packsView === 'card' && (
               <div className="backup-bar">
                 <Icon name="archive" size={13} />
                 <span>{COPY.backup.selectHint}</span>
@@ -1613,6 +1794,31 @@ export default function App(): React.JSX.Element {
                     {COPY.empty.createFirstB}
                   </div>
                 </div>
+              ) : packsView === 'list' ? (
+                /* 第 67 批（docs/50）：列表视图 —— 勾选直接写 `backupSel`，
+                   所以勾完顶栏就出现「批量打包（n）」，不需要先进备份模式。 */
+                <ListTable
+                  rows={shownPacks}
+                  columns={packColumns}
+                  selected={backupSel}
+                  onToggle={(id) =>
+                    setBackupSel((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(id)) next.delete(id)
+                      else next.add(id)
+                      return next
+                    })
+                  }
+                  onToggleAll={() =>
+                    setBackupSel((prev) => {
+                      const all = shownPacks.every((p) => prev.has(p.id))
+                      return all ? new Set() : new Set(shownPacks.map((p) => p.id))
+                    })
+                  }
+                  onSelectRange={(ids) => setBackupSel((prev) => new Set([...prev, ...ids]))}
+                  onOpen={(p) => setOpenPackId(p.id)}
+                  empty={COPY.empty.noPacks}
+                />
               ) : (
                 <div className="grid">
                   {projectFilter === '全部' && stats.unassigned > 0 && (
@@ -1997,6 +2203,21 @@ export default function App(): React.JSX.Element {
           suggestions={tagSuggestions}
           onClose={() => setTagPickerIds(null)}
           onSubmit={submitTags}
+        />
+      )}
+
+      {/* 第 68 批（docs/50 §6）：任务批量设置（项目 / 类别 / 场景 / 分级） */}
+      {bulkSetOpen && (
+        <BulkPackSettingsModal
+          projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+          categories={categoryOptions}
+          channels={channelOptions}
+          grades={gradeOptions}
+          busy={bulkSetBusy}
+          onApply={(patch) => void doBulkSettings(patch)}
+          onClose={() => {
+            if (!bulkSetBusy) setBulkSetOpen(false)
+          }}
         />
       )}
 

@@ -46,11 +46,11 @@
     <!-- ============ 封面 ============ -->
     <header class="cover">
       <img class="logo" src="images/logo.png" alt="Vellum Desk" />
-      <span class="tag">USER MANUAL · v1.10.0</span>
+      <span class="tag">USER MANUAL · v1.11.0</span>
       <h1>Vellum工作台 用户使用手册</h1>
       <p class="lede">本地素材管理桌面软件。把设计物料、任务稿、企微工单这三件事，收进一个「看得见磁盘真相」的工作台里 —— 所有素材都在你本机硬盘上，不上传任何云端。</p>
       <div class="kv">
-        <div><b>1.10.0</b>软件版本</div>
+        <div><b>1.11.0</b>软件版本</div>
         <div><b>Windows 10 / 11 · 64 位</b>适用系统</div>
         <div><b>2026-10-11</b>手册更新</div>
         <div><b>40+ 张</b>界面截图</div>
@@ -133,13 +133,16 @@
         <a href="#s5-5"><b>5.5</b>状态栏与左栏宽度</a>
         <a href="#s5-6"><b>5.6</b>首次配置引导（初装向导）</a>
 
-        <div class="grp">第四部分 · 通用素材库与 PS 插件</div>
+        <div class="grp">第四部分 · 素材库与 PS 插件</div>
         <a href="#s6-1"><b>6.1</b>通用素材库：它解决什么</a>
         <a href="#s6-2"><b>6.2</b>分组与素材：怎么放进来</a>
         <a href="#s6-3"><b>6.3</b>通用库 → 任务：复制过去用</a>
         <a href="#s6-4"><b>6.4</b>同步给 PS 插件</a>
         <a href="#s6-5"><b>6.5</b>在 PS 里用：把图插进画布</a>
         <a href="#s6-6"><b>6.6</b>出问题了怎么查</a>
+        <a href="#s6-7"><b>6.7</b>PSD 模板库：单独一个库</a>
+        <a href="#s6-8"><b>6.8</b>多层目录与「参考线」角标</a>
+        <a href="#s6-9"><b>6.9</b>列表视图与勾选批量（三个库通用）</a>
 
         <div class="grp">第五部分 · 速查与下载</div>
         <a href="#s7-1"><b>7.1</b>全部弹窗与按钮速查表</a>
@@ -714,6 +717,24 @@
         <figcaption>图 3-1　任务视图 —— 卡片有真封面（任务里第一张能预览的文件）、文件数与容量、版本徽标、项目与类别标签</figcaption>
       </figure>
       <div class="call info"><span class="h">卡片排序</span>没有排序按钮。卡片顺序跟着左栏<b>项目</b>的上下顺序走，项目内按任务建立时间。想调整看得顺眼，就在左栏拖项目的顺序。</div>
+
+      <h3>卡片视图与列表视图</h3>
+      <p>工具条最右边那对<b>小方块 / 小横线</b>按钮，可以在两种视图之间切。它们不是"新老两版"，是<b>分工</b>：</p>
+      <table>
+        <thead><tr><th style="width:100px">视图</th><th>什么时候用</th></tr></thead>
+        <tbody>
+          <tr><td><b>卡片</b>（默认）</td><td>看缩略图挑东西 —— 任务、素材、模板都得<b>用眼睛</b>判断哪一张是对的那张</td></tr>
+          <tr><td><b>列表</b></td><td>东西攒多了要整体过一遍 —— 一屏看几十条，还能横向比大小、时间、分组、参考线</td></tr>
+        </tbody>
+      </table>
+      <p>选择<b>各自记住</b>：任务视图切了列表，不会顺手把通用库也切过去。任务视图、通用库、模板库三处都有这个开关。</p>
+      <figure>
+        <img src="images/47-任务-列表视图.png" alt="任务列表视图" />
+        <figcaption>图 3-3　任务列表视图 —— 名称后面挂「已备份」徽标；双击任意一行进任务详情</figcaption>
+      </figure>
+      <div class="call info"><span class="h">列表里怎么勾选</span>
+        <b>点行任意处</b> = 勾上；点<b>表头那个方框</b> = 全选当前列出的条目；先点一行、按住 <code>Shift</code> 再点另一行 = 连着选中中间所有行。<br />
+        任务视图里勾了行，右上角会直接出现 <span class="btnchip">批量打包（n）</span> 和 <span class="btnchip">批量设置</span> —— 不用先去点「备份打包」进模式。<b>批量设置</b>能一次改勾中任务的「项目 / 物料类别 / 使用场景 / 物料分级」，只有选了的项才会改，留「（不改）」的保持原样。</div>
     </section>
 
     <section id="s3-2">
@@ -1291,8 +1312,8 @@
     <!-- ============ 第四部分 ============ -->
     <div class="chapterhead" id="ch6">
       <div class="kick">PART FOUR</div>
-      <h2 class="ct">第四部分 · 通用素材库与 PS 插件</h2>
-      <p>顶栏第 4 格是 <span class="btnchip">通用库</span>，装的是「不属于任何任务」的常备素材；它右边那个 <span class="btnchip">插件</span> 按钮，负责把这些素材交给 Photoshop 里的 Vellum 工具箱。<b>不装 PS 插件也能用通用库</b> —— 装了才知道它多省事。</p>
+      <h2 class="ct">第四部分 · 素材库与 PS 插件</h2>
+      <p>这一部分讲<b>两个「不属于任何任务」的库</b>：顶栏第 4 格 <span class="btnchip">通用库</span> 装常备素材，第 5 格 <span class="btnchip">模板</span> 装现成的 PSD 底稿。它们右边那个 <span class="btnchip">插件</span> 按钮，负责把这些东西交给 Photoshop 里的 Vellum 工具箱。<b>不装 PS 插件也能用这两个库</b> —— 装了才知道它多省事。</p>
     </div>
 
     <section id="s6-1">
@@ -1315,7 +1336,7 @@
 
     <section id="s6-2">
       <h2><span class="n">6.2</span>分组与素材：怎么放进来</h2>
-      <p>通用库<b>只做两层</b>：顶层固定两块 —— <b>公司素材</b> 和 <b>个人收藏</b>（名字都可以改），子分组挂在它们下面。再深的目录会被跳过，软件会在左下角提示跳过了几个。</p>
+      <p>通用库最常见的样子是<b>两层</b>：顶层固定两块 —— <b>公司素材</b> 和 <b>个人收藏</b>（名字都可以改），子分组挂在它们下面。但它<b>其实能嵌到 5 层</b>（2026-10 起放开，与模板库共用同一套多层目录，见 <a href="#s6-8">6.8</a>）；超过 5 层的目录会被跳过，软件会在左栏下方提示跳过了几个。</p>
       <h3>三种把素材放进去的办法</h3>
       <table>
         <thead><tr><th style="width:170px">办法</th><th>做法</th></tr></thead>
@@ -1388,6 +1409,162 @@
           <tr><td>手放的文件软件里看不到</td><td>确认放对了目录（<code>_通用素材库\</code>，<b>带下划线</b>），再点 <span class="btnchip">扫描磁盘</span></td></tr>
         </tbody>
       </table>
+    </section>
+
+    <section id="s6-7">
+      <h2><span class="n">6.7</span>PSD 模板库：单独一个库，不和通用素材库混</h2>
+      <p>模板库装的是<b>现成的 PSD 底稿</b>（易拉宝、展架、海报……）。它在顶栏是独立的一格 <span class="btnchip">模板</span>，不与 <span class="btnchip">通用库</span> 共用入口 —— 因为用途完全不同：通用库是<b>找素材往设计里放</b>，模板库是<b>找底稿往下改</b>。</p>
+      <p>目录在 <code>_PSD模板库\</code>（工作区根下，和下划线开头的老规矩一致）。和通用库一样：<b>本地磁盘是唯一真相</b>，软件只是把它读出来；你在资源管理器里怎么摆，软件里就长什么样。</p>
+
+      <h3>什么能被收录</h3>
+      <table>
+        <thead><tr><th style="width:150px">条件</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>格式</td><td><b>只收 <code>.psd</code> / <code>.psb</code></b>。jpg、png、压缩包一律不进（它们属于通用库）</td></tr>
+          <tr><td>大小</td><td>≤ 20 MB。超出的不收录，<b>文件原样留在磁盘上</b></td></tr>
+          <tr><td>画布尺寸</td><td>必须能从文件里读到宽高；读不到的拒绝收录（模板没有尺寸就没法用）</td></tr>
+        </tbody>
+      </table>
+      <p>被拒绝的文件会在网格上方出一条橙色提示条，写明「N 个文件没有收录」以及每一条的原因 —— <b>不会静默跳过</b>。收录失败的文件也不会被删除或移动。</p>
+      <figure>
+        <img src="images/44-模板库视图.png" alt="PSD 模板库" />
+        <figcaption>图 6-1　PSD 模板库 —— 左边多层目录，右边模板卡；每张卡是一张「信息卡」，右上角小标签是参考线条数，上方橙条是「1 个文件没有收录」</figcaption>
+      </figure>
+
+      <h3>卡片上写的是什么（不是缩略图！）</h3>
+      <p>模板卡上<b>不显示模板画面</b>，显示的是一张信息卡。原因很实在：PSD 里自带的预览图只有 160 像素左右，
+      放大就糊；而这些信息本来就该用文字说清楚。</p>
+      <table>
+        <thead><tr><th style="width:120px">卡片上的字</th><th>从哪来</th></tr></thead>
+        <tbody>
+          <tr><td><b>大字（品类）</b></td><td><b>文件名</b>里第一个下划线 <code>_</code> 之前的部分。<code>展架_海南春季.psd</code> → 大字是「展架」；下划线后面是备注，鼠标悬停能看到</td></tr>
+          <tr><td><b>尺寸</b></td><td>PSD 文件里写的<b>成品尺寸</b>（见下）；没写就按「像素 ÷ 分辨率」算，算出来是<b>含出血</b>的画布尺寸</td></tr>
+          <tr><td><b>出血</b></td><td>同样来自 PSD 文件里写的值</td></tr>
+          <tr><td><b>色彩模式</b></td><td>从 PSD 文件头读（CMYK / RGB / 灰度…）</td></tr>
+        </tbody>
+      </table>
+      <div class="call warn"><span class="h">「成品尺寸」和「出血」要自己写进 PSD</span>
+        PSD 格式里<b>没有</b>这两个标准字段。请在 PSD 的<b>关键词</b>里写（Photoshop 的「文件简介 → 关键词」，
+        或者 XnView / ExifTool 都可以）：
+        <ul>
+          <li>尺寸：<code>80cm×180cm</code>（也认 <code>80x180</code>，不写单位按厘米）</li>
+          <li>出血：<code>bleed:5mm</code>（也认 <code>出血:5mm</code> / <code>出血5mm</code> / <code>0.5cm</code>）</li>
+        </ul>
+        写完点一次 <span class="btnchip">扫描磁盘</span> 就生效。<b>不写也能用</b>，只是尺寸会按画布算（含出血、偏大）。
+      </div>
+
+      <h4>关键词完整清单</h4>
+      <p>除了尺寸和出血，还能写几项 —— 写了会进<b>悬停提示</b>（鼠标停在卡片上能看到），暂时不做筛选，但先把格式定下来。</p>
+      <table>
+        <thead><tr><th style="width:110px">字段</th><th style="width:190px">可用的写法</th><th>示例</th></tr></thead>
+        <tbody>
+          <tr><td><b>成品尺寸</b></td><td><code>size</code> / <code>尺寸</code> / <code>成品尺寸</code></td><td><code>size:80cm×180cm</code></td></tr>
+          <tr><td><b>出血</b></td><td><code>bleed</code> / <code>出血</code></td><td><code>bleed:5mm</code></td></tr>
+          <tr><td>用途</td><td><code>usage</code> / <code>用途</code> / <code>场景</code></td><td><code>usage:室内</code></td></tr>
+          <tr><td>客户 / 品牌</td><td><code>client</code> / <code>客户</code> / <code>品牌</code></td><td><code>client:海南升学</code></td></tr>
+          <tr><td>标签（可多值）</td><td><code>tag</code> / <code>标签</code></td><td><code>tag:竖版</code> 再写一条 <code>tag:2026春季</code></td></tr>
+          <tr><td>备注</td><td><code>note</code> / <code>备注</code> / <code>说明</code></td><td><code>note:主推款</code></td></tr>
+        </tbody>
+      </table>
+      <div class="call ok"><span class="h">写歪了也不会坏</span>
+        分隔符 <code>:</code> <code>：</code> <code>=</code> 都认，key 不分大小写，中文 key 也认；
+        <b>认不出的条目只会被忽略</b>（进悬停提示的"其他关键词"），不影响入库、不影响卡片。
+        关键词是附加信息，不是必填项 —— 一个字都不写，模板照样能用。
+      </div>
+      <pre><code>size:80cm×180cm
+bleed:5mm
+usage:室内
+client:海南升学
+tag:竖版
+tag:2026春季
+note:主推款，上方留白给标题</code></pre>
+      <div class="call info"><span class="h">为什么尺寸不直接按画布算</span>
+        行业习惯是「成品尺寸 + 各边出血」，所以画布比成品大一圈。比如成品 80×180cm、出血 5mm 的展架，
+        画布其实是 81×181cm。直接算会显示 81×181，跟你的认知对不上 —— 所以关键词优先。
+      </div>
+      <div class="call info"><span class="h">PS 插件里看到的也是这张卡</span>
+        插件不是浏览器，<b>认不了界面这套排版</b>。所以软件会把这张卡<b>渲染成一张 512×512 的图片</b>交给插件 ——
+        两边看到的是同一个样子。<br />
+        这件事是<b>自动的</b>：每次 <span class="btnchip">扫描磁盘</span> 会把变了内容的卡重画一遍，没变的不动。
+        只有一种情况需要你手动点一下 —— <b>改了卡片的样子</b>（比如换了 logo），这时点工具条上的
+        <span class="btnchip">重建卡片图</span>，否则插件里还是旧样子。
+      </div>
+      <div class="call info"><span class="h">模板库现在还不跟着插件走</span>插件侧正在做「模板」这一格（读到模板列表 → 点一下在 PS 里打开）。<b>软件这边已经把数据写好了</b>，插件更新后就能看见。在那之前，模板库只在软件里用。</div>
+    </section>
+
+    <section id="s6-8">
+      <h2><span class="n">6.8</span>多层目录与「参考线」角标</h2>
+      <p>模板库的分组<b>可以一直往下嵌（最多 5 层）</b>，你直接在资源管理器里建目录，点一次 <span class="btnchip">扫描磁盘</span> 就认了：</p>
+      <pre><code>_PSD模板库\
+├── 易拉宝\
+│   └── 2026春季\
+│       └── 海南\          ← 第 3 层也认
+├── 海报\
+└── 直接躺在这里的.psd      ← 算「未分组」</code></pre>
+      <p>左边那棵树逐层缩进，<b>点父分组 = 连它下面所有子层的模板一起显示</b>。折叠箭头收起子层。这套多层目录<b>通用素材库也能用</b>（同样上限 5 层），两边的树是同一个组件，操作完全一致。</p>
+      <div class="call warn"><span class="h">组名不能重复</span>同一层里不允许两个同名分组（不同层里同名没关系）。重名会让"这个模板到底在哪一组"变得说不清，所以软件直接拦住。</div>
+
+      <h3>参考线角标：模板库存在的理由</h3>
+      <p>卡片缩略图右下角那个小标签，就是<b>这份模板里打了多少条参考线</b> —— 从 PSD 文件里直接读出来的，不是手填的：</p>
+      <table>
+        <thead><tr><th style="width:140px">角标</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>绿色 <code>4 条参考线</code></td><td>打好了线，可以直接拿来排版</td></tr>
+          <tr><td>橙色 <code>无参考线</code></td><td><b>确认一条线都没有</b> —— 这份模板得先自己打线</td></tr>
+          <tr><td>灰色 <code>参考线未知</code></td><td>文件里读不到这个信息（老 PSD / 特殊存法）。<b>不等于没有线</b></td></tr>
+        </tbody>
+      </table>
+      <div class="call warn"><span class="h">「未知」和「无」是两回事</span>把「未知」当成「无」，会让人以为模板坏了；把「无」当成「未知」，会让人白打一遍线。软件不会替你把这两个合并，所以看到灰色的就去 PS 里打开确认一眼。</div>
+    </section>
+
+    <section id="s6-9">
+      <h2><span class="n">6.9</span>列表视图与勾选批量（三个库通用）</h2>
+      <p>任务、通用库、模板三处的工具条最右边，都有<b>卡片 / 列表</b>切换（机制见 <a href="#s3-1">3.1</a>）。列表视图里能勾选，一勾就冒出批量操作条。</p>
+      <figure>
+        <img src="images/46-通用库-列表视图.png" alt="通用库列表视图" />
+        <figcaption>图 6-2　通用库的列表视图 —— 名称 / 分组 / 尺寸 / 大小 / 来源 / 修改时间，这些在卡片上看不全</figcaption>
+      </figure>
+      <figure>
+        <img src="images/45-模板库-列表视图.png" alt="模板库列表视图" />
+        <figcaption>图 6-3　模板库的列表视图多一列「参考线」—— 一列扫过去就知道哪几份没打线</figcaption>
+      </figure>
+
+      <h3>勾完之后能做的事（区别别看混）</h3>
+      <table>
+        <thead><tr><th style="width:118px">按钮</th><th>做什么</th><th style="width:200px">磁盘上的文件</th></tr></thead>
+        <tbody>
+          <tr><td><b>移动到分组</b></td><td>把勾中的条目挪到另一个分组。弹窗里按层缩进列出所有分组，第一行是「未分组」</td><td><b>跟着搬</b>（不是复制）。目标组已有同名文件时自动加序号，不覆盖</td></tr>
+          <tr><td><b>复制到任务</b></td><td>挑一个任务，把勾中的条目复制进它的 <code>02-素材</code></td><td>库里那份<b>不动</b>（复制出去的是副本）</td></tr>
+          <tr><td><b>批量改名</b></td><td>按序号统一改名：<code>前缀-01</code>、<code>前缀-02</code>…（收模板最常用）</td><td><b>文件名真的改了</b>，扩展名保留</td></tr>
+          <tr><td><b>清除记录</b></td><td>把这条登记从软件里去掉，库里不再显示它</td><td><b>一动不动</b>。下次点 <span class="btnchip">扫描磁盘</span> 它自己就回来了</td></tr>
+          <tr><td><b>删除</b></td><td>把这个文件从库里去并移走</td><td>移到工作区的 <code>_回收站</code>，可以从回收站里找回来</td></tr>
+          <tr><td><b>批量打包（n）</b></td><td>只看任务视图：给勾中的任务各打一个备份 zip</td><td>只读，原件不动（见 <a href="#s3-7">3.7</a> 的「备份打包」）</td></tr>
+        </tbody>
+      </table>
+      <figure>
+        <img src="images/49-批量条.png" alt="列表勾选后的批量操作条" />
+        <figcaption>图 6-4　列表里勾几条，上面就冒出这条批量操作条 —— 从左到右：移动到分组 / 复制到任务 / 批量改名 / 清除记录 / 删除 / 取消勾选</figcaption>
+      </figure>
+
+      <h4>「批量改名」怎么改成我要的名字</h4>
+      <p>点 <span class="btnchip">批量改名</span> 后填三样：<b>前缀</b>（比如「易拉宝」）、<b>起始序号</b>（默认 1）、<b>位数</b>（默认 2 位）。下面会实时显示<b>效果</b>：<code>易拉宝-01.psd</code>。序号按<b>列表里从上到下</b>的顺序排。</p>
+      <div class="call warn"><span class="h">前缀里的非法字符会被自动去掉</span><code>\ / : * ? " &lt; &gt; |</code> 这些字符 Windows 文件名放不下，软件会替你删掉（而不是报错）。扩展名保持不变。</div>
+
+      <h4>「移动到分组」长什么样</h4>
+      <p>勾几条 → 点 <span class="btnchip">移动到分组</span> → 弹窗里点一个目标分组就行。分组<b>按层缩进</b>排列（不是下拉框 —— 下拉看不出谁是谁的子层），每行右边是那一组现在有多少条。第一行固定是「未分组」，点它 = 挪到库的根目录。</p>
+      <figure>
+        <img src="images/48-移动到分组.png" alt="移动到分组" />
+        <figcaption>图 6-5　移动到分组 —— 多层分组按层缩进，右边的数字是那一组现在有多少条</figcaption>
+      </figure>
+      <div class="call info"><span class="h">挪完文件真的换了位置</span>不是只改软件里的登记：在资源管理器里打开 <code>_通用素材库\</code> 就能看到它从原来那个组跑到了新组。<b>目标组里已经有同名文件时会自动改成 <code>名字-2.png</code></b>，绝不覆盖你原来的那份。</div>
+      <div class="call danger"><span class="h">「清除记录」不是删除</span>它的意思是<b>"我不再关注这类文件了"，而不是"把文件删掉"</b>。文件还在原地、文件名不变、在别的软件里照常能打开 —— 只是这个库不再登记它。真要删文件请用左边的「删除」（进回收站，还能捞回来）。</div>
+
+      <h3>几条贴心但要记住的规矩</h3>
+      <ul>
+        <li><b>换分组 / 改搜索词，勾选会自动清空</b> —— 免得你以为在清眼前这几条，实际连带清了看不见的那些。</li>
+        <li>批量执行<b>逐条做</b>，中途某一条失败不会中断其余的；结束后会告诉你「成功几个、失败几个、第一处错误是什么」。</li>
+        <li>「清除」和「删除」都会<b>先弹一次确认</b>，并写明这一批是多少条。</li>
+      </ul>
     </section>
 
     <!-- ============ 第五部分 ============ -->
@@ -1523,6 +1700,9 @@
       <details class="faq"><summary>文件行显示「⚠ 文件已丢失」怎么办？</summary>
         <p>说明记录还在、磁盘上的原文件找不到了。点行尾 <b>🔍 重新定位</b> 指到它现在的位置（校验：文件名 + 扩展名 + 大小全对才接受）；一批文件同时被挪走就用工具栏 <span class="btnchip">批量重新定位</span>。</p></details>
 
+      <details class="faq"><summary>「清除记录」会不会把我的文件删掉？</summary>
+        <p><b>不会。</b>清除只是让这个库"不再登记"这些文件，磁盘上的文件一个字节都没动，用别的软件照常能打开。想让它回来，点一次 <span class="btnchip">扫描磁盘</span> 就重新收录（见 <a href="#s6-9">6.9</a>）。真的要删文件请用「删除」—— 那个是移到工作区的 <code>_回收站</code>，还能捞回来。</p></details>
+
       <details class="faq"><summary>为什么工单同步提示「企微同步暂不可用」？</summary>
         <p>两种可能：① <b>没授权</b>（最常见）—— 界面会直接弹出授权引导，用手机企业微信扫一次就好；② <b>内置组件缺失</b>（安装包不完整，少见）—— 换最新安装包重装一次。两种情况都<b>不影响素材管理、任务、打包这些功能</b>。</p></details>
 
@@ -1628,9 +1808,9 @@
       <table>
         <thead><tr><th style="width:170px">位置</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td><code>1.10.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
+          <tr><td><code>1.11.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
           <tr><td>状态栏右下角</td><td>软件里唯一的版本号显示位置 —— 报问题时顺手截这里</td></tr>
-          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.10.0</b>）</td></tr>
+          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.11.0</b>）</td></tr>
         </tbody>
       </table>
 
@@ -1638,7 +1818,7 @@
       <div class="call warn"><span class="h">升级前顺手备份一次</span>把整个工作区文件夹复制一份到移动硬盘。虽然升级不动素材，但这是零成本的保险。</div>
 
       <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px">
-        本手册对应软件版本 <b>1.10.0</b>　|　最后更新 2026-10-11　|　内部使用，请勿外传
+        本手册对应软件版本 <b>1.11.0</b>　|　最后更新 2026-10-17　|　内部使用，请勿外传
       </div>
     </section>
 
@@ -1652,7 +1832,7 @@
 <button class="totop" id="totop" title="回到顶部">↑</button>
 
 <footer style="max-width:1240px;margin:0 auto;padding:0 24px 60px">
-  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.10.0　|　2026-10-11</span></div>
+  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.11.0　|　2026-10-17</span></div>
   <span>下载与更新见页面右上角 <b style="font-family:var(--mono)">GitHub</b> 图标，或翻到 <a href="#s7-7">7.7 下载与更新</a></span>
 </footer>
 

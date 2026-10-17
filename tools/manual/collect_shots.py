@@ -51,6 +51,13 @@ MAP = [
     # 第 62 批（docs/45 / 46）：PS 插件联动 + 通用素材库（随 manual 场景一并拍出）
     ("42-通用库视图.png", "shot-m-16-brandlib.png"),
     ("43-插件联动设置.png", "shot-m-17-plugin-modal.png"),
+    # 第 67 批（docs/50）：卡片 / 列表双视图 + PSD 模板库
+    ("44-模板库视图.png", "shot-b66-2-tpllib-scanned.png"),
+    ("45-模板库-列表视图.png", "shot-b67-2-tpl-list.png"),
+    ("46-通用库-列表视图.png", "shot-b67-1-brand-list.png"),
+    ("47-任务-列表视图.png", "shot-b67-3-pack-list.png"),
+    ("48-移动到分组.png", "shot-b67-4-brand-move.png"),
+    ("49-批量条.png", "shot-b68-1-brand-bulk-bar.png"),
 ]
 
 ok, miss = 0, []

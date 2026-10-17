@@ -9,6 +9,7 @@ import {
   discoverPluginDataDirs,
   syncTaskMirror,
   syncBrandMirror,
+  syncTplMirror,
   isoLocal,
   MIRROR_DIR,
   HANDOFF_DIR,
@@ -19,12 +20,16 @@ import { HandoffEngine, type HandoffResult } from './linkHandoff'
 import { getLinkConfig, setLinkSyncInfo, getLinkSyncInfo } from './linkConfig'
 import { relative, isAbsolute } from 'path'
 
-/** 一次同步的合并结果（任务库 + 通用库，第 62 批 Step 4 起） */
+/** 一次同步的合并结果（任务库 + 通用库 + 模板库，第 66 批起三库） */
 export interface LinkSyncResult extends MirrorWriteResult {
   /** 通用库素材条数 */
   brandCount: number
   /** 通用库落盘缩略图数 */
   brandThumbs: number
+  /** 模板库条数 */
+  tplCount: number
+  /** 模板库落盘缩略图数 */
+  tplThumbs: number
 }
 
 export interface LinkStatus {
@@ -143,7 +148,7 @@ export async function refreshLinkTargets(): Promise<number> {
   return state.targets.length
 }
 
-/** 真正的同步实现（不对外）：任务库 + 通用库**一起**同步，返回合并结果。 */
+/** 真正的同步实现（不对外）：任务库 + 通用库 + 模板库**一起**同步，返回合并结果。 */
 async function syncNowCore(): Promise<LinkSyncResult> {
   if (state.targets.length === 0) state.targets = discoverTargets(state.appDataDir, state.workspaceRoot)
   const task = await syncTaskMirror(state.workspaceRoot, state.targets, {
@@ -152,22 +157,28 @@ async function syncNowCore(): Promise<LinkSyncResult> {
   const brand = await syncBrandMirror(state.workspaceRoot, state.targets, {
     appVersion: state.appVersion
   })
-  const ok = task.ok && brand.ok
-  const error = task.error ?? brand.error
+  const tpl = await syncTplMirror(state.workspaceRoot, state.targets, {
+    appVersion: state.appVersion
+  })
+  const ok = task.ok && brand.ok && tpl.ok
+  const error = task.error ?? brand.error ?? tpl.error
   setLinkSyncInfo(
     isoLocal(),
     ok
       ? `ok rev=${task.revision} count=${task.count} thumbs=${task.thumbs} dirs=${task.targets.length}` +
-        ` | brand rev=${brand.revision} count=${brand.count} thumbs=${brand.thumbs}`
+        ` | brand rev=${brand.revision} count=${brand.count} thumbs=${brand.thumbs}` +
+        ` | tpl rev=${tpl.revision} count=${tpl.count} thumbs=${tpl.thumbs}`
       : `fail ${error ?? 'unknown'}`
   )
   return {
     ...task,
     ok,
     error,
-    wrote: task.wrote || brand.wrote,
+    wrote: task.wrote || brand.wrote || tpl.wrote,
     brandCount: brand.count,
-    brandThumbs: brand.thumbs
+    brandThumbs: brand.thumbs,
+    tplCount: tpl.count,
+    tplThumbs: tpl.thumbs
   }
 }
 

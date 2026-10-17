@@ -173,9 +173,37 @@ import {
   importBrandPaths,
   removeBrandAsset,
   forgetBrandAsset,
+  moveBrandAssets,
+  copyBrandAssetsToPack,
+  renameBrandAssetsSeq,
   promoteAssetToBrand,
   copyBrandAssetToPack
 } from './brandLib'
+// 第 66 批（docs/49）：PSD 模板库（多层分组 / 收录卡口 / 扫描 / 镜像 tpl.json）
+import {
+  TPL_MAX_BYTES,
+  TPL_MAX_DEPTH,
+  ensureTplRoot,
+  listTplFolders,
+  listTplAssets,
+  tplStats,
+  scanTpl,
+  createTplFolder,
+  renameTplFolder,
+  deleteTplFolder,
+  setTplFolderOrder,
+  importTplPaths,
+  renameTplAsset,
+  removeTplAsset,
+  forgetTplAsset,
+  moveTplAssets,
+  copyTplAssetsToPack,
+  renameTplAssetsSeq,
+  ensureTplCardImages,
+  setTplCardRenderer
+} from './tplLib'
+// 第 69 批（docs/53）：信息卡离屏渲染（给 PS 插件那张 512px png）
+import { renderTplCardPng } from './tplCardImage'
 // 第 26 批（docs/31）：工单定时自动同步 —— 把 docs/16 §3 被搁置的那一块捡起来
 import {
   startTicketScheduler,
@@ -228,6 +256,14 @@ export function registerIpc(opts?: {
   const appData = app.getPath('userData')
 
   /**
+   * 第 69 批（docs/53）：把「信息卡离屏渲染器」注入模板库。
+   * `tplLib` 刻意不依赖 electron（accept 才能纯 node 跑），所以渲染能力由这里注入。
+   * 注入之后 `scanTpl` 会自动为每个模板渲染一张 512px 信息卡，写进 `card_path`，
+   * 再由镜像带给 PS 插件 —— **插件侧零改动**。
+   */
+  setTplCardRenderer(renderTplCardPng)
+
+  /**
    * 第 63 批（docs/47）：镜像自动同步 —— 给 `ipcMain.handle` 套一层。
    * 凡是「改数据」的通道，成功返回后自动排一次 **防抖同步**（1.5s 合并），
    * 任务库 / 通用库全覆盖 —— 比在一个一个 handler 里手插调用更不易漏。
@@ -264,6 +300,9 @@ export function registerIpc(opts?: {
     'brand:list',
     'brand:pickFiles',
     'brand:pickFolder',
+    // 第 66 批：模板库的只读通道（不触发镜像重写；写通道由包装层统一排）
+    'tpl:list',
+    'tpl:pickFiles',
     'ticket:status',
     'ticket:list',
     'ticket:detail',
@@ -1932,7 +1971,8 @@ export function registerIpc(opts?: {
         effectiveSync: f.effectiveSync,
         source: f.source,
         assetCount: f.assetCount,
-        totalCount: f.totalCount
+        totalCount: f.totalCount,
+        canAddChild: f.canAddChild
       }))
       const assets = listBrandAssets(opts).map((a) => ({
         id: a.id,
@@ -2028,6 +2068,64 @@ export function registerIpc(opts?: {
     return { ok: r.ok, error: r.error }
   })
 
+  /**
+   * 第 67 批（docs/50 §6）：**批量移动到的分组**（列表视图勾选后的主操作）。
+   * `targetFolderId = -1` 表示「未分组」（库根）—— 与 `brand:list` 的约定一致。
+   * 部分失败也算"改过东西"，所以按 `moved > 0` 决定要不要刷镜像（不是按 `ok`）。
+   */
+  handleIpc(
+    'brand:moveAssets',
+    async (_e, input: { ids: number[]; targetFolderId: number }) => {
+      const r = moveBrandAssets({
+        workspaceRoot: brandRoot(),
+        ids: input.ids,
+        targetFolderId: input.targetFolderId
+      })
+      if ((r.value?.moved ?? 0) > 0) await afterBrandChange()
+      return {
+        ok: r.ok,
+        error: r.error,
+        moved: r.value?.moved ?? 0,
+        skipped: r.value?.skipped ?? 0,
+        failed: r.value?.failed ?? []
+      }
+    }
+  )
+
+  /**
+   * 第 68 批（docs/50 §6）：批量复制到任务包。
+   * **不改通用库自己**（文件是复制出去的），所以不刷 brand 镜像；任务库那边靠定时同步。
+   */
+  handleIpc('brand:copyAssetsToPack', async (_e, input: { ids: number[]; packId: number }) => {
+    const r = copyBrandAssetsToPack({
+      workspaceRoot: brandRoot(),
+      ids: input.ids,
+      packId: input.packId
+    })
+    return {
+      ok: r.ok,
+      error: r.error,
+      copied: r.value?.copied ?? 0,
+      failed: r.value?.failed ?? []
+    }
+  })
+
+  /** 第 68 批（docs/50 §6）：序号化批量改名。改了名字 ⇒ 要刷镜像（插件里显示的是新名字） */
+  handleIpc(
+    'brand:renameAssetsSeq',
+    async (_e, input: { ids: number[]; prefix: string; start: number; pad: number }) => {
+      const r = renameBrandAssetsSeq({ workspaceRoot: brandRoot(), ...input })
+      if ((r.value?.renamed ?? 0) > 0) await afterBrandChange()
+      return {
+        ok: r.ok,
+        error: r.error,
+        renamed: r.value?.renamed ?? 0,
+        skipped: r.value?.skipped ?? 0,
+        failed: r.value?.failed ?? []
+      }
+    }
+  )
+
   handleIpc('brand:promote', async (_e, input: { assetId: number; folderId: number }) => {
     const r = promoteAssetToBrand({ workspaceRoot: brandRoot(), assetId: input.assetId, folderId: input.folderId })
     if (r.ok) await afterBrandChange()
@@ -2042,4 +2140,235 @@ export function registerIpc(opts?: {
     })
     return { ok: r.ok, error: r.error, dest: r.value?.dest }
   })
+
+  // ---------- 第 66 批（docs/49）：PSD 模板库 ----------
+  /** 模板库的磁盘根（每次现取：用户可能换了工作区） */
+  const tplRoot = (): string => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    return root
+  }
+  /** 任何写操作之后重扫一遍（镜像刷新交给 handleIpc 包装层统一排，与通用库同一套） */
+  const afterTplChange = async (): Promise<void> => {
+    await scanTpl(tplRoot())
+  }
+  /** 上次扫描的「未收录名单」与深目录计数（界面提示条用；不落 DB，存 meta 免得加表） */
+  const tplLastRejected = (): unknown[] => {
+    try {
+      const raw = getMeta('tpl_rejected') || '[]'
+      const arr = JSON.parse(raw) as unknown[]
+      return Array.isArray(arr) ? arr : []
+    } catch {
+      return []
+    }
+  }
+
+  handleIpc(
+    'tpl:list',
+    (
+      _e,
+      opts?: { folderId?: number; keyword?: string }
+    ): {
+      folders: unknown[]
+      assets: unknown[]
+      stats: unknown
+      skippedDeep: number
+      rejected: unknown[]
+      maxDepth: number
+      maxBytes: number
+    } => {
+      const root = tplRoot()
+      ensureTplRoot(root)
+      const folders = listTplFolders().map((f) => ({
+        id: f.id,
+        parentId: f.parent_id,
+        name: f.name,
+        depth: f.depth,
+        sortOrder: f.sort_order,
+        assetCount: f.assetCount,
+        totalCount: f.totalCount,
+        canAddChild: f.canAddChild
+      }))
+      const assets = listTplAssets(opts).map((a) => ({
+        id: a.id,
+        folderId: a.folder_id,
+        folderName: a.folderName,
+        folderPath: a.folderPath,
+        fileName: a.file_name,
+        ext: a.ext,
+        size: a.size,
+        width: a.width,
+        height: a.height,
+        resolution: a.resolution,
+        guides: a.guides,
+        colorMode: a.color_mode,
+        // 第 69 批（docs/51）：PSD 关键词（JSON 数组存在 tpl_assets.keywords）
+        keywords: (() => {
+          try {
+            const v = JSON.parse(a.keywords ?? '[]')
+            return Array.isArray(v) ? v.map((x) => String(x)) : []
+          } catch {
+            return []
+          }
+        })(),
+        missing: a.missing_at !== null,
+        modifiedAt: a.modified_at,
+        absPath: a.abs_path,
+        // 模板全是 PSD，`<img>` 显示不了原文件 ⇒ 只认缩略图；没有就由界面画占位
+        thumb: a.thumb_path ? readAsDataUrl(join(root, a.thumb_path)) : null
+      }))
+      return {
+        folders,
+        assets,
+        stats: tplStats(),
+        skippedDeep: Number(getMeta('tpl_skipped_deep') || '0'),
+        rejected: tplLastRejected(),
+        maxDepth: TPL_MAX_DEPTH,
+        maxBytes: TPL_MAX_BYTES
+      }
+    }
+  )
+
+  handleIpc('tpl:scan', async () => {
+    const r = await scanTpl(tplRoot())
+    setMeta('tpl_skipped_deep', String(r.skippedDeep))
+    // 名单最多留 200 条（只是给界面提示，不是审计日志）
+    setMeta('tpl_rejected', JSON.stringify(r.rejected.slice(0, 200)))
+    return {
+      ok: true,
+      added: r.newAssets,
+      folders: r.folders,
+      missing: r.missing,
+      skippedDeep: r.skippedDeep,
+      rejected: r.rejected
+    }
+  })
+
+  handleIpc('tpl:createFolder', async (_e, input: { name: string; parentId?: number | null }) => {
+    const r = createTplFolder({
+      workspaceRoot: tplRoot(),
+      name: input.name,
+      parentId: input.parentId ?? null
+    })
+    return { ok: r.ok, error: r.error, id: r.value?.id }
+  })
+
+  handleIpc('tpl:renameFolder', async (_e, input: { id: number; name: string }) => {
+    const r = renameTplFolder({ workspaceRoot: tplRoot(), id: input.id, name: input.name })
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('tpl:deleteFolder', async (_e, id: number) => {
+    const r = deleteTplFolder({ workspaceRoot: tplRoot(), id })
+    return { ok: r.ok, error: r.error, moved: r.value?.moved }
+  })
+
+  handleIpc('tpl:setFolderOrder', async (_e, input: { id: number; sortOrder: number }) => {
+    const r = setTplFolderOrder(input.id, input.sortOrder)
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('tpl:pickFiles', async () => {
+    const r = await dialog.showOpenDialog({
+      title: COPY.tpl.importFiles,
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: COPY.tpl.pickFilter, extensions: ['psd', 'psb'] }]
+    })
+    if (r.canceled) return { ok: false, canceled: true, paths: [] }
+    return { ok: true, paths: r.filePaths }
+  })
+
+  handleIpc('tpl:import', async (_e, input: { paths: string[]; folderId?: number | null }) => {
+    const root = tplRoot()
+    const r = await importTplPaths({
+      workspaceRoot: root,
+      paths: input.paths ?? [],
+      folderId: input.folderId ?? null
+    })
+    await afterTplChange()
+    if (r.rejected.length) {
+      setMeta('tpl_rejected', JSON.stringify(r.rejected.slice(0, 200)))
+    }
+    return {
+      ok: r.ok,
+      error: r.error,
+      imported: r.imported,
+      renamed: r.renamed,
+      rejected: r.rejected
+    }
+  })
+
+  handleIpc('tpl:renameAsset', async (_e, input: { id: number; name: string }) => {
+    const r = renameTplAsset({ workspaceRoot: tplRoot(), id: input.id, name: input.name })
+    return { ok: r.ok, error: r.error, fileName: r.value?.file_name }
+  })
+
+  handleIpc('tpl:removeAsset', async (_e, id: number) => {
+    const r = removeTplAsset({ workspaceRoot: tplRoot(), id })
+    return { ok: r.ok, error: r.error }
+  })
+
+  handleIpc('tpl:forgetAsset', async (_e, id: number) => {
+    const r = forgetTplAsset(id)
+    return { ok: r.ok, error: r.error }
+  })
+
+  /** 第 67 批（docs/50 §6）：批量移动到分组（与通用库同构，`-1` = 未分组） */
+  handleIpc('tpl:moveAssets', async (_e, input: { ids: number[]; targetFolderId: number }) => {
+    const r = moveTplAssets({
+      workspaceRoot: tplRoot(),
+      ids: input.ids,
+      targetFolderId: input.targetFolderId
+    })
+    if ((r.value?.moved ?? 0) > 0) await afterTplChange()
+    return {
+      ok: r.ok,
+      error: r.error,
+      moved: r.value?.moved ?? 0,
+      skipped: r.value?.skipped ?? 0,
+      failed: r.value?.failed ?? []
+    }
+  })
+
+  /**
+   * 第 69 批（docs/53）：**强制重建全部信息卡图**。
+   *
+   * 平时不用点 —— 扫描会自动补（内容签名没变就跳过）。只有**改了卡片样式**（CSS/logo）才需要，
+   * 因为那种变化不在内容签名里，缓存命中会导致插件里还是旧样子。
+   */
+  handleIpc('tpl:rebuildCards', async () => {
+    const n = await ensureTplCardImages(tplRoot(), { force: true })
+    return { ok: true, rendered: n }
+  })
+
+  /** 第 68 批（docs/50 §6）：批量复制模板到任务包（同样不改模板库自己） */
+  handleIpc('tpl:copyAssetsToPack', async (_e, input: { ids: number[]; packId: number }) => {
+    const r = copyTplAssetsToPack({
+      workspaceRoot: tplRoot(),
+      ids: input.ids,
+      packId: input.packId
+    })
+    return {
+      ok: r.ok,
+      error: r.error,
+      copied: r.value?.copied ?? 0,
+      failed: r.value?.failed ?? []
+    }
+  })
+
+  /** 第 68 批（docs/50 §6）：序号化批量改名（改完刷模板镜像） */
+  handleIpc(
+    'tpl:renameAssetsSeq',
+    async (_e, input: { ids: number[]; prefix: string; start: number; pad: number }) => {
+      const r = renameTplAssetsSeq({ workspaceRoot: tplRoot(), ...input })
+      if ((r.value?.renamed ?? 0) > 0) await afterTplChange()
+      return {
+        ok: r.ok,
+        error: r.error,
+        renamed: r.value?.renamed ?? 0,
+        skipped: r.value?.skipped ?? 0,
+        failed: r.value?.failed ?? []
+      }
+    }
+  )
 }

@@ -76,6 +76,85 @@ function makePngFile(outPath, w, h, rgb) {
 const ROOT = join(__dirname, '..', '..')
 process.env.MEDIA_FFMPEG_DIR = join(ROOT, 'resources', 'ffmpeg')
 
+/**
+ * 手搓一个「结构完整但最小」的 PSD（第 66 批 docs/49）—— 模板库场景要用它。
+ * 只写：文件头(26) + 颜色模式段(长 0) + 图像资源段（1005 分辨率 / 1032 参考线条数）。
+ * 软件侧解析只看这两段、不读像素，所以这样造出来的 PSD 足够真。
+ * `o.guides` 可控 —— 正好用来验"参考线到底打没打"（0 = 确认没有，null = 不带这个资源块）。
+ */
+function makePsdFile(outPath, o) {
+  const u16 = (v) => {
+    const b = Buffer.alloc(2)
+    b.writeUInt16BE(v, 0)
+    return b
+  }
+  const head = Buffer.alloc(26)
+  head.write('8BPS', 0, 'ascii')
+  head.writeUInt16BE(1, 4)
+  head.writeUInt16BE(3, 12)
+  head.writeUInt32BE(o.h, 14)
+  head.writeUInt32BE(o.w, 18)
+  head.writeUInt16BE(8, 22)
+  head.writeUInt16BE(4, 24) // CMYK
+
+  const block = (id, data) => {
+    const name = Buffer.from([0, 0]) // Pascal 空名 + 补齐 = 2 字节
+    const sz = Buffer.alloc(4)
+    sz.writeUInt32BE(data.length, 0)
+    const pad = data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)
+    return Buffer.concat([Buffer.from('8BIM', 'ascii'), u16(id), name, sz, data, pad])
+  }
+
+  const blocks = []
+  if (o.ppi !== undefined) {
+    const res = Buffer.alloc(16)
+    res.writeUInt32BE(Math.round(o.ppi * 65536), 0)
+    res.writeUInt16BE(1, 4)
+    res.writeUInt16BE(1, 6)
+    res.writeUInt32BE(Math.round(o.ppi * 65536), 8)
+    res.writeUInt16BE(1, 12)
+    res.writeUInt16BE(1, 14)
+    blocks.push(block(1005, res))
+  }
+  if (o.keywords && o.keywords.length) {
+    // 第 69 批（docs/51）：IPTC 1028 —— 软件靠它读「成品尺寸 / 出血」。
+    // 顺带写 CodedCharacterSet(1:90 = ESC % G)，声明这串是 UTF-8（和 XnView 写出来的一致）。
+    const parts = []
+    const ds = (rec, tag, buf) => {
+      const len = Buffer.alloc(2)
+      len.writeUInt16BE(buf.length, 0)
+      parts.push(Buffer.from([0x1c, rec, tag]), len, buf)
+    }
+    ds(1, 90, Buffer.from([0x1b, 0x25, 0x47]))
+    ds(2, 0, Buffer.from([0x00, 0x04]))
+    for (const kw of o.keywords) ds(2, 25, Buffer.from(kw, 'utf8'))
+    blocks.push(block(1028, Buffer.concat(parts)))
+  }
+  if (o.guides !== undefined && o.guides !== null) {
+    const n = o.guides
+    const g = Buffer.alloc(16 + n * 5)
+    g.writeUInt32BE(1, 0)
+    g.writeUInt32BE(0, 4)
+    g.writeUInt32BE(0, 8)
+    g.writeUInt32BE(n, 12)
+    for (let i = 0; i < n; i += 1) {
+      g.writeUInt32BE((i + 1) * 100, 16 + i * 5)
+      g.writeUInt8(0, 16 + i * 5 + 4)
+    }
+    blocks.push(block(1032, g))
+  }
+
+  const resBody = Buffer.concat(blocks)
+  const resLen = Buffer.alloc(4)
+  resLen.writeUInt32BE(resBody.length, 0)
+  let buf = Buffer.concat([head, Buffer.alloc(4), resLen, resBody])
+  if (o.padTo && o.padTo > buf.length) {
+    buf = Buffer.concat([buf, Buffer.alloc(o.padTo - buf.length)])
+  }
+  writeFileSync(outPath, buf)
+}
+
+
 const SCEN = process.env.SHOT_SCENARIO || 'banner'
 const BASE = 'D:\\_accept_ws'
 /** 拿一个「父级是文件」的路径当配置值：mkdir 必然失败，用来模拟"移动硬盘没插" */
@@ -171,6 +250,13 @@ const SCENARIOS = {
     userData: join(BASE, 'shot4_brandlib'),
     workspaceRoot: join(BASE, 'shot_wsbl'),
     shot: 'shot-b62b-4-brandlib-final.png'
+  },
+  // 第 66 批（docs/49）：PSD 模板库（多层分组 / 参考线角标 / 未收录提示）
+  // ⚠️ 必须带 VELLUM_PLUGIN_SYNC=0（模板库改动也会自动刷镜像）
+  tpllib: {
+    userData: join(BASE, 'shot4_tpllib'),
+    workspaceRoot: join(BASE, 'shot_wstpl'),
+    shot: 'shot-b66-4-tpllib-final.png'
   },
   // 第 25 批：未归属池入口（用户报的 bug —— 点虚线「未归属」卡片时弹窗一直「加载中」）
   unassigned: {
@@ -1016,7 +1102,73 @@ app.whenReady().then(async () => {
     makePngFile(join(logoDir, 'logo-红.png'), 64, 64, [230, 0, 18])
     makePngFile(join(logoDir, 'logo-蓝.png'), 64, 64, [38, 128, 235])
     makePngFile(join(bgDir, '背景-灰.png'), 64, 64, [120, 120, 120])
-    say('seeded brandlib      : 3 files / 2 groups')
+    // 第 3 层（2026-10-17 通用库放开到 5 层之后才认）
+    const logo2026 = join(logoDir, '2026版')
+    mkdirSync(logo2026, { recursive: true })
+    makePngFile(join(logo2026, 'logo-2026.png'), 64, 64, [30, 30, 30])
+    say('seeded brandlib      : 4 files / 3 层')
+  }
+
+  // ============================================================
+  // 第 66 批（docs/49）：PSD 模板库 —— 只摆**磁盘**，库由界面的「扫描磁盘」去认领
+  //   三层目录（易拉宝 \ 2026春季 \ 海南）+ 一个只有一层就放文件的分组，
+  //   外加一个超 20 MB 的（验证"未收录"提示条，且文件不许被删）
+  // ============================================================
+  if (SCEN === 'tpllib') {
+    rmSync(ws, { recursive: true, force: true })
+    mkdirSync(ws, { recursive: true })
+    // 预建库 → 不弹首次配置向导（否则向导会盖住模板库视图）
+    require(join(ROOT, 'out/test/workspace.cjs')).initWorkspace(ws)
+
+    const tplRoot = join(ws, '_PSD模板库')
+    const hainan = join(tplRoot, '易拉宝', '2026春季', '海南')
+    const ylbTop = join(tplRoot, '易拉宝')
+    const poster = join(tplRoot, '海报')
+    mkdirSync(hainan, { recursive: true })
+    mkdirSync(poster, { recursive: true })
+
+    // 第 69 批（docs/51）：给 PSD 写入 IPTC 关键词，验证「信息卡」上的成品尺寸/出血
+    //   ① 主视觉：有关键词尺寸 ⇒ 卡片必须显示 80cm×180cm（**而不是**画布算出来的 30×70）
+    //   ② 集团版：只写「出血：5mm」（全角冒号）⇒ 出血认得、尺寸回退到画布算
+    //   ③ 招生海报：厘米带小数
+    makePsdFile(join(hainan, '主视觉-易拉宝.psd'), {
+      w: 1772,
+      h: 4134,
+      ppi: 150,
+      guides: 4,
+      keywords: [
+        '80cm×180cm',
+        'bleed:5mm',
+        'usage:室内',
+        'client:海南升学',
+        'tag:竖版',
+        'note:主推款，上方留白给标题'
+      ]
+    })
+    makePsdFile(join(ylbTop, '集团版易拉宝.psd'), {
+      w: 1772,
+      h: 4134,
+      ppi: 150,
+      guides: 6,
+      keywords: ['出血：5mm']
+    })
+    makePsdFile(join(poster, '招生海报A3.psd'), {
+      w: 3579,
+      h: 5031,
+      ppi: 300,
+      guides: 4,
+      keywords: ['42cm×29.7cm', '出血3mm']
+    })
+    makePsdFile(join(tplRoot, '根下散模板.psd'), { w: 1080, h: 1080, ppi: 72, guides: 0 })
+    // 超 20 MB：应当"不收录"，但**文件必须原样留在磁盘上**
+    makePsdFile(join(tplRoot, '超大的模板.psd'), {
+      w: 100,
+      h: 100,
+      ppi: 72,
+      guides: 1,
+      padTo: 21 * 1024 * 1024
+    })
+    say('seeded tpllib        : 4 psd (3 层) / 1 oversized')
   }
 
   // ============================================================
@@ -1424,7 +1576,8 @@ app.whenReady().then(async () => {
     ok(wsActBtns === 2, `当前项给了 2 个操作（打开文件夹 / 搬移位置），实际 ${wsActBtns}`)
     ok(wsAddText.includes('添加工作区'), '底部有「＋ 添加工作区」入口')
     ok(statusText.includes('主素材库'), '状态栏写明了当前是哪个工作区')
-    ok(statusText.includes('v1.0.0'), '状态栏仍显示版本号')
+    // 第 69 批：改成正则 —— 写死 v1.0.0 在版本 bump 后会假失败
+    ok(/v\d+\.\d+\.\d+/.test(statusText), '状态栏仍显示版本号')
   } else if (SCEN === 'threelevel') {
     // ---- 迁移提示条 ----
     ok(infoBannerText.length > 0, '刚迁移过的工作区出现「目录结构已升级」提示条')
@@ -3631,16 +3784,19 @@ app.whenReady().then(async () => {
     await wait(1200)
 
     // (1b) 第 21 批：顶栏三格按使用逻辑重排 —— 工单队列在最前（先看单、再回任务、最后查文件）
-    //      第 62 批 Step 4：末尾新增第 4 格「通用库」（docs/46），故这里是 4 格
+    //      第 62 批：末尾加第 4 格「通用库」（docs/46）
+    //      第 66 批：再加第 5 格「模板」（docs/49）—— 当时没跑本场景，这条 `n === 4` 一直到
+    //      第 68 批做全量回归才暴露（"过期断言"，不是功能坏了）
     const tabBar = await js(
       `(() => { const bs = [...document.querySelectorAll('.tabs button')]; return { n: bs.length, first: bs[0] ? bs[0].innerText.trim() : '', order: bs.map(b => b.innerText.trim()) } })()`
     )
     ok(
       !!tabBar &&
-        tabBar.n === 4 &&
+        tabBar.n === 5 &&
         tabBar.first.startsWith(plain(COPY.ticket.viewTab)) &&
-        tabBar.order[3] === plain(COPY.brand.entry),
-      `顶栏第一格是「${plain(COPY.ticket.viewTab)}」、第四格是「${plain(COPY.brand.entry)}」（实际顺序：${tabBar ? tabBar.order.join(' / ') : '—'}）`
+        tabBar.order[3] === plain(COPY.brand.entry) &&
+        tabBar.order[4] === plain(COPY.tpl.entry),
+      `顶栏 5 格：第一格「${plain(COPY.ticket.viewTab)}」、第四格「${plain(COPY.brand.entry)}」、第五格「${plain(COPY.tpl.entry)}」（实际顺序：${tabBar ? tabBar.order.join(' / ') : '—'}）`
     )
     ok(
       !!tabBar && tabBar.order[1] && tabBar.order[1].startsWith(plain(COPY.top.viewPacks)),
@@ -4449,6 +4605,119 @@ app.whenReady().then(async () => {
     // 关掉详情弹窗，别影响收尾截图
     await js(`(() => { const m = document.querySelector('.modal .foot .btn, .modal .close'); if (m) m.click(); return 'ok' })()`)
     await wait(400)
+
+    // ---- (N) 第 67 批（docs/50）：任务视图的列表视图（勾选 = 备份多选，共用一套状态） ----
+    await js(`(() => {
+      const b = document.querySelectorAll('.topbar .viewswitch button')[1]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.main-scroll .dtable .drow').length`)) === 2,
+      '任务视图切列表 → 2 行（与卡片数一致）'
+    )
+    ok(
+      (await js(`document.querySelectorAll('.grid .pack-card').length`)) === 0,
+      '列表视图下卡片网格已卸载（不是两套叠着）'
+    )
+    const pkCols = await js(
+      `[...document.querySelectorAll('.main-scroll .dthead .dcell-h')].map(h => h.innerText.trim())`
+    )
+    ok(
+      Array.isArray(pkCols) && pkCols.includes(plain(COPY.common.colProject)),
+      '任务列表表头有「' + plain(COPY.common.colProject) + '」列：' + JSON.stringify(pkCols)
+    )
+    ok(
+      (await js(
+        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
+      )) === true,
+      '切视图会清空勾选 → 顶栏回到「' + plain(COPY.backup.enter) + '」入口（不残留旧计数）'
+    )
+    // ⚠️ capturePage 会抓到**旧的一帧**（合成器滞后，本场景实测：DOM 已换成列表，
+    //    拍出来还是卡片）。多等一拍再拍，否则这张图会误导人工复核。
+    await wait(900)
+    await shot('shot-b67-3-pack-list.png')
+
+    // 列表里勾两行 → 顶栏直接出现「批量打包（2）」（不必先进备份模式）
+    await js(`(() => {
+      for (const r of document.querySelectorAll('.main-scroll .dtable .drow')) r.click()
+      return 'ok'
+    })()`)
+    await wait(500)
+    ok(
+      (await js(
+        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(fmt(COPY.backup.doBatch, { n: 2 }))})) })()`
+      )) === true,
+      '列表里勾 2 行 → 顶栏直接出现「' + fmt(plain(COPY.backup.doBatch), { n: 2 }) + '」'
+    )
+    ok(
+      (await js(`document.querySelectorAll('.main-scroll .backup-bar').length`)) === 0,
+      '列表视图不显示备份提示条（表头本身就是全选，再来一条是噪音）'
+    )
+
+    // ---- (N+1) 第 68 批（docs/50 §6）：任务的批量设置 ----
+    ok(
+      (await js(
+        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.common.bulkSettings))})) })()`
+      )) === true,
+      '勾了任务后顶栏出现「' + plain(COPY.common.bulkSettings) + '」'
+    )
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkSettings))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    const setSel = await js(`document.querySelectorAll('.set-form select').length`)
+    ok(setSel === 4, '弹窗里 4 个下拉（项目 / 类别 / 场景 / 分级），实际 ' + setSel)
+    const catVal = await js(`(() => {
+      const sels = [...document.querySelectorAll('.set-form select')]
+      const cat = sels[1]
+      if (!cat) return ''
+      const opt = [...cat.options].find(o => o.value)
+      if (!opt) return ''
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+      setter.call(cat, opt.value)
+      cat.dispatchEvent(new Event('change', { bubbles: true }))
+      return opt.value
+    })()`)
+    ok(!!catVal, '能选一个物料类别：' + catVal)
+    await wait(300)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.modal .tk-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.settingsApply))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(2000)
+    const setToast = await js(
+      `(() => { const t = document.querySelector('.toast'); return t ? t.innerText.trim() : '' })()`
+    )
+    ok(setToast.includes('已更新'), '批量设置执行后有结果提示：' + setToast)
+    ok(
+      (await js(`document.querySelectorAll('.modal').length`)) === 0,
+      '执行完弹窗自动关闭'
+    )
+    ok(
+      (await js(
+        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
+      )) === true,
+      '批量设置后退出多选态（顶栏回到「备份打包」）'
+    )
+
+    // 切回卡片（末态）
+    await js(`(() => {
+      const b = document.querySelectorAll('.topbar .viewswitch button')[0]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    ok(
+      (await js(`document.querySelectorAll('.grid .pack-card').length`)) === 2,
+      '切回卡片视图 → 2 张任务卡（末态）'
+    )
   } else if (SCEN === 'gencover') {
     // ============================================================
     // 第 59 批（docs/44）：无成品图任务的「通用占位封面」
@@ -5278,7 +5547,7 @@ app.whenReady().then(async () => {
     const after = await js(`(() => {
       const root = document.querySelector('.brand-view')
       if (!root) return null
-      const groups = [...root.querySelectorAll('.brand-node .bn-name')].map(n => n.innerText.trim())
+      const groups = [...root.querySelectorAll('.brand-node .bn-name, .dirtree-row .dt-name')].map(n => n.innerText.trim())
       const cards = [...root.querySelectorAll('.brand-card')].map(c => ({
         name: (c.querySelector('.name') || {}).innerText || '',
         src: (c.querySelector('.b-src') || {}).innerText || '',
@@ -5289,12 +5558,46 @@ app.whenReady().then(async () => {
     })()`)
     ok(!!after && after.groups.includes('品牌logo'), '扫描后自动认领手建的「品牌logo」子组')
     ok(!!after && after.groups.includes('背景'), '扫描后自动认领手建的「背景」子组')
-    ok(!!after && after.cards.length === 3, '网格列出 3 条素材（实际 ' + (after ? after.cards.length : '?') + '）')
+    ok(!!after && after.cards.length === 4, '网格列出 4 条素材（含第 3 层的 1 条；实际 ' + (after ? after.cards.length : '?') + '）')
     ok(!!after && after.cards.every((c) => c.hasImg), '每条都渲染出缩略图 <img>（转码后的 png 能被渲染）')
     const redCard = after && after.cards.find((c) => c.name === 'logo-红.png')
     ok(!!redCard && redCard.src === plain(COPY.brand.company), '公司素材下的图带「公司」来源角标')
     ok(!!redCard && redCard.folder === '品牌logo', '卡片副行显示所属分组：' + (redCard ? redCard.folder : '—'))
     await shot('shot-b62b-2-brandlib-scanned.png')
+
+    // ③b 多层（2026-10-17 契约 §5.3 放开到 ≤5 层）：第 3 层要认、要缩进、点父组含子层
+    const deepRows = await js(`(() => {
+      return [...document.querySelectorAll('.brand-view .dirtree-row')].map(r => ({
+        name: (r.querySelector('.dt-name') || {}).innerText || '',
+        indent: parseInt(r.style.paddingLeft || '0', 10)
+      }))
+    })()`)
+    const indentOf = (n) => {
+      const r = (deepRows || []).find((x) => x.name === n)
+      return r ? r.indent : -1
+    }
+    ok(
+      Array.isArray(deepRows) && deepRows.some((r) => r.name === '2026版'),
+      '第 3 层分组「2026版」被认领（放宽前是三层以上跳过）：' + JSON.stringify((deepRows || []).map((r) => r.name))
+    )
+    ok(
+      indentOf('公司素材') < indentOf('品牌logo') && indentOf('品牌logo') < indentOf('2026版'),
+      `组树逐层缩进（${indentOf('公司素材')} < ${indentOf('品牌logo')} < ${indentOf('2026版')}）`
+    )
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.brand-view .dirtree-row')]
+        .find(x => ((x.querySelector('.dt-name') || {}).innerText || '') === '品牌logo')
+      const m = r ? r.querySelector('.dt-main') : null
+      if (m) m.click()
+      return 'ok'
+    })()`)
+    await wait(800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 3,
+      '点「品牌logo」→ 含子层的 3 条素材（2 条直属 + 第 3 层 1 条）'
+    )
+    await js(`(() => { const n = document.querySelector('.brand-view .brand-node.all'); if (n) n.click(); return 'ok' })()`)
+    await wait(600)
 
     // ④ 点「未分组」→ 空态
     await js(`(() => {
@@ -5315,13 +5618,13 @@ app.whenReady().then(async () => {
     // ⑤ 组上的「插件」同步开关
     const readSync = () =>
       js(`(() => {
-        const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+        const n = [...document.querySelectorAll('.brand-view .dirtree-row')].find(x => ((x.querySelector('.dt-name')||{}).innerText||'') === '公司素材')
         const p = n ? n.querySelector('.b-sync') : null
         return p ? p.innerText.trim() : ''
       })()`)
     ok((await readSync()) === plain(COPY.brand.syncOn), '顶层组「公司素材」默认标「同步」')
     await js(`(() => {
-      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+      const n = [...document.querySelectorAll('.brand-view .dirtree-row')].find(x => ((x.querySelector('.dt-name')||{}).innerText||'') === '公司素材')
       const p = n ? n.querySelector('.b-sync') : null
       if (p) p.click()
       return 'ok'
@@ -5331,7 +5634,7 @@ app.whenReady().then(async () => {
     await shot('shot-b62b-3-brandlib-sync-toggle.png')
     // 复位
     await js(`(() => {
-      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.innerText.includes('公司素材'))
+      const n = [...document.querySelectorAll('.brand-view .dirtree-row')].find(x => ((x.querySelector('.dt-name')||{}).innerText||'') === '公司素材')
       const p = n ? n.querySelector('.b-sync') : null
       if (p) p.click()
       return 'ok'
@@ -5342,12 +5645,650 @@ app.whenReady().then(async () => {
     await js(`(() => { const n = document.querySelector('.brand-view .brand-node.all'); if (n) n.click(); return 'ok' })()`)
     await wait(800)
     ok(
-      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 3,
-      '回到「全部素材」→ 3 条素材（末态留给总截图）'
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 4,
+      '回到「全部素材」→ 4 条素材（末态留给总截图）'
+    )
+
+    // ⑦ 第 67 批（docs/50）：卡片 / 列表双视图 + 列表勾选批量
+    //    window.confirm 在真窗口里是**阻塞式**对话框，验证壳里直接放行（同既有做法）
+    await js(`window.confirm = () => true; 'patched'`)
+    /** 清空列表勾选（每个小段结束都调一次，避免"再点同一行 = 取消"把批量条弄没） */
+    const clearBulkSel = async () => {
+      await js(`(() => {
+        const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+          .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkClearSel))}))
+        if (b) b.click()
+        return 'ok'
+      })()`)
+      await wait(300)
+    }
+    const brandRootDir = join(BASE, 'shot_wsbl', '_通用素材库')
+    const countFilesDeep = (dir) => {
+      let n = 0
+      for (const e of require('fs').readdirSync(dir, { withFileTypes: true })) {
+        n += e.isDirectory() ? countFilesDeep(join(dir, e.name)) : 1
+      }
+      return n
+    }
+    const filesBefore = countFilesDeep(brandRootDir)
+
+    await js(`(() => {
+      const b = document.querySelectorAll('.brand-view .viewswitch button')[1]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 4,
+      '切到列表视图 → 4 行（与卡片网格条数一致）'
+    )
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-grid').length`)) === 0,
+      '列表视图下卡片网格已卸载（不是两个视图叠着显示）'
+    )
+    const brandCols = await js(
+      `[...document.querySelectorAll('.brand-view .dthead .dcell-h')].map(h => h.innerText.trim())`
+    )
+    ok(
+      Array.isArray(brandCols) && brandCols.includes(plain(COPY.common.colTime)),
+      '表头有「' + plain(COPY.common.colTime) + '」列：' + JSON.stringify(brandCols)
+    )
+    await wait(900) // 同上：capturePage 可能抓到切视图前的旧帧
+    await shot('shot-b67-1-brand-list.png')
+
+    // 勾一行 → 批量条出现
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(500)
+    const brandBar = await js(
+      `(() => { const b = document.querySelector('.brand-view .bulk-bar'); return b ? b.innerText.replace(/\\s+/g,' ').trim() : '' })()`
+    )
+    ok(brandBar.includes('1'), '勾 1 行 → 批量条出现并显示「已选 1 项」：' + brandBar)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow.on').length`)) === 1,
+      '被勾的那一行有选中态（.drow.on）'
+    )
+
+    // Shift 连选：锚点是第 1 行，shift 点第 3 行 ⇒ 1~3 全选
+    await js(`(() => {
+      const rows = [...document.querySelectorAll('.brand-view .dtable .drow')]
+      if (rows[2]) rows[2].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+      return 'ok'
+    })()`)
+    await wait(400)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow.on').length`)) === 3,
+      'Shift 点第 3 行 → 连选 3 行'
+    )
+
+    // 表头全选 / 全不选
+    await js(`(() => { const c = document.querySelector('.brand-view .dthead input.cb'); if (c) c.click(); return 'ok' })()`)
+    await wait(400)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow.on').length`)) === 4,
+      '表头复选框 → 全选当前 4 行'
+    )
+    await js(`(() => { const c = document.querySelector('.brand-view .dthead input.cb'); if (c) c.click(); return 'ok' })()`)
+    await wait(400)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow.on').length`)) === 0,
+      '再点一次 → 全不选'
+    )
+
+    // ⑦b 批量「移动到分组」：磁盘文件跟着搬（第 67 批 docs/50 §6）
+    const bgDirPath = join(brandRootDir, '个人收藏', '背景')
+    const bgBefore = require('fs').existsSync(bgDirPath) ? countFilesDeep(bgDirPath) : 0
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkMove))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    const mvNodes = await js(
+      `[...document.querySelectorAll('.mv-modal .mv-item .nm')].map(n => n.innerText.trim())`
+    )
+    ok(
+      Array.isArray(mvNodes) &&
+        mvNodes.includes('背景') &&
+        mvNodes.includes(plain(COPY.brand.unsorted)),
+      '「移动到…」弹窗列出「未分组」与所有分组：' + JSON.stringify(mvNodes)
+    )
+    await wait(600)
+    await shot('shot-b67-4-brand-move.png')
+    await js(`(() => {
+      const it = [...document.querySelectorAll('.mv-modal .mv-item')]
+        .find(x => ((x.querySelector('.nm') || {}).innerText || '') === '背景')
+      if (it) it.click()
+      return 'ok'
+    })()`)
+    await wait(2000)
+    ok(
+      (await js(`document.querySelectorAll('.mv-modal').length`)) === 0,
+      '选完分组 → 弹窗自动关闭'
+    )
+    const bgAfter = countFilesDeep(bgDirPath)
+    ok(bgAfter === bgBefore + 1, `磁盘：被移动的文件真的进了「背景」目录（${bgBefore} → ${bgAfter}）`)
+    ok(
+      (await js(
+        `[...document.querySelectorAll('.brand-view .dtable .drow .dcell-group')].some(e => e.innerText.trim() === '背景')`
+      )) === true,
+      '列表：那一行的「所在分组」变成「背景」（登记同步，不是只搬文件）'
+    )
+
+    // ⑦c 批量改名（序号化）：预览 → 改前缀 → 应用，UI 闭环
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkRename))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    // 批量条现在有 6 个按钮 —— 留一张图给人看会不会挤（手册 6.9 用）
+    await wait(500)
+    await shot('shot-b68-1-brand-bulk-bar.png')
+    const rnPrev = await js(
+      `(() => { const e = document.querySelector('.rename-preview'); return e ? e.innerText.trim() : '' })()`
+    )
+    ok(rnPrev.includes('素材-01'), '改名弹窗给出实时预览：' + rnPrev)
+    await js(`(() => {
+      const inp = document.querySelector('.rename-form input.tk-input')
+      if (!inp) return 'no-input'
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(inp, 'B67')
+      inp.dispatchEvent(new Event('input', { bubbles: true }))
+      return 'ok'
+    })()`)
+    await wait(400)
+    const rnPrev2 = await js(
+      `(() => { const e = document.querySelector('.rename-preview'); return e ? e.innerText.trim() : '' })()`
+    )
+    ok(rnPrev2.includes('B67-01'), '改前缀后预览同步：' + rnPrev2)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.modal .tk-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.renameApply))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(2200)
+    ok(
+      (await js(
+        `[...document.querySelectorAll('.brand-view .dtable .drow .dcell-name')].some(e => e.innerText.trim().startsWith('B67-'))`
+      )) === true,
+      '改名生效：列表里出现 B67- 开头的名字（磁盘与登记一起变）'
+    )
+
+    // ⑦d 复制到任务：弹窗能开（本场景工作区没有任务 ⇒ 空态提示）
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkCopyToPack))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(1000)
+    const pkText = await js(
+      `(() => { const m = document.querySelector('.mv-modal'); return m ? m.innerText.replace(/\s+/g, ' ').trim() : '' })()`
+    )
+    ok(
+      pkText.includes(plain(COPY.common.pickPackTitle)),
+      '「复制到任务」弹出任务选择框：' + pkText.slice(0, 50)
+    )
+    await js(`(() => { const b = document.querySelector('.mv-modal .tk-actions .btn'); if (b) b.click(); return 'ok' })()`)
+    await wait(400)
+    ok(
+      (await js(`document.querySelectorAll('.mv-modal').length`)) === 0,
+      '取消后任务选择框关闭'
+    )
+    // ⚠️ 必须清空勾选：下一段还会"点第一行"，若它还勾着就变成**取消勾选**，
+    //    批量条会整个消失（第一版就栽在这 —— 清除步骤找不到按钮，条数没变）。
+    await clearBulkSel()
+
+    // 批量「清除记录」：**不动磁盘文件**，重新扫描能原样收回来
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkForget))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(1800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 3,
+      '批量「清除记录」1 条 → 列表剩 3 行'
+    )
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .bulk-bar').length`)) === 0,
+      '执行完自动清空勾选（批量条随之消失）'
+    )
+    ok(countFilesDeep(brandRootDir) === filesBefore, '清除后**磁盘文件一个没少**（' + filesBefore + ' 个）')
+
+    // 再扫一次磁盘 ⇒ 被清除的那条自己回来（这是"清除 ≠ 删除"的证明）
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .brand-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.brand.scan))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(2800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 4,
+      '重新扫描磁盘 → 又回到 4 行（清除只是不认它了，不是删）'
+    )
+
+    // 切回卡片视图：末态留给总截图
+    await js(`(() => {
+      const b = document.querySelectorAll('.brand-view .viewswitch button')[0]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 4,
+      '切回卡片视图 → 4 条（视图偏好各自独立，末态仍是卡片）'
+    )
+  } else if (SCEN === 'tpllib') {
+    // ============================================================
+    // 第 66 批（docs/49）：PSD 模板库视图
+    //   ⚠️ 以 VELLUM_PLUGIN_SYNC=0 跑（模板库改动会自动刷镜像）
+    //   布景只摆磁盘，库靠界面的「扫描磁盘」认领 —— 顺带验多层目录与参考线角标
+    // ============================================================
+    await wait(1200)
+
+    // ① 顶栏有「模板」格（且与「通用库」是两个独立入口）
+    const tplTabs = await js(
+      `[...document.querySelectorAll('.topbar .tabs button')].map(b => b.innerText.trim())`
+    )
+    ok(
+      Array.isArray(tplTabs) &&
+        tplTabs.includes(plain(COPY.tpl.entry)) &&
+        tplTabs.includes(plain(COPY.brand.entry)),
+      '顶栏「模板」与「通用库」并列、各自独立：' + JSON.stringify(tplTabs)
+    )
+
+    // ② 点进模板库视图
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .tabs button')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.tpl.entry))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(900)
+    const tv = await js(`(() => {
+      const root = document.querySelector('.brand-view')
+      if (!root) return null
+      const names = [...root.querySelectorAll('.brand-node .bn-name')].map(n => n.innerText.trim())
+      return { hasTop: !!root.querySelector('.brand-top'), hasSearch: !!root.querySelector('.brand-search'), names }
+    })()`)
+    ok(!!tv, '「模板」格能打开 PSD 模板库视图（与通用库同一个壳、不同数据）')
+    ok(!!tv && tv.hasTop && tv.hasSearch, '模板库工具条（标题 / 统计 / 搜索 / 扫描 / 导入 / 新建分组）就位')
+    ok(
+      !!tv && tv.names.includes(plain(COPY.tpl.all)) && tv.names.includes(plain(COPY.tpl.unsorted)),
+      '左栏有「全部模板」与「未分组」两个固定入口'
+    )
+    await shot('shot-b66-1-tpllib-empty.png')
+
+    // ③ 点「扫描磁盘」→ 认领磁盘上的三层结构
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .brand-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.tpl.scan))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(3000)
+    const tAfter = await js(`(() => {
+      const root = document.querySelector('.brand-view')
+      if (!root) return null
+      const rows = [...root.querySelectorAll('.dirtree-row')].map(r => ({
+        name: (r.querySelector('.dt-name') || {}).innerText || '',
+        indent: parseInt(r.style.paddingLeft || '0', 10)
+      }))
+      const cards = [...root.querySelectorAll('.brand-card')].map(c => ({
+        name: (c.querySelector('.name') || {}).innerText || '',
+        guides: (c.querySelector('.tpl-guides') || {}).innerText || '',
+        sub: (c.querySelector('.meta .sub') || {}).innerText || ''
+      }))
+      const reject = root.querySelector('.tpl-reject')
+      return { rows, cards, reject: reject ? reject.innerText : '' }
+    })()`)
+
+    const rowNames = (tAfter ? tAfter.rows : []).map((r) => r.name)
+    ok(
+      !!tAfter &&
+        ['易拉宝', '2026春季', '海南', '海报'].every((n) => rowNames.includes(n)),
+      '扫描后认领出多层分组（含第 3 层「海南」）：' + JSON.stringify(rowNames)
+    )
+    const indentOf = (n) => {
+      const r = (tAfter ? tAfter.rows : []).find((x) => x.name === n)
+      return r ? r.indent : -1
+    }
+    ok(
+      indentOf('易拉宝') < indentOf('2026春季') && indentOf('2026春季') < indentOf('海南'),
+      `多层树逐层缩进（${indentOf('易拉宝')} < ${indentOf('2026春季')} < ${indentOf('海南')}）`
+    )
+    ok(
+      !!tAfter && tAfter.cards.length === 4,
+      '网格列出 4 份模板（超 20 MB 的那份不收录；实际 ' + (tAfter ? tAfter.cards.length : '?') + '）'
+    )
+
+    // ③b 第 69 批（docs/51）：信息卡上的字对不对（成品尺寸 / 出血 / 色彩模式 / 品类）
+    const cardText = await js(`(() => {
+      const out = {}
+      for (const c of document.querySelectorAll('.tpl-grid .brand-card')) {
+        const nm = ((c.querySelector('.meta .name') || {}).innerText || '').trim()
+        out[nm] = {
+          title: ((c.querySelector('.tc-title') || {}).innerText || '').trim(),
+          keys: [...c.querySelectorAll('.tc-k')].map(v => v.innerText.trim()),
+          vals: [...c.querySelectorAll('.tc-v')].map(v => v.innerText.trim())
+        }
+      }
+      return out
+    })()`)
+    ok(
+      !!cardText && Object.keys(cardText).length === 4,
+      '信息卡渲染出 4 张（实际 ' + (cardText ? Object.keys(cardText).length : '?') + '）'
+    )
+    const cMain = cardText && cardText['主视觉-易拉宝.psd']
+    ok(
+      !!cMain && cMain.vals.includes('80cm×180cm'),
+      '关键词里的成品尺寸优先：显示 80cm×180cm（不是画布算的 30cm×70cm）—— ' + JSON.stringify(cMain && cMain.vals)
+    )
+    ok(
+      !!cMain && cMain.vals.includes('5mm'),
+      '出血从关键词读到：bleed:5mm → 5mm'
+    )
+    ok(
+      !!cMain && cMain.vals.includes('CMYK'),
+      '色彩模式从 PSD 头读到：CMYK'
+    )
+    ok(
+      !!cMain && cMain.title === '主视觉-易拉宝',
+      '品类大字 = 文件名（没有下划线时取整名）：' + (cMain ? cMain.title : '—')
+    )
+    const mainTip = await js(`(() => {
+      const c = [...document.querySelectorAll('.tpl-grid .brand-card')]
+        .find(x => ((x.querySelector('.meta .name') || {}).innerText || '').trim() === '主视觉-易拉宝.psd')
+      const card = c ? c.querySelector('.tpl-card') : null
+      return card ? (card.getAttribute('title') || '') : ''
+    })()`)
+    ok(mainTip.includes('用途：室内'), '悬停提示带出用途：' + mainTip.split('\n').slice(0, 3).join(' / '))
+    ok(mainTip.includes('客户：海南升学'), '悬停提示带出客户')
+    ok(mainTip.includes('标签：竖版'), '悬停提示带出标签')
+    ok(mainTip.includes('备注：主推款'), '悬停提示带出备注')
+
+    const cGroup = cardText && cardText['集团版易拉宝.psd']
+    ok(
+      !!cGroup && cGroup.vals.includes('30cm×70cm'),
+      '没写尺寸 ⇒ 回退到画布算（1772×4134@150ppi = 30cm×70cm）—— ' + JSON.stringify(cGroup && cGroup.vals)
+    )
+    ok(
+      !!cGroup && cGroup.vals.includes('5mm'),
+      '全角冒号也认：出血：5mm → 5mm'
+    )
+    const cPoster = cardText && cardText['招生海报A3.psd']
+    ok(
+      !!cPoster && cPoster.vals.includes('42cm×29.7cm'),
+      '带小数的成品尺寸原样显示：42cm×29.7cm'
+    )
+
+    // ③c 第 69 批（docs/53）：给 PS 插件用的「信息卡图」—— 扫描后必须自动生成
+    const cardDir = join(ws, '_thumbs', 'tpl-card')
+    const cardFiles = existsSync(cardDir)
+      ? require('fs').readdirSync(cardDir).filter((f) => f.endsWith('.png'))
+      : []
+    ok(cardFiles.length === 4, `扫描后为每份模板渲染了卡片图（给插件用）：${cardFiles.length} 张`)
+    if (cardFiles.length > 0) {
+      const buf = require('fs').readFileSync(join(cardDir, cardFiles[0]))
+      const cw = buf.readUInt32BE(16)
+      const ch = buf.readUInt32BE(20)
+      ok(cw === 512 && ch === 512, `卡片图是 512×512（实际 ${cw}×${ch}）`)
+    }
+
+    // ④ 参考线角标：4 条 / 6 条 / 无参考线 三种都要对
+    const cardOf = (n) => (tAfter ? tAfter.cards.find((c) => c.name === n) : null)
+    ok(
+      (cardOf('主视觉-易拉宝.psd') || {}).guides === fmt(plain(COPY.tpl.guidesBadge), { n: 4 }),
+      '卡片挂「4 条参考线」角标：' + ((cardOf('主视觉-易拉宝.psd') || {}).guides || '—')
+    )
+    ok(
+      (cardOf('集团版易拉宝.psd') || {}).guides === fmt(plain(COPY.tpl.guidesBadge), { n: 6 }),
+      '不同条数各自显示：' + ((cardOf('集团版易拉宝.psd') || {}).guides || '—')
+    )
+    ok(
+      (cardOf('根下散模板.psd') || {}).guides === plain(COPY.tpl.noGuides),
+      'guides=0 显示「无参考线」（与"未探到"分开）：' + ((cardOf('根下散模板.psd') || {}).guides || '—')
+    )
+
+    // ⑤ 未收录提示条：超 20 MB 的文件被拒，但文件还在
+    ok(
+      !!tAfter && tAfter.reject.includes(fmt(plain(COPY.tpl.rejectedTitle), { n: 1 })),
+      '顶部提示条列出「1 个文件没有收录」：' + (tAfter ? tAfter.reject.slice(0, 40) : '—')
+    )
+    ok(
+      existsSync(join(ws, '_PSD模板库', '超大的模板.psd')),
+      '被拒的超大文件**原样留在磁盘上**（只不收录，绝不删用户文件）'
+    )
+    await shot('shot-b66-2-tpllib-scanned.png')
+
+    // ⑥ 多层树可折叠（多层版独有的交互）
+    const rowsBefore = await js(`document.querySelectorAll('.brand-view .dirtree-row').length`)
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.brand-view .dirtree-row')]
+        .find(x => ((x.querySelector('.dt-name') || {}).innerText || '') === '易拉宝')
+      const c = r ? r.querySelector('.dt-chev') : null
+      if (c) c.click()
+      return 'ok'
+    })()`)
+    await wait(500)
+    const rowsCollapsed = await js(`document.querySelectorAll('.brand-view .dirtree-row').length`)
+    ok(
+      rowsCollapsed === rowsBefore - 2,
+      `折叠「易拉宝」→ 它下面两层收起（${rowsBefore} → ${rowsCollapsed} 行）`
+    )
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.brand-view .dirtree-row')]
+        .find(x => ((x.querySelector('.dt-name') || {}).innerText || '') === '易拉宝')
+      const c = r ? r.querySelector('.dt-chev') : null
+      if (c) c.click()
+      return 'ok'
+    })()`)
+    await wait(400)
+
+    // ⑦ 点某层分组 → 只显示该层（含子层）
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.brand-view .dirtree-row')]
+        .find(x => ((x.querySelector('.dt-name') || {}).innerText || '') === '海南')
+      const m = r ? r.querySelector('.dt-main') : null
+      if (m) m.click()
+      return 'ok'
+    })()`)
+    await wait(800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 1,
+      '点「海南」→ 只剩这一层的 1 份模板'
+    )
+
+    // ⑧ 点「未分组」→ 只有根下那一份
+    await js(`(() => {
+      const n = [...document.querySelectorAll('.brand-view .brand-node')].find(x => x.classList.contains('unsorted'))
+      if (n) n.click()
+      return 'ok'
+    })()`)
+    await wait(800)
+    const un59 = await js(`[...document.querySelectorAll('.brand-view .brand-card .name')].map(n => n.innerText.trim())`)
+    ok(
+      Array.isArray(un59) && un59.length === 1 && un59[0] === '根下散模板.psd',
+      '「未分组」= 直接躺在根下的那一份：' + JSON.stringify(un59)
+    )
+    await shot('shot-b66-3-tpllib-unsorted.png')
+
+    // ⑨ 末态：回「全部模板」（留给总截图）
+    await js(`(() => { const n = document.querySelector('.brand-view .brand-node.all'); if (n) n.click(); return 'ok' })()`)
+    await wait(800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 4,
+      '回到「全部模板」→ 4 份模板（末态留给总截图）'
+    )
+
+    // ⑩ 第 67 批（docs/50）：列表视图 + 参考线列 + 勾选批量
+    await js(`window.confirm = () => true; 'patched'`)
+    const tplRootDir = join(ws, '_PSD模板库')
+    const countTpl = (dir) => {
+      let n = 0
+      for (const e of require('fs').readdirSync(dir, { withFileTypes: true })) {
+        n += e.isDirectory() ? countTpl(join(dir, e.name)) : 1
+      }
+      return n
+    }
+    const tplFilesBefore = countTpl(tplRootDir)
+
+    await js(`(() => {
+      const b = document.querySelectorAll('.brand-view .viewswitch button')[1]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 4,
+      '切到列表视图 → 4 行模板'
+    )
+    const tplCols = await js(
+      `[...document.querySelectorAll('.brand-view .dthead .dcell-h')].map(h => h.innerText.trim())`
+    )
+    ok(
+      Array.isArray(tplCols) && tplCols.includes(plain(COPY.common.colGuides)),
+      '表头有「' + plain(COPY.common.colGuides) + '」列（模板库独有）：' + JSON.stringify(tplCols)
+    )
+    // 参考线列三种状态都在列表里可见
+    const tplGuideChips = await js(
+      `[...document.querySelectorAll('.brand-view .dtable .dcell-guides .dchip')].map(c => c.innerText.trim())`
+    )
+    ok(
+      Array.isArray(tplGuideChips) &&
+        tplGuideChips.includes(fmt(plain(COPY.tpl.guidesBadge), { n: 4 })) &&
+        tplGuideChips.includes(fmt(plain(COPY.tpl.guidesBadge), { n: 6 })) &&
+        tplGuideChips.includes(plain(COPY.tpl.noGuides)),
+      '列表里参考线的「4 条 / 6 条 / 无」三种状态都对：' + JSON.stringify(tplGuideChips)
+    )
+    await wait(900) // 同上：capturePage 可能抓到切视图前的旧帧
+    await shot('shot-b67-2-tpl-list.png')
+
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(500)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .bulk-bar').length`)) === 1,
+      '勾 1 行 → 模板库也出现批量条'
+    )
+
+    // 批量「清除记录」→ 文件不动，重扫回来
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkForget))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(1800)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 3,
+      '批量「清除记录」1 份 → 剩 3 行'
+    )
+    ok(countTpl(tplRootDir) === tplFilesBefore, '模板库清除后**磁盘文件一个没少**（' + tplFilesBefore + ' 个）')
+
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .brand-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.tpl.scan))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(3200)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .dtable .drow').length`)) === 4,
+      '重新扫描 → 又回到 4 行（清除只是不认它了）'
+    )
+
+    /** 清空列表勾选（同通用库：避免下一段"点第一行"变成取消勾选） */
+    const clearBulkSel = async () => {
+      await js(`(() => {
+        const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+          .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkClearSel))}))
+        if (b) b.click()
+        return 'ok'
+      })()`)
+      await wait(300)
+    }
+
+    // ⑫ 批量改名 / 复制到任务的入口（与通用库共用同一套弹窗）
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkRename))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    const tPrev = await js(
+      `(() => { const e = document.querySelector('.rename-preview'); return e ? e.innerText.trim() : '' })()`
+    )
+    ok(tPrev.includes('.psd'), '模板库改名预览带 .psd 扩展名：' + tPrev)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.modal .tk-actions .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.cancel))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(400)
+    ok(
+      (await js(`document.querySelectorAll('.rename-preview').length`)) === 0,
+      '取消改弹窗 → 弹窗关闭，什么都没动'
+    )
+    await clearBulkSel()
+
+    // ⑪ 「移动到…」入口（与通用库共用同一个弹窗）
+    await js(`(() => { const r = document.querySelector('.brand-view .dtable .drow'); if (r) r.click(); return 'ok' })()`)
+    await wait(400)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.brand-view .bulk-bar .btn')]
+        .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkMove))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
+    const tMvNodes = await js(
+      `[...document.querySelectorAll('.mv-modal .mv-item .nm')].map(n => n.innerText.trim())`
+    )
+    ok(
+      Array.isArray(tMvNodes) &&
+        tMvNodes.includes('易拉宝') &&
+        tMvNodes.includes(plain(COPY.tpl.unsorted)),
+      '模板库也有「移动到…」，同样列出未分组 + 全部组：' + JSON.stringify(tMvNodes)
+    )
+    await js(`(() => { const b = document.querySelector('.mv-modal .tk-actions .btn'); if (b) b.click(); return 'ok' })()`)
+    await wait(500)
+    ok(
+      (await js(`document.querySelectorAll('.mv-modal').length`)) === 0,
+      '点「取消」→ 弹窗关闭，什么都没动'
+    )
+
+    // 切回卡片：末态留给总截图
+    await js(`(() => {
+      const b = document.querySelectorAll('.brand-view .viewswitch button')[0]
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    ok(
+      (await js(`document.querySelectorAll('.brand-view .brand-card').length`)) === 4,
+      '切回卡片视图 → 4 份（末态仍是卡片）'
     )
   } else {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
-    ok(statusText.includes('v1.0.0'), '状态栏显示版本号 v1.0.0')
+    ok(/v\d+\.\d+\.\d+/.test(statusText), '状态栏显示版本号')
     ok(statusText.includes('shot_ws'), '状态栏显示当前工作区路径')
     ok(leftPanelText.length > 0, '左栏正常渲染（工作区可用时功能不受影响）')
     ok(wsItemCount === 1, `老格式配置自动升级成一个工作区项，实际 ${wsItemCount}`)

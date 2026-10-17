@@ -62,6 +62,8 @@
   h2{font-size:21px; margin:0 0 6px; display:flex; align-items:center; gap:10px; letter-spacing:-.012em; scroll-margin-top:78px}
   h2 .n{font:700 11px/1 var(--mono); color:#fff; background:var(--ink); border-radius:5px; padding:5px 7px; flex:0 0 auto}
   h3{font-size:15px; margin:26px 0 8px; padding-top:16px; border-top:1px dashed var(--line-2); letter-spacing:.005em; scroll-margin-top:78px}
+  /* 第 67 批（docs/50）：h4 = h3 下面再分一层（比 h3 小、不加虚线，免得连续两条虚线看着碎） */
+  h4{font-size:13.5px; margin:16px 0 6px; letter-spacing:.005em; scroll-margin-top:78px}
   section>p:first-of-type{color:var(--ink-2)}
   p{margin:10px 0}
   ul,ol{padding-left:20px; margin:10px 0}

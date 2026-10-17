@@ -4180,7 +4180,9 @@ svg {
   justify-content: center;
   overflow: hidden;
 }
-.brand-card .thumb img {
+/* ⚠️ 只作用于「整张缩略图」，**不要把信息卡里的 logo 也算进来** ——
+   否则 `.tc-logo-g/{width:12%}` 会被这条的高优先级压掉，logo 被拉成满卡（第 69 批踩过）。 */
+.brand-card .thumb > img:not(.tc-logo-g):not(.tc-logo-w) {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -4287,4 +4289,497 @@ svg {
 }
 .tk-input:focus {
   border-color: var(--accent);
+}
+
+/* ============================================================
+   第 66 批（docs/49）：PSD 模板库
+   ① 多层目录树（DirTree，模板库 / 通用库共用）
+   ② 模板卡片上的「参考线」角标与「未收录」提示条
+   布局骨架直接复用 .brand-view / .brand-body / .brand-grid 那一套
+   （同一个壳、同一套观感，没必要再抄一遍）
+   ============================================================ */
+
+.dirtree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0;
+}
+.dirtree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--r-sm);
+}
+.dirtree-row:hover {
+  background: var(--bg-hover);
+}
+.dirtree-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.dt-chev {
+  width: 16px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+  border-radius: 4px;
+}
+.dt-chev:hover {
+  color: var(--text-2);
+}
+.dt-chev.leaf {
+  cursor: default;
+}
+.dt-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+.dirtree-row.on .dt-main {
+  color: var(--text);
+}
+.dt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  padding-right: 4px;
+}
+.dt-acts {
+  display: none;
+  gap: 2px;
+  padding-right: 4px;
+}
+.dirtree-row:hover .dt-acts,
+.dirtree-row.on .dt-acts {
+  display: flex;
+}
+
+/* 缩略图右下角：参考线条数（绿 = 有 / 橙 = 没有 / 灰 = 没探到） */
+.tpl-guides {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  height: 17px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 1;
+  background: rgba(45, 157, 120, 0.92);
+  color: #fff;
+  white-space: nowrap;
+}
+.tpl-guides.none {
+  background: rgba(230, 134, 25, 0.92);
+}
+.tpl-guides.unk {
+  background: rgba(60, 60, 60, 0.92);
+  color: var(--text-2);
+}
+
+/* 顶部「未收录」提示条 */
+.tpl-reject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 7px 11px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  border: 1px solid rgba(230, 134, 25, 0.35);
+  color: #f0ac63;
+  font-size: 12px;
+}
+.tpl-reject .rlist {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 通用库把组树换成 DirTree 之后，同步开关要沿用原来的观感（.b-sync 原来只挂在 .brand-node 下） */
+.dirtree-row .b-sync {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-mute);
+  color: var(--text-3);
+  font-family: inherit;
+  cursor: pointer;
+}
+.dirtree-row .b-sync.on {
+  border-color: var(--accent-line);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.dirtree-row .b-sync.inh {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.dt-badge {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+/* 徽标与展开/收起按钮同时存在时，行宽更紧，数字让位给开关 */
+.dirtree-row .dt-count {
+  padding-right: 2px;
+}
+
+/* ============================================================
+   第 67 批（docs/50）：卡片 / 列表视图 + 列表勾选批量
+   ① .viewswitch  工具条右侧的视图切换（卡片 / 列表）
+   ② .dtable      列表表格（三视图共用骨架，列宽由行内 grid 决定）
+   ③ .bulk-bar    勾选后出现的批量操作条
+   ============================================================ */
+
+/* ① 视图切换：两格连在一起，选中的那格有底色 —— 和顶栏 viewtab 同一观感 */
+.viewswitch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  flex: none;
+}
+.viewswitch > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+}
+.viewswitch > button:hover {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.viewswitch > button + button {
+  border-left: 1px solid var(--line);
+}
+.viewswitch > button.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* ② 列表表格 */
+.dtable {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 10px;
+}
+.dthead,
+.drow {
+  display: grid;
+  align-items: center;
+  /* 12px 间隙：列间的「数字 / 文字」要留出呼吸，否则「7.6 KB 公司」会粘在一起 */
+  gap: 12px;
+  padding: 0 10px;
+}
+.dthead {
+  height: 26px;
+  /* 表头别用最淡的 text-3 —— 深色底上 11px 的灰几乎看不清（第一批实拍发现的） */
+  color: var(--text-2);
+  font-size: 11px;
+  /* 表头粘住：滚一屏几十条时列名还在（列表视图的意义就在"能扫"） */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.drow {
+  height: 32px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.drow:hover {
+  background: var(--bg-hover);
+}
+.drow.on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+/* 勾选行左侧一条强调线 —— 深色底上纯靠背景色区分度不够 */
+.drow.on {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.drow.missing {
+  color: var(--text-3);
+}
+.drow.missing .dcell-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+}
+.dcell-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dcell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 名称列：永远是"这一行是什么"，给最强的字色 + 单行省略 */
+.dcell-name {
+  color: var(--text);
+  font-size: 12.5px;
+}
+.drow.on .dcell-name {
+  color: var(--text);
+}
+.dcell-sub {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.dcell-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.dcell-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.dtable-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* 名称 + 徽标的容器：徽标不能被省略号吃掉，所以名字单独省略、徽标 flex:none */
+.dname-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dname-wrap > .dcell-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dname-wrap > .dchip {
+  flex: none;
+}
+
+/* 小色点（项目色 / 参考线状态），列表里比整块色标更安静 */
+.ddot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  flex: none;
+}
+/* 参考线状态徽标（列表版：小一号，和 11.5px 数字对齐） */
+.dchip {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  line-height: 1;
+  background: var(--bg-mute);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.dchip.ok {
+  background: rgba(45, 157, 120, 0.16);
+  color: #57c79b;
+}
+.dchip.warn {
+  background: var(--warn-soft);
+  color: #f0ac63;
+}
+/* 「已备份」徽标：中性灰，不用绿 —— 绿在这个界面里代表"同步开着"，别混淆语义 */
+.dchip.back {
+  background: var(--bg-soft);
+  color: var(--text-2);
+}
+
+/* ③ 勾选批量条：固定在列表上方，出现时不挤动下面的行（免得点一下整屏跳） */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  font-size: 12px;
+  color: var(--text);
+  flex-wrap: wrap;
+}
+.bulk-bar .n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.bulk-bar .spacer {
+  margin-left: auto;
+}
+.bulk-bar .btn {
+  padding: 2px 9px;
+  font-size: 11.5px;
+}
+
+/* 第 67 批（docs/50 §6）：「移动到…」分组选择器 */
+.mv-modal .content {
+  gap: 8px;
+}
+.mv-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-soft);
+}
+.mv-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding-right: 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  flex: none;
+}
+.mv-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.mv-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mv-item .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mv-item .cnt {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.mv-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding: 2px 2px 0;
+}
+
+/* 第 68 批（docs/50 §6）：批量改名 / 批量设置两个弹窗的表单 */
+.rename-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 76px;
+  gap: 10px;
+  align-items: end;
+}
+.set-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.rename-form label,
+.set-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rename-form .lb,
+.set-form .lb {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+/* 「效果：易拉宝-01.psd」—— 用等宽字号，好一眼看出补零位数对不对 */
+.rename-preview {
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-mute);
+  color: var(--accent-text);
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 第 69 批：模板信息卡的样式已移到 `src/shared/tplCardMarkup.ts`（唯一来源）——
+   同一份 CSS 要同时供 React 渲染和主进程离屏渲染（发给 PS 插件），不能各写一份。 */
+
+/* 第 69 批（docs/51）：模板库网格单独调宽 —— 信息卡上的小字要够 10px 才认得出。
+   150px 是通用库的密度；模板通常只有几十份，放大到 200px 更划算。 */
+.brand-grid.tpl-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+/* 信息卡底部是一条橙色色卡 —— 参考线角标原来在右下角会压在上面，改到右上角 */
+.tpl-grid .tpl-guides {
+  top: 6px;
+  bottom: auto;
+}
+/* 模板的缩略图区改 1:1（信息卡是 1:1 版式），且不留背景色（卡片自己有浅色底） */
+.tpl-grid .brand-card .thumb {
+  height: auto;
+  aspect-ratio: 1 / 1;
+  background: transparent;
+}
+.tpl-grid .brand-card .thumb > img:not(.tc-logo-g):not(.tc-logo-w) {
+  object-fit: cover;
 }

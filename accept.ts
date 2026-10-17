@@ -15,6 +15,8 @@ import {
 import { join, basename, dirname } from 'path'
 // 第 52 批：分级名改从文案字典取（不再硬编码 S/A/B/C，改名时断言自动跟着变）
 import { COPY } from './src/shared/copy'
+// 第 69 批（docs/51）：模板信息卡的解析规则（品类 / 成品尺寸 / 出血，纯函数）
+import { parseTplKeywords, physicalSizeText, tplNoteOf, tplTitleOf } from './src/shared/tplInfo'
 // 第 58 批（docs/43）：任务标识（打包与卡片共用的那一份）
 import { taskCode } from './src/shared/taskCode'
 // 第 58 批（docs/43）：任务备份打包（原样存档，与交付打包是两码事）
@@ -24,6 +26,8 @@ import {
   discoverPluginDataDirs,
   syncTaskMirror,
   syncBrandMirror,
+  syncTplMirror,
+  TPL_FILE,
   isPngFile,
   fileMtimeMs,
   MIRROR_DIR,
@@ -48,12 +52,37 @@ import {
   importBrandPaths,
   removeBrandAsset,
   forgetBrandAsset,
+  moveBrandAssets,
+  copyBrandAssetsToPack,
+  renameBrandAssetsSeq,
   promoteAssetToBrand,
   copyBrandAssetToPack,
   BRAND_ROOT_DIR,
   BRAND_TOP_COMPANY,
-  BRAND_TOP_USER
+  BRAND_TOP_USER,
+  BRAND_MAX_DEPTH
 } from './src/main/brandLib'
+// 第 66 批（docs/49）：PSD 模板库（多层分组 / 收录卡口 / 扫描 / 模板镜像）
+import {
+  TPL_ROOT_DIR,
+  TPL_MAX_DEPTH,
+  TPL_MAX_BYTES,
+  ensureTplRoot,
+  tplRootPath,
+  createTplFolder,
+  renameTplFolder,
+  deleteTplFolder,
+  listTplFolders,
+  listTplAssets,
+  scanTpl,
+  renameTplAsset,
+  removeTplAsset,
+  moveTplAssets,
+  copyTplAssetsToPack,
+  renameTplAssetsSeq,
+  tplStats,
+  importTplPaths
+} from './src/main/tplLib'
 // 第 62 批（docs/45 §3.4）：handoff 搬运（轮询 req.json → 拷原图 → 回 res.json）
 import {
   HandoffEngine,
@@ -7469,13 +7498,13 @@ async function main(): Promise<void> {
       '顶层组的磁盘目录已建（软件视图 = 磁盘现实）'
     )
 
-    // ③ 子组 + 两层封顶
+    // ③ 子组（2026-10-17 起从「两层封顶」放宽到 ≤5 层，契约 §5.3）
     const bLogo = createBrandFolder({ workspaceRoot: bWs, name: '品牌logo', parentId: bCompany.id })
     ok(bLogo.ok && !!bLogo.value, '在顶层组下建子组「品牌logo」')
     const bLogoId = bLogo.value!.id
     ok(existsSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '品牌logo')), '子组磁盘目录已建')
     const bThird = createBrandFolder({ workspaceRoot: bWs, name: '第三层', parentId: bLogoId })
-    ok(!bThird.ok && bThird.error === 'depth', '【两层封顶】第三层被拒（error=depth）')
+    ok(bThird.ok && !!bThird.value, '【多层】第三层可建（原「两层封顶」已放宽，上限 5 层）')
     const bDup = createBrandFolder({ workspaceRoot: bWs, name: '品牌logo', parentId: bCompany.id })
     ok(!bDup.ok && bDup.error === 'duplicate', '同层重名被拒（UNIQUE(parent_id, name)）')
 
@@ -7512,15 +7541,16 @@ async function main(): Promise<void> {
       '图片宽高已采集（sharp 元信息）'
     )
 
-    // ⑥ 三层以上目录被跳过
+    // ⑥ 超过 5 层的目录才跳过（第 3 层已正常认领）
     const bDeep = join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '子组A', '三层')
     mkdirSync(bDeep, { recursive: true })
     makePng(join(bDeep, '深处.png'), 12, 12, [1, 2, 3])
     const bScan2 = await scanBrand(bWs)
-    ok(bScan2.skippedDeep >= 1, `三层以上的目录被跳过并计数（${bScan2.skippedDeep}）`)
+    ok(bScan2.skippedDeep === 0, `第 3 层不再被跳过（skippedDeep = ${bScan2.skippedDeep}）`)
+    const bDeepAsset = listBrandAssets({}).find((a) => a.file_name === '深处.png')
     ok(
-      !listBrandAssets({}).some((a) => a.file_name === '深处.png'),
-      '三层里的文件不进库（只做两层）'
+      !!bDeepAsset && bDeepAsset.folder_id !== null,
+      '第 3 层里的文件**进库**了（只跳过超过 5 层的）'
     )
 
     // ⑦ 进镜像：brand.json + b<id> 缩略图 + 两层 parentId + source
@@ -7673,6 +7703,78 @@ async function main(): Promise<void> {
     ok(
       listBrandAssets({}).some((a) => a.file_name === '手放的.png'),
       '手建子组里的文件也被登记'
+    )
+
+    // ⑰ 多层分组（2026-10-17 契约 §5.3 由「两层」放宽到 ≤5 层，不升版本）
+    const bMl1 = createBrandFolder({ workspaceRoot: bWs, name: '多层一级', parentId: null }).value!
+    const bMl2 = createBrandFolder({ workspaceRoot: bWs, name: '多层二级', parentId: bMl1.id }).value!
+    const bMl3 = createBrandFolder({ workspaceRoot: bWs, name: '多层三级', parentId: bMl2.id })
+    ok(
+      bMl3.ok && !!bMl3.value,
+      `第 3 层分组可建（放宽前这里会被拒；现上限 ${BRAND_MAX_DEPTH} 层）`
+    )
+    const bMl3Id = bMl3.value!.id
+    ok(
+      listBrandFolders().find((f) => f.id === bMl3Id)!.depth === 3,
+      '组树的 depth 按祖先链算对（第 3 层 → 3）'
+    )
+    let bMlParent = bMl3Id
+    for (let d = 4; d <= BRAND_MAX_DEPTH; d += 1) {
+      const r = createBrandFolder({ workspaceRoot: bWs, name: `多层第${d}层`, parentId: bMlParent })
+      bMlParent = r.value?.id ?? bMlParent
+    }
+    const bMlTooDeep = createBrandFolder({ workspaceRoot: bWs, name: '多层第6层', parentId: bMlParent })
+    ok(
+      !bMlTooDeep.ok && bMlTooDeep.error === 'depth',
+      `第 ${BRAND_MAX_DEPTH + 1} 层被拒（契约 §5.3-1 深度上限 ${BRAND_MAX_DEPTH}）`
+    )
+
+    // 磁盘手建第 3 层 → 认领；点父组要含所有子层
+    mkdirSync(join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '手建三层A', '手建三层B'), { recursive: true })
+    makePng(
+      join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, '手建三层A', '手建三层B', '第三层.png'),
+      8,
+      8,
+      [5, 5, 5]
+    )
+    await scanBrand(bWs)
+    const bMlThird = listBrandFolders().find((f) => f.name === '手建三层B')
+    ok(!!bMlThird && bMlThird.depth === 3, '扫盘认领第 3 层目录（递归，不再"三层以上跳过"）')
+    const bMlTopA = listBrandFolders().find((f) => f.name === '手建三层A')!
+    ok(
+      listBrandAssets({ folderId: bMlTopA.id }).some((a) => a.file_name === '第三层.png'),
+      '点父组 → 含**所有子层**的素材（递归，不再只看直接子级）'
+    )
+
+    const bMlMir = await syncBrandMirror(bWs, discoverPluginDataDirs(bAppData), {
+      appVersion: '1.10.0'
+    })
+    const bMlJson = JSON.parse(readFileSync(join(bLib, 'brand.json'), 'utf-8')) as {
+      groups: Array<{ id: number; parentId?: number }>
+    }
+    const bMlThirdJson = bMlJson.groups.find((g) => g.id === bMlThird!.id)
+    ok(
+      !!bMlMir.ok && !!bMlThirdJson && bMlThirdJson.parentId === bMlThird!.parent_id,
+      'brand.json 里第 3 层组带 parentId（镜像侧零改动，天然支持多层）'
+    )
+
+    // 改名 / 删组：多层后代与组内素材都要跟着动（第 66 批修掉的 LIKE 隐患）
+    const bMlRen = renameBrandFolder({ workspaceRoot: bWs, id: bMlTopA.id, name: '手建三层A-改名' })
+    const bMlThirdAfter = listBrandFolders().find((f) => f.id === bMlThird!.id)!
+    const bMlThirdAsset = listBrandAssets({}).find((a) => a.file_name === '第三层.png')!
+    ok(
+      bMlRen.ok &&
+        bMlThirdAfter.rel_path.includes('手建三层A-改名') &&
+        bMlThirdAsset.abs_path.includes('手建三层A-改名') &&
+        existsSync(bMlThirdAsset.abs_path),
+      '组改名：**多层后代**的 rel_path 与组内素材 abs_path 一起改（JS 前缀匹配）'
+    )
+    const bMlDel = deleteBrandFolder({ workspaceRoot: bWs, id: bMlTopA.id })
+    const bMlThirdGone = listBrandFolders().find((f) => f.name === '手建三层B')
+    const bMlThirdMoved = listBrandAssets({ folderId: -1 }).find((a) => a.file_name === '第三层.png')
+    ok(
+      bMlDel.ok && !bMlThirdGone && !!bMlThirdMoved && existsSync(bMlThirdMoved.abs_path),
+      '删顶层组：第 3 层组一并摘掉，素材移到「未分组」、文件一个不少'
     )
 
     ok(bThumb.endsWith('thumb'), '镜像缩略图目录约定 thumb/')
@@ -7841,6 +7943,853 @@ async function main(): Promise<void> {
     hardRm(sRoot)
   }
 
+
+  // ============ 第 66 批：PSD 模板库（docs/49）============
+  log('\n[59] 第 66 批：PSD 模板库（迁移 23 / 多层分组 / 收录卡口 / tpl.json 镜像 / handoff scope=tpl，docs/49）')
+  {
+    const tRoot = join('D:\\_accept_ws', `wstest59_${RUN_ID}`)
+    const tWs = join(tRoot, 'ws')
+    const tAppData = join(tRoot, 'appdata')
+    const tPluginData = join(
+      tAppData,
+      'Adobe',
+      'UXP',
+      'PluginsStorage',
+      'PHSP',
+      '27',
+      'Developer',
+      'com.vellum.toolbox',
+      'PluginData'
+    )
+    const tLib = join(tPluginData, MIRROR_DIR)
+    const tHand = join(tLib, HANDOFF_DIR)
+
+    hardRm(tRoot)
+    mkdirSync(tPluginData, { recursive: true })
+    mkdirSync(tWs, { recursive: true })
+    closeDb()
+    openDb(tWs)
+    initWorkspace(tWs)
+
+    /**
+     * 造一个**最小但结构完整**的 PSD 桩（我们只解析文件头与图像资源段，不读像素）：
+     * 头 26 字节 + 颜色模式段(长 0) + 图像资源段（1005 分辨率 / 1032 参考线）。
+     * 故意把参考线条数做成可控参数 —— 断言"能不能读出线到底打没打"。
+     */
+    const makePsd = (
+      file: string,
+      o: {
+        w: number
+        h: number
+        ppi?: number
+        guides?: number | null
+        padTo?: number
+        /** 第 69 批：写进 IPTC 1028 的关键词（软件从这儿读成品尺寸/出血） */
+        keywords?: string[]
+      }
+    ): void => {
+      const u16 = (v: number): Buffer => {
+        const b = Buffer.alloc(2)
+        b.writeUInt16BE(v, 0)
+        return b
+      }
+      const head = Buffer.alloc(26)
+      head.write('8BPS', 0, 'ascii')
+      head.writeUInt16BE(1, 4) // version 1 = PSD
+      head.writeUInt16BE(3, 12) // channels
+      head.writeUInt32BE(o.h, 14)
+      head.writeUInt32BE(o.w, 18)
+      head.writeUInt16BE(8, 22) // depth
+      head.writeUInt16BE(4, 24) // 4 = CMYK
+
+      const block = (id: number, data: Buffer): Buffer => {
+        const name = Buffer.from([0, 0]) // Pascal 空名 + 补齐 = 2 字节
+        const sz = Buffer.alloc(4)
+        sz.writeUInt32BE(data.length, 0)
+        const pad = data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)
+        return Buffer.concat([Buffer.from('8BIM', 'ascii'), u16(id), name, sz, data, pad])
+      }
+
+      const blocks: Buffer[] = []
+      if (o.ppi !== undefined) {
+        const res = Buffer.alloc(16)
+        res.writeUInt32BE(Math.round(o.ppi * 65536), 0)
+        res.writeUInt16BE(1, 4) // 像素/英寸
+        res.writeUInt16BE(1, 6)
+        res.writeUInt32BE(Math.round(o.ppi * 65536), 8)
+        res.writeUInt16BE(1, 12)
+        res.writeUInt16BE(1, 14)
+        blocks.push(block(1005, res))
+      }
+      if (o.keywords && o.keywords.length) {
+        const parts: Buffer[] = []
+        const ds = (rec: number, tag: number, body: Buffer): void => {
+          const len = Buffer.alloc(2)
+          len.writeUInt16BE(body.length, 0)
+          parts.push(Buffer.from([0x1c, rec, tag]), len, body)
+        }
+        ds(1, 90, Buffer.from([0x1b, 0x25, 0x47])) // CodedCharacterSet = UTF-8
+        ds(2, 0, Buffer.from([0x00, 0x04]))
+        for (const kw of o.keywords) ds(2, 25, Buffer.from(kw, 'utf8'))
+        blocks.push(block(1028, Buffer.concat(parts)))
+      }
+      if (o.guides !== undefined && o.guides !== null) {
+        const n = o.guides
+        const g = Buffer.alloc(16 + n * 5)
+        g.writeUInt32BE(1, 0) // version
+        g.writeUInt32BE(0, 4)
+        g.writeUInt32BE(0, 8)
+        g.writeUInt32BE(n, 12) // ★ 参考线条数
+        for (let i = 0; i < n; i += 1) {
+          g.writeUInt32BE((i + 1) * 100, 16 + i * 5)
+          g.writeUInt8(0, 16 + i * 5 + 4)
+        }
+        blocks.push(block(1032, g))
+      }
+
+      const resBody = Buffer.concat(blocks)
+      const resLen = Buffer.alloc(4)
+      resLen.writeUInt32BE(resBody.length, 0)
+      const colorMode = Buffer.alloc(4) // 颜色模式数据段长度 = 0
+      let buf = Buffer.concat([head, colorMode, resLen, resBody])
+      if (o.padTo && o.padTo > buf.length) {
+        buf = Buffer.concat([buf, Buffer.alloc(o.padTo - buf.length)])
+      }
+      writeFileSync(file, buf)
+    }
+
+    // ① 迁移 23：两张独立表
+    const tTables = (
+      getDb().prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string
+      }>
+    ).map((t) => t.name)
+    ok(
+      tTables.includes('tpl_folders') && tTables.includes('tpl_assets'),
+      '迁移 23：建出 tpl_folders / tpl_assets 两张独立表（不复用 assets / brand_assets，零污染）'
+    )
+
+    // ② 根目录
+    ensureTplRoot(tWs)
+    ok(existsSync(tplRootPath(tWs)), `自动建 <工作区>\\${TPL_ROOT_DIR}\\ 根目录`)
+
+    // ③ 深度上限 5（契约 §5.3 第 1 条）
+    let deepParent: number | null = null
+    for (let i = 1; i <= TPL_MAX_DEPTH; i += 1) {
+      const r = createTplFolder({ workspaceRoot: tWs, name: `D${i}`, parentId: deepParent })
+      deepParent = r.value ? r.value.id : null
+    }
+    ok(
+      listTplFolders().filter((f) => f.depth === TPL_MAX_DEPTH).length === 1,
+      `第 ${TPL_MAX_DEPTH} 层分组可建（深度上限内）`
+    )
+    const overDeep = createTplFolder({ workspaceRoot: tWs, name: 'D6', parentId: deepParent })
+    ok(
+      !overDeep.ok && overDeep.error === 'depth',
+      `第 ${TPL_MAX_DEPTH + 1} 层被拒（depth；契约 §5.3-1 深度上限 ${TPL_MAX_DEPTH}）`
+    )
+    const dA = createTplFolder({ workspaceRoot: tWs, name: '同名', parentId: null })
+    const dB = createTplFolder({ workspaceRoot: tWs, name: '同名', parentId: null })
+    ok(
+      dA.ok && !dB.ok && dB.error === 'duplicate',
+      '顶层同层同名被拒（SQLite UNIQUE 对 parent_id IS NULL 不去重 ⇒ 靠应用层查重）'
+    )
+    // 清掉深度测试链，免得干扰后面的计数
+    if (deepParent !== null) {
+      const top = listTplFolders().find((f) => f.depth === 1 && f.name === 'D1')
+      if (top) deleteTplFolder({ workspaceRoot: tWs, id: top.id })
+    }
+    for (const f of listTplFolders().filter((x) => x.name === '同名')) {
+      deleteTplFolder({ workspaceRoot: tWs, id: f.id })
+    }
+
+    // ④ 造三层结构 + 各种"该被拒"的文件
+    const tRootDir = tplRootPath(tWs)
+    const g1 = createTplFolder({ workspaceRoot: tWs, name: '易拉宝', parentId: null }).value!
+    const g2 = createTplFolder({ workspaceRoot: tWs, name: '2026春季', parentId: g1.id }).value!
+    const g3 = createTplFolder({ workspaceRoot: tWs, name: '海南', parentId: g2.id }).value!
+    const psdA = join(tRootDir, '易拉宝', '2026春季', '海南', '主视觉.psd')
+    const psdB = join(tRootDir, '易拉宝', '展架.psd')
+    const psdC = join(tRootDir, '根下散模板.psd')
+    // ★ 第 69 批：psdA 带 IPTC 关键词（模拟用户用 XnView 写入的成品尺寸/出血）
+    makePsd(psdA, {
+      w: 1772,
+      h: 4134,
+      ppi: 150,
+      guides: 4,
+      keywords: ['80cm×180cm', 'bleed:5mm']
+    })
+    makePsd(psdB, { w: 1339, h: 3543, ppi: 300, guides: 0 })
+    makePsd(psdC, { w: 2480, h: 3508, ppi: 300, guides: 2 })
+    writeFileSync(join(tRootDir, '易拉宝', '2026春季', '海南', '说明.txt'), 'not a psd', 'utf-8')
+    makePsd(join(tRootDir, '超大.psd'), {
+      w: 100,
+      h: 100,
+      ppi: 72,
+      guides: 1,
+      padTo: TPL_MAX_BYTES + 1024
+    })
+    // 签名对、但画布尺寸非法 ⇒ 读不到尺寸
+    const badHeader = Buffer.alloc(26)
+    badHeader.write('8BPS', 0, 'ascii')
+    badHeader.writeUInt16BE(1, 4)
+    badHeader.writeUInt16BE(3, 12)
+    badHeader.writeUInt32BE(0, 14)
+    badHeader.writeUInt32BE(0, 18)
+    badHeader.writeUInt16BE(8, 22)
+    badHeader.writeUInt16BE(4, 24)
+    writeFileSync(join(tRootDir, '尺寸坏.psd'), Buffer.concat([badHeader, Buffer.alloc(8)]))
+
+    const scan59 = await scanTpl(tWs)
+    ok(scan59.assets === 3, `扫盘只收录合法模板 3 份（实际 ${scan59.assets}）`)
+
+    // 第 69 批（docs/51）：PSD 关键词 → tpl_assets.keywords（信息卡的成品尺寸/出血靠它）
+    const kwRow = listTplAssets().find((a) => a.file_name === '主视觉.psd')
+    ok(
+      !!kwRow && kwRow.keywords !== null && kwRow.keywords.includes('80cm×180cm'),
+      `PSD 里的 IPTC 关键词已入库：${kwRow ? kwRow.keywords : '—'}`
+    )
+    const noKwRow = listTplAssets().find((a) => a.file_name === '展架.psd')
+    ok(
+      !!noKwRow && noKwRow.keywords === '[]',
+      `没写关键词的也不留 NULL（存 '[]'，避免每轮扫描重读）：${noKwRow ? noKwRow.keywords : '—'}`
+    )
+    const reasons = scan59.rejected.map((r) => r.reason).sort()
+    ok(
+      reasons.includes('not-psd') && reasons.includes('too-large') && reasons.includes('no-size'),
+      `未收录名单覆盖三种原因：非 PSD / 超 ${Math.round(TPL_MAX_BYTES / 1024 / 1024)} MB / 读不到尺寸（实际 ${reasons.join(',')}）`
+    )
+    ok(
+      existsSync(join(tRootDir, '超大.psd')) && existsSync(join(tRootDir, '尺寸坏.psd')),
+      '被拒的文件**原样留在磁盘上**（只不收录，绝不删用户文件）'
+    )
+
+    const list59 = listTplAssets()
+    const rowA = list59.find((a) => a.file_name === '主视觉.psd')!
+    ok(
+      rowA.width === 1772 && rowA.height === 4134 && rowA.color_mode === 'CMYK',
+      `画布尺寸 / 色彩模式读对（${rowA.width}×${rowA.height} · ${rowA.color_mode}）`
+    )
+    ok(
+      rowA.resolution === 150,
+      `分辨率 ppi 读对（IRB 1005 → ${rowA.resolution}）`
+    )
+    ok(rowA.guides === 4, `参考线条数读对（IRB 1032 → ${rowA.guides} 条）`)
+    const rowB = list59.find((a) => a.file_name === '展架.psd')!
+    ok(rowB.guides === 0, '「没有参考线」读成 0（与"没探到 = null"区分开）')
+    ok(
+      rowA.folderPath.join('/') === '易拉宝/2026春季/海南',
+      `多层分组路径正确（${rowA.folderPath.join(' / ')}）`
+    )
+    const stats59 = tplStats()
+    ok(
+      stats59.assets === 3 && stats59.unsorted === 1,
+      `统计口径：3 份模板、其中未分组 1 份（实际 ${stats59.assets} / ${stats59.unsorted}）`
+    )
+
+    // ⑤ 导入：先体检再复制（合法的进、非 PSD 拒）
+    const impSrc = join(tRoot, 'import-src')
+    mkdirSync(impSrc, { recursive: true })
+    makePsd(join(impSrc, '导入模板.psd'), { w: 800, h: 1800, ppi: 150, guides: 4 })
+    writeFileSync(join(impSrc, '不是模板.txt'), 'x', 'utf-8')
+    const imp59 = await importTplPaths({
+      workspaceRoot: tWs,
+      paths: [join(impSrc, '导入模板.psd'), join(impSrc, '不是模板.txt')]
+    })
+    ok(
+      imp59.imported === 1 && imp59.rejected.length === 1 && imp59.rejected[0].reason === 'not-psd',
+      '导入：合法 PSD 进库、非 PSD 当场拒（且不落盘）'
+    )
+
+    // ⑥ 镜像：tpl.json + manifest 三库俱在（★ 合并写别丢条目）
+    // 第 69 批（docs/53）：先给 rowA 造一张「信息卡图」并写进 card_path ——
+    // 镜像必须**优先用它**（512px 信息卡），而不是 PSD 内嵌预览（160px 糊图）。
+    const cardPng59 = join(tWs, '_thumbs', 'tpl-card', 'manual-card.png')
+    mkdirSync(dirname(cardPng59), { recursive: true })
+    makePng(cardPng59, 512, 512, [255, 90, 0])
+    getDb()
+      .prepare('UPDATE tpl_assets SET card_path = ? WHERE id = ?')
+      .run('_thumbs/tpl-card/manual-card.png', rowA.id)
+
+    const hits59 = discoverPluginDataDirs(tAppData)
+    await syncTaskMirror(tWs, hits59, { appVersion: '1.10.0' })
+    await syncBrandMirror(tWs, hits59, { appVersion: '1.10.0' })
+    const mir59 = await syncTplMirror(tWs, hits59, { appVersion: '1.10.0' })
+    ok(mir59.ok && existsSync(join(tLib, TPL_FILE)), '写出 library\\tpl.json')
+    const tplJson59 = JSON.parse(readFileSync(join(tLib, TPL_FILE), 'utf-8')) as {
+      scope: string
+      groups: Array<{ id: number; name: string; parentId?: number }>
+      items: Array<{
+        id: number
+        groupId: number | null
+        kind: string
+        role: string
+        width: number
+        height: number
+        resolution: number | null
+        mode: string | null
+        guides: number | null
+        thumb: string | null
+        versionId: number | null
+      }>
+    }
+    ok(tplJson59.scope === 'tpl', 'tpl.json 的 scope = "tpl"')
+    ok(
+      tplJson59.groups.length === 3 && tplJson59.groups.filter((g) => g.parentId).length === 2,
+      `groups[] 带出三层、后两层带 parentId（${tplJson59.groups.length} 个分组）`
+    )
+    const itemA = tplJson59.items.find((i) => i.id === rowA.id)!
+    ok(
+      itemA.groupId === g3.id && itemA.kind === 'psd' && itemA.role === '素材',
+      '模板条目：groupId 指向所在层 / kind=psd（不新造 template）/ role=素材'
+    )
+    ok(
+      itemA.width === 1772 && itemA.height === 4134 && itemA.guides === 4 && itemA.versionId === null,
+      '模板条目带必填尺寸 + 参考线条数（versionId 恒 null）'
+    )
+
+    // ★ 第 69 批（docs/53）：插件吃的是信息卡图，不是 PSD 内嵌预览
+    ok(
+      itemA.thumb === `thumb/p${rowA.id}.png`,
+      `有 card_path 时 thumb 指向信息卡图：${itemA.thumb}`
+    )
+    const thumbAbs59 = join(tLib, 'thumb', `p${rowA.id}.png`)
+    ok(
+      existsSync(thumbAbs59) &&
+        existsSync(cardPng59) &&
+        statSync(thumbAbs59).size === statSync(cardPng59).size,
+      '镜像里那张图就是信息卡图（字节数与源一致），不是 PSD 内嵌预览'
+    )
+    const manifest59 = JSON.parse(readFileSync(join(tLib, MANIFEST_FILE), 'utf-8')) as {
+      scopes: Array<{ id: string; count: number }>
+    }
+    ok(
+      manifest59.scopes.map((s) => s.id).sort().join(',') === 'brand,task,tpl',
+      `manifest.scopes[] 三库俱在（实际 ${manifest59.scopes.map((s) => s.id).join(',')}）—— 合并写没抹掉别的库`
+    )
+    ok(
+      mir59.revision >= 1 && manifest59.scopes.find((s) => s.id === 'tpl')!.count === tplJson59.items.length,
+      'tpl 的 revision 独立递增、manifest 里的 count 与 items 条数一致'
+    )
+
+    // ⑦ handoff：scope=tpl → incoming.psd（★ 扩展名跟着源文件走）
+    mkdirSync(tHand, { recursive: true })
+    const engine59 = new HandoffEngine({ workspaceRoot: tWs, targets: hits59 })
+    const writeReq = (reqId: string, assetId: number, scope: string): void => {
+      writeFileSync(
+        join(tHand, 'req.json'),
+        JSON.stringify({
+          contract: 'vellum-link/1',
+          reqId,
+          assetId,
+          scope,
+          at: new Date().toISOString()
+        }),
+        'utf-8'
+      )
+    }
+    const readRes = (): { ok: boolean; file?: string | null; error?: string | null } =>
+      JSON.parse(readFileSync(join(tHand, 'res.json'), 'utf-8')) as {
+        ok: boolean
+        file?: string | null
+        error?: string | null
+      }
+
+    writeReq('r-tpl-1', rowA.id, 'tpl')
+    await engine59.tick()
+    const resOk = readRes()
+    ok(
+      resOk.ok === true && resOk.file === `${HANDOFF_DIR}/incoming.psd`,
+      `scope=tpl 反查成功，落成 handoff/incoming.psd（file=${String(resOk.file)}）`
+    )
+    ok(
+      existsSync(join(tHand, 'incoming.psd')),
+      '模板原图真的落盘（不是只写了 res.json）'
+    )
+    const ageMs = Date.now() - fileMtimeMs(join(tHand, 'incoming.psd'))
+    ok(ageMs >= 0 && ageMs < 60_000, `incoming.psd 的 mtime 被盖成"现在"（年龄 ${Math.round(ageMs / 1000)}s）`)
+
+    writeReq('r-tpl-2', 999999, 'tpl')
+    await engine59.tick()
+    ok(readRes().error === 'not_found', 'tpl scope 内的未知 id → not_found（不串到别的库去猜）')
+
+    writeReq('r-tpl-3', rowA.id, 'foo')
+    await engine59.tick()
+    ok(readRes().error === 'bad_request', '未知 scope → bad_request（不猜、避免误投）')
+
+    // ⑧ 改名 / 删组 / 移除（磁盘与库同步）
+    const renFolder = renameTplFolder({ workspaceRoot: tWs, id: g3.id, name: '海南-2026' })
+    ok(
+      renFolder.ok && existsSync(join(tRootDir, '易拉宝', '2026春季', '海南-2026', '主视觉.psd')),
+      '分组改名：连带改磁盘目录名'
+    )
+    const afterRen = getDb()
+      .prepare('SELECT abs_path FROM tpl_assets WHERE id = ?')
+      .get(rowA.id) as { abs_path: string }
+    ok(
+      afterRen.abs_path.includes('海南-2026'),
+      '分组改名：组内模板的 abs_path 同一事务跟着改（不留旧路径）'
+    )
+
+    const renAsset = renameTplAsset({ workspaceRoot: tWs, id: rowA.id, name: '主视觉V2' })
+    ok(
+      renAsset.ok &&
+        renAsset.value?.file_name === '主视觉V2.psd' &&
+        existsSync(join(tRootDir, '易拉宝', '2026春季', '海南-2026', '主视觉V2.psd')),
+      '模板改名：连带改磁盘文件名（扩展名保留 .psd）'
+    )
+
+    const delFolder = deleteTplFolder({ workspaceRoot: tWs, id: g1.id })
+    const movedB = listTplAssets().find((a) => a.file_name === '展架.psd')!
+    ok(
+      delFolder.ok && movedB.folder_id === null && existsSync(movedB.abs_path),
+      '删分组：组内模板移到「未分组」，文件一个不少'
+    )
+
+    const rem = removeTplAsset({ workspaceRoot: tWs, id: rowA.id })
+    ok(
+      rem.ok &&
+        !listTplAssets().some((a) => a.file_name === '主视觉V2.psd') &&
+        existsSync(join(tWs, '_回收站')),
+      '移除模板：文件进 _回收站、记录删掉（软件永不静默删用户东西）'
+    )
+
+    closeDb()
+    hardRm(tRoot)
+  }
+
+  log('\n[60] 第 67 批：批量移动到分组（磁盘 + 登记一起动；两库同构，docs/50 §6）')
+  {
+    const mRoot = join('D:////_accept_ws', `wstest60_${RUN_ID}`)
+    const mWs = join(mRoot, 'ws')
+    hardRm(mRoot)
+    mkdirSync(mWs, { recursive: true })
+    closeDb()
+    openDb(mWs)
+    initWorkspace(mWs)
+
+    // ---------------- 通用库 ----------------
+    ensureBrandRoot(mWs)
+    const mSrc = join(mRoot, 'src')
+    mkdirSync(mSrc, { recursive: true })
+    const mA = createBrandFolder({ workspaceRoot: mWs, name: '组A', parentId: null })
+    const mB = createBrandFolder({ workspaceRoot: mWs, name: '组B', parentId: null })
+    const aId = mA.value!.id
+    const bId = mB.value!.id
+
+    const f1 = join(mSrc, '图一.png')
+    const f2 = join(mSrc, '图二.png')
+    makePng(f1, 16, 16, [10, 20, 30])
+    makePng(f2, 16, 16, [40, 50, 60])
+    importBrandPaths({ workspaceRoot: mWs, paths: [f1, f2], folderId: aId })
+    // ⚠️ `importBrandPaths` 只**复制文件**、不写登记；记录是扫描认领的（[57] 段同此）
+    await scanBrand(mWs)
+
+    const aDir = join(mWs, BRAND_ROOT_DIR, '组A')
+    const bDir = join(mWs, BRAND_ROOT_DIR, '组B')
+    const idsInA = (): number[] => listBrandAssets({ folderId: aId }).map((a) => a.id)
+
+    // ① 整批移动：磁盘真搬、登记三条路径字段全对上
+    const idsA = idsInA()
+    ok(idsA.length === 2, `前置：组A 里有 2 条（实际 ${idsA.length}）`)
+    const mv1 = moveBrandAssets({ workspaceRoot: mWs, ids: idsA, targetFolderId: bId })
+    ok(
+      mv1.ok && mv1.value?.moved === 2,
+      `批量移动 2 条到「组B」（${JSON.stringify(mv1)}）`
+    )
+    ok(
+      existsSync(join(bDir, '图一.png')) && existsSync(join(bDir, '图二.png')),
+      '磁盘：两个文件真的搬进了「组B」目录'
+    )
+    ok(!existsSync(join(aDir, '图一.png')), '磁盘：原目录里不再有它们（是搬不是复制）')
+    const after1 = listBrandAssets({ folderId: bId })
+    ok(after1.length === 2 && after1.every((a) => a.folder_id === bId), '登记：folder_id 全部指向「组B」')
+    const row1 = after1.find((a) => a.file_name === '图一.png')!
+    ok(
+      row1.abs_path === join(bDir, '图一.png') &&
+        row1.rel_path === join(BRAND_ROOT_DIR, '组B', '图一.png'),
+      '登记：abs_path / rel_path 同步更新（不留旧路径）'
+    )
+
+    // ② 目标组已有同名 ⇒ 自动加序号，且**登记里的 file_name 也跟着改**
+    makePng(join(aDir, '图一.png'), 8, 8, [1, 2, 3])
+    const mv2 = moveBrandAssets({ workspaceRoot: mWs, ids: after1.map((a) => a.id), targetFolderId: aId })
+    ok(mv2.ok && mv2.value?.moved === 2, '再整批搬回「组A」')
+    ok(
+      existsSync(join(aDir, '图一-2.png')),
+      '目标组已有同名 ⇒ 自动加序号（图一-2.png），绝不覆盖用户文件'
+    )
+    const row2 = listBrandAssets({ folderId: aId }).find((a) => a.id === row1.id)!
+    ok(row2.file_name === '图一-2.png', `登记：file_name 同步成新名字（界面名字 = 磁盘名字，实际 ${row2.file_name}）`)
+
+    // ③ 移到「未分组」= 库根（-1）
+    const mv3 = moveBrandAssets({ workspaceRoot: mWs, ids: [row1.id], targetFolderId: -1 })
+    ok(mv3.ok && existsSync(join(mWs, BRAND_ROOT_DIR, '图一-2.png')), '移到「未分组」⇒ 文件落在库根')
+    ok(
+      listBrandAssets({ folderId: -1 }).some((a) => a.id === row1.id),
+      '登记：folder_id = NULL（未分组）'
+    )
+
+    // ④ 目标组不存在 ⇒ 整批拒绝，文件一个不动
+    const mv4 = moveBrandAssets({ workspaceRoot: mWs, ids: [row1.id], targetFolderId: 999999 })
+    ok(!mv4.ok && mv4.error === 'no-target', '目标组不存在 ⇒ 整批拒绝（no-target）')
+    ok(existsSync(join(mWs, BRAND_ROOT_DIR, '图一-2.png')), '被拒绝时文件原样不动')
+
+    // ⑤ 本来就在目标分组 ⇒ skipped，不算搬
+    const mv5 = moveBrandAssets({ workspaceRoot: mWs, ids: [row1.id], targetFolderId: -1 })
+    ok(
+      mv5.ok && mv5.value?.moved === 0 && mv5.value?.skipped === 1,
+      `本来就在目标分组 ⇒ moved=0 / skipped=1（实际 ${mv5.value?.moved}/${mv5.value?.skipped}）`
+    )
+
+    // ⑥ 一条坏 id ⇒ 其余照搬、不整体失败
+    const mv6 = moveBrandAssets({ workspaceRoot: mWs, ids: [row1.id, 987654], targetFolderId: bId })
+    ok(
+      !mv6.ok && mv6.value?.moved === 1 && mv6.value?.failed.length === 1,
+      `一条不存在 ⇒ 其余照搬（ok=false，moved=${mv6.value?.moved}，failed=${mv6.value?.failed.length}）`
+    )
+    ok(
+      existsSync(join(bDir, '图一-2.png')),
+      '部分失败不影响已成功的那条（失败不中断整批）'
+    )
+
+    // ⑦ 文件已不在磁盘（缺失态）⇒ 只改登记，不报错
+    require('fs').unlinkSync(join(bDir, '图一-2.png'))
+    const mv7 = moveBrandAssets({ workspaceRoot: mWs, ids: [row1.id], targetFolderId: aId })
+    ok(mv7.ok && mv7.value?.moved === 1, '文件已不在磁盘 ⇒ 只改登记（moved=1、不报错）')
+    ok(
+      listBrandAssets({ folderId: aId }).some((a) => a.id === row1.id),
+      '登记已指向新分组，等下次扫描按新位置重新认领'
+    )
+
+    // ⑧ 空列表：不该白跑一趟（IPC 层据此决定不刷镜像）
+    const mv8 = moveBrandAssets({ workspaceRoot: mWs, ids: [], targetFolderId: aId })
+    ok(!mv8.ok && mv8.error === 'empty', '空 id 列表 ⇒ empty')
+
+    // ---------------- 模板库（同构，验一条端到端） ----------------
+    ensureTplRoot(mWs)
+    const tA = createTplFolder({ workspaceRoot: mWs, name: '模板A', parentId: null })
+    const tB = createTplFolder({ workspaceRoot: mWs, name: '模板B', parentId: null })
+    const taDir = join(mWs, TPL_ROOT_DIR, '模板A')
+    const tbDir = join(mWs, TPL_ROOT_DIR, '模板B')
+    mkdirSync(taDir, { recursive: true })
+    const tFile = join(taDir, '模板一.psd')
+    // 移动不解析 PSD 内容 ⇒ 假文件即可（不必造合法 PSD 头）
+    writeFileSync(tFile, Buffer.from('fake-psd-for-move'))
+    const tNow = new Date().toISOString()
+    getDb()
+      .prepare(
+        `INSERT INTO tpl_assets
+           (folder_id, file_name, ext, size, abs_path, rel_path, width, height, created_at, modified_at, scanned_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        tA.value!.id,
+        '模板一.psd',
+        'psd',
+        Buffer.byteLength('fake-psd-for-move'),
+        tFile,
+        join(TPL_ROOT_DIR, '模板A', '模板一.psd'),
+        800,
+        1800,
+        tNow,
+        tNow,
+        tNow
+      )
+    const tRow = listTplAssets().find((a) => a.file_name === '模板一.psd')!
+    const tmv = moveTplAssets({
+      workspaceRoot: mWs,
+      ids: [tRow.id],
+      targetFolderId: tB.value!.id
+    })
+    ok(tmv.ok && tmv.value?.moved === 1, '模板库：批量移动 1 份到「模板B」')
+    ok(
+      existsSync(join(tbDir, '模板一.psd')) && !existsSync(tFile),
+      '模板库：磁盘文件真的搬了（不是复制）'
+    )
+    ok(
+      listTplAssets().find((a) => a.id === tRow.id)?.folder_id === tB.value!.id,
+      '模板库：folder_id 指向「模板B」'
+    )
+
+    closeDb()
+    hardRm(mRoot)
+  }
+
+  log('\n[61] 第 68 批：批量复制到任务 / 序号化改名（两库同构，docs/50 §6）')
+  {
+    const sRoot = join('D://_accept_ws', `wstest61_${RUN_ID}`)
+    const sWs = join(sRoot, 'ws')
+    hardRm(sRoot)
+    mkdirSync(sWs, { recursive: true })
+    closeDb()
+    openDb(sWs)
+    initWorkspace(sWs)
+
+    // 布景：一个任务（复制目标）+ 通用库里 3 张图
+    ensureBrandRoot(sWs)
+    const sPack = createPack({ name: '复制目标任务', workspaceRoot: sWs })
+    const sGroup = createBrandFolder({ workspaceRoot: sWs, name: '源组', parentId: null }).value!
+    const sSrc = join(sRoot, 'src')
+    mkdirSync(sSrc, { recursive: true })
+    const redF = join(sSrc, '红.png')
+    const greenF = join(sSrc, '绿.png')
+    const blueF = join(sSrc, '蓝.png')
+    makePng(redF, 12, 12, [255, 0, 0])
+    makePng(greenF, 12, 12, [0, 255, 0])
+    makePng(blueF, 12, 12, [0, 0, 255])
+    importBrandPaths({ workspaceRoot: sWs, paths: [redF, greenF, blueF], folderId: sGroup.id })
+    await scanBrand(sWs)
+    const sAll = listBrandAssets({ folderId: sGroup.id })
+    ok(sAll.length === 3, `前置：通用库 3 条（实际 ${sAll.length}）`)
+
+    const sDest = join(sPack.folder_path, '02-素材')
+    const gDir = join(sWs, BRAND_ROOT_DIR, '源组')
+
+    // ① 批量复制到任务：文件进 02-素材、原文件不动、任务库认领
+    const cp1 = copyBrandAssetsToPack({
+      workspaceRoot: sWs,
+      ids: sAll.slice(0, 2).map((a) => a.id),
+      packId: sPack.id
+    })
+    ok(cp1.ok && cp1.value?.copied === 2, `批量复制 2 条到任务（copied=${cp1.value?.copied}）`)
+    const lsDest = (): string => {
+      try {
+        return require('fs').readdirSync(sDest).join('|')
+      } catch (e) {
+        return 'ERR:' + (e as Error).message
+      }
+    }
+    // ⚠️ `listBrandAssets` 是 `modified_at DESC, id DESC` ⇒ 前两条是「蓝、绿」（不是红、绿）
+    ok(
+      existsSync(join(sDest, '蓝.png')) && existsSync(join(sDest, '绿.png')),
+      `磁盘：两个文件进了任务的 02-素材（ls=${lsDest()}）`
+    )
+    ok(existsSync(join(gDir, '蓝.png')), '库里的原文件仍在（是复制不是移动）')
+    ok(
+      listAssets({ packId: sPack.id }).some((a) => a.file_name === '蓝.png'),
+      '任务库已认领复制进来的文件（登记进 assets，只扫了一次盘）'
+    )
+
+    // ② 一部分坏 id：其余照复制，ok=false
+    const cp2 = copyBrandAssetsToPack({
+      workspaceRoot: sWs,
+      ids: [sAll[2].id, 987654],
+      packId: sPack.id
+    })
+    ok(
+      !cp2.ok && cp2.value?.copied === 1 && cp2.value?.failed.length === 1,
+      `一条坏 id ⇒ 其余照复制（copied=${cp2.value?.copied}，failed=${cp2.value?.failed.length}）`
+    )
+
+    // ③ 序号化改名：磁盘名字 + 登记名字一起变
+    const rn1 = renameBrandAssetsSeq({
+      workspaceRoot: sWs,
+      ids: sAll.map((a) => a.id),
+      prefix: '素材',
+      start: 1,
+      pad: 2
+    })
+    ok(rn1.ok && rn1.value?.renamed === 3, `3 条全部改名（renamed=${rn1.value?.renamed}）`)
+    ok(
+      ['素材-01.png', '素材-02.png', '素材-03.png'].every((n) => existsSync(join(gDir, n))),
+      '磁盘：变成 素材-01 / 02 / 03.png（补零到 2 位）'
+    )
+    ok(!existsSync(join(gDir, '红.png')), '旧名字不留残影')
+    const rnNames = listBrandAssets({ folderId: sGroup.id })
+      .map((a) => a.file_name)
+      .sort()
+      .join(',')
+    ok(
+      rnNames === '素材-01.png,素材-02.png,素材-03.png',
+      '登记：file_name 全部同步（界面名字 = 磁盘名字）：' + rnNames
+    )
+
+    // ④ 倒序再改一遍 —— 这就是"两阶段改名"存在的理由：直接改会互相覆盖
+    const rev = listBrandAssets({ folderId: sGroup.id })
+      .map((a) => a.id)
+      .reverse()
+    const rn2 = renameBrandAssetsSeq({
+      workspaceRoot: sWs,
+      ids: rev,
+      prefix: '素材',
+      start: 1,
+      pad: 2
+    })
+    const pngCount = (): number =>
+      require('fs')
+        .readdirSync(gDir)
+        .filter((f: string) => f.endsWith('.png')).length
+    ok(
+      rn2.ok && pngCount() === 3,
+      `倒序再改一遍 ⇒ 仍是 3 个文件，没有互相覆盖（实际 ${pngCount()}；${JSON.stringify(rn2)}）`
+    )
+
+    // ⑤ 文件已不在磁盘：跳过并报 missing-file（不制造"名字对不上"的假记录）
+    require('fs').unlinkSync(join(gDir, '素材-01.png'))
+    const goneRow = listBrandAssets({ folderId: sGroup.id }).find(
+      (a) => a.file_name === '素材-01.png'
+    )!
+    const rn3 = renameBrandAssetsSeq({
+      workspaceRoot: sWs,
+      ids: [goneRow.id],
+      prefix: 'X',
+      start: 1,
+      pad: 2
+    })
+    ok(
+      !rn3.ok && rn3.value?.failed[0]?.error === 'missing-file',
+      '文件不在磁盘 ⇒ 跳过并报 missing-file'
+    )
+
+    // ⑥ 模板库：复制 + 改名各验一条端到端（假 PSD 直插登记，同 [60]）
+    ensureTplRoot(sWs)
+    const tFolder = createTplFolder({ workspaceRoot: sWs, name: '模板源', parentId: null }).value!
+    const tDir = join(sWs, TPL_ROOT_DIR, '模板源')
+    mkdirSync(tDir, { recursive: true })
+    const tNow = new Date().toISOString()
+    for (const nm of ['甲.psd', '乙.psd']) {
+      const fp = join(tDir, nm)
+      writeFileSync(fp, Buffer.from('psd-' + nm))
+      getDb()
+        .prepare(
+          `INSERT INTO tpl_assets
+             (folder_id, file_name, ext, size, abs_path, rel_path, width, height, created_at, modified_at, scanned_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+        )
+        .run(
+          tFolder.id,
+          nm,
+          'psd',
+          Buffer.byteLength('psd-' + nm),
+          fp,
+          join(TPL_ROOT_DIR, '模板源', nm),
+          800,
+          1800,
+          tNow,
+          tNow,
+          tNow
+        )
+    }
+    const tIds = listTplAssets({ folderId: tFolder.id }).map((a) => a.id)
+    const cpT = copyTplAssetsToPack({ workspaceRoot: sWs, ids: tIds, packId: sPack.id })
+    ok(cpT.ok && cpT.value?.copied === 2, '模板库：批量复制 2 份进任务')
+    ok(
+      existsSync(join(sDest, '甲.psd')) && existsSync(join(sDest, '乙.psd')),
+      '模板库：文件进了任务的 02-素材'
+    )
+    const rnT = renameTplAssetsSeq({
+      workspaceRoot: sWs,
+      ids: tIds,
+      prefix: '易拉宝',
+      start: 1,
+      pad: 2
+    })
+    ok(rnT.ok && rnT.value?.renamed === 2, '模板库：序号化改名 2 份')
+    ok(
+      existsSync(join(tDir, '易拉宝-01.psd')) && existsSync(join(tDir, '易拉宝-02.psd')),
+      '模板库：磁盘上是 易拉宝-01 / 02.psd'
+    )
+
+    closeDb()
+    hardRm(sRoot)
+  }
+
+  log('\n[62] 第 69 批：模板信息卡的解析规则（品类 / 成品尺寸 / 出血，docs/51）')
+  {
+    // ① 品类：文件名第一个 `_` 之前（`_` 之后当备注）；没有下划线取整名
+    ok(tplTitleOf('展架.psd') === '展架', '品类：无下划线 ⇒ 整名（展架）')
+    ok(
+      tplTitleOf('展架_海南春季_竖版.psd') === '展架',
+      '品类：取第一个下划线之前（展架_海南春季_竖版 ⇒ 展架）'
+    )
+    ok(tplTitleOf('展架＿全角下划线.psd') === '展架', '品类：全角下划线 ＿ 也认')
+    ok(tplTitleOf('_下划线在开头.psd') === '_下划线在开头', '品类：下划线在首位 ⇒ 不能得到空标题')
+    ok(tplNoteOf('展架_海南春季.psd') === '海南春季', '备注：下划线之后的部分')
+    ok(tplNoteOf('展架.psd') === '', '备注：没有下划线就是空')
+
+    // ② 尺寸 / 出血
+    const k1 = parseTplKeywords(['80cm×180cm', 'bleed:5mm'])
+    ok(k1.sizeText === '80cm×180cm' && k1.bleedMm === 5, '标准写法：80cm×180cm + bleed:5mm')
+    ok(parseTplKeywords(['出血：5mm']).bleedMm === 5, '中文 + 全角冒号：出血：5mm')
+    ok(parseTplKeywords(['出血3mm']).bleedMm === 3, '没有冒号也认：出血3mm')
+    ok(parseTplKeywords(['bleed 5']).bleedMm === 5, '空格分隔：bleed 5（缺单位按 mm）')
+    ok(parseTplKeywords(['出血0.5cm']).bleedMm === 5, '单位换算：0.5cm ⇒ 5mm')
+    ok(parseTplKeywords(['80x180']).sizeText === '80cm×180cm', '小写 x 分隔 + 缺单位 ⇒ 补 cm')
+    ok(parseTplKeywords(['42cm×29.7cm']).sizeText === '42cm×29.7cm', '小数原样保留')
+    ok(parseTplKeywords(['800×1800mm']).sizeText === '800mm×1800mm', 'mm 单位不被改写')
+    const k2 = parseTplKeywords(['随便写的一句话'])
+    ok(k2.sizeText === null && k2.bleedMm === null && k2.others.length === 1, '认不出的进 others，不当成尺寸')
+    const k3 = parseTplKeywords(null)
+    ok(k3.sizeText === null && k3.bleedMm === null && k3.others.length === 0, '空关键词 ⇒ 全空（不报错）')
+
+    // ③ 画布兜底：像素 ÷ ppi，接近整数要去掉小数噪声
+    ok(
+      physicalSizeText(1772, 4134, 150) === '30cm×70cm',
+      `兜底算尺寸取整：${physicalSizeText(1772, 4134, 150)}（30.0053 不该显示成 30.01）`
+    )
+    ok(
+      physicalSizeText(3579, 5031, 300) === '30.3cm×42.6cm',
+      `兜底算尺寸保留 1 位小数：${physicalSizeText(3579, 5031, 300)}`
+    )
+    ok(physicalSizeText(null, 100, 150) === null, '缺像素 ⇒ 不算（宁可不显示也不显示错的）')
+    ok(physicalSizeText(100, 100, null) === null, '缺 ppi ⇒ 不算')
+
+    // ④ 扩展字段（约定 docs/52）：用途 / 客户 / 标签 / 备注 / 认不出的
+    const full = parseTplKeywords([
+      'size:80cm×180cm',
+      'bleed:5mm',
+      'usage:室内',
+      'client:海南升学',
+      'tag:竖版',
+      'tag:2026春季',
+      'note:主推款，上方留白',
+      'material:KT板'
+    ])
+    ok(full.usage === '室内' && full.client === '海南升学', '扩展：usage / client 读到了')
+    ok(
+      full.tags.length === 2 && full.tags[0] === '竖版' && full.tags[1] === '2026春季',
+      '扩展：tag 可多值（两条都收下）'
+    )
+    ok(full.note === '主推款，上方留白', '扩展：note 原文保留（含中文逗号）')
+    ok(
+      full.others.length === 1 && full.others[0].startsWith('material'),
+      `认不出的 key 进 others（不报错）：${JSON.stringify(full.others)}`
+    )
+
+    const cn = parseTplKeywords([
+      '成品尺寸：80cm×180cm',
+      '出血：5mm',
+      '用途：户外',
+      '客户：某品牌',
+      '标签：横版',
+      '备注：测试用'
+    ])
+    ok(
+      cn.sizeText === '80cm×180cm' &&
+        cn.bleedMm === 5 &&
+        cn.usage === '户外' &&
+        cn.client === '某品牌' &&
+        cn.tags[0] === '横版' &&
+        cn.note === '测试用',
+      '中文 key + 全角冒号：六个字段全认'
+    )
+
+    const upper = parseTplKeywords(['SIZE=100x200', 'BLEED=3'])
+    ok(
+      upper.sizeText === '100cm×200cm' && upper.bleedMm === 3,
+      '大写 key + 等号也认（SIZE= / BLEED=）'
+    )
+
+    const badSize = parseTplKeywords(['size:很大'])
+    ok(
+      badSize.sizeText === null && badSize.others.length === 1,
+      'key 认得但值不合法 ⇒ 进 others，不静默丢'
+    )
+
+    const unknownKey = parseTplKeywords(['材质:KT板'])
+    ok(unknownKey.others.length === 1, '没定义的 key（材质）⇒ 进 others，不影响其它字段')
+  }
 
 // ============ 汇总 ============
   log('\n' + '='.repeat(62))

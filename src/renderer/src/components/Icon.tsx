@@ -49,6 +49,9 @@ export type IconName =
   | 'undo'
   // 第 54 批（docs/39）：任务快捷方式
   | 'shortcut'
+  // 第 67 批（docs/50）：卡片视图 / 列表视图切换
+  | 'grid'
+  | 'listView'
 
 const ICONS: Record<IconName, React.JSX.Element> = {
   /** 放大镜（搜索素材名 / 标签） */
@@ -193,6 +196,28 @@ const ICONS: Record<IconName, React.JSX.Element> = {
       <path d="M12 16.4v4" />
       <path d="M13.2 12.8l3.6-3.6" />
       <path d="M13.6 9.2h3.2v3.2" />
+    </>
+  ),
+  /**
+   * 第 67 批（docs/50）：**卡片视图**（四宫格）。
+   * 四个圆角方块 —— 「一堆缩略图」的通用语汇，和列表视图成对出现。
+   */
+  grid: (
+    <>
+      <rect x="3.2" y="3.2" width="7.2" height="7.2" rx="1.6" />
+      <rect x="13.6" y="3.2" width="7.2" height="7.2" rx="1.6" />
+      <rect x="3.2" y="13.6" width="7.2" height="7.2" rx="1.6" />
+      <rect x="13.6" y="13.6" width="7.2" height="7.2" rx="1.6" />
+    </>
+  ),
+  /**
+   * 第 67 批（docs/50）：**列表视图**（三横 + 前置小方块）。
+   * 刻意画成"每行一个项目符号"，与 grid 全是方块区分得开。
+   */
+  listView: (
+    <>
+      <path d="M4 6.5h.01M4 12h.01M4 17.5h.01" />
+      <path d="M8.5 6.5h11M8.5 12h11M8.5 17.5h11" />
     </>
   ),
   /** 右向三角（折叠面板） */

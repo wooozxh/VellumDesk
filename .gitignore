@@ -50,3 +50,6 @@ docs/manual/*单文件*.html
 
 # WorkBuddy 工作区数据（记忆/会话配置，本地产物不入库）
 .workbuddy/
+
+# 打包产物（electron-builder 输出，不入库）
+deliver/

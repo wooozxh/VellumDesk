@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { COPY, fmt } from '../../../shared/copy'
 import type {
   TicketAutoSyncState,
@@ -67,6 +67,16 @@ export function TicketsView({
   const [list, setList] = useState<TicketListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
   const [filter, setFilter] = useState<TkFilter>('mine')
+  /**
+   * 第 69 批（bug 修复）：**当前筛选的镜像**。
+   *
+   * 问题现场：用户在「我的」下点「同步工单」，同步要跑几秒；这期间他点了「全部」，
+   * 同步完成后 `doSync` 里那句 `loadList(filter)` 用的是**闭包捕获的旧 filter**（'mine'），
+   * 于是列表被刷成"我的"，而标签还高亮「全部」—— 再点一次「全部」才恢复。
+   *
+   * ref 永远指向最新值 ⇒ 异步回来时按"用户现在真的在看哪个筛选"去取数。
+   */
+  const filterRef = useRef<TkFilter>('mine')
   const [syncing, setSyncing] = useState(false)
   const [detailNo, setDetailNo] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -109,13 +119,23 @@ export function TicketsView({
     }
   }, [onUnassignedCount])
 
-  const loadList = useCallback(async (view: TkFilter): Promise<void> => {
+  /**
+   * 拉列表。`view` 省略 = 用**当前**筛选（`filterRef`），这是修 bug 的关键：
+   * 任何"异步等回来再刷新"的地方都不能传捕获的 filter。
+   *
+   * 序号保护：同步完成和用户点标签可能同时触发两次请求，**只让最新那次写进 state**，
+   * 否则慢的那次回来会把新结果覆盖掉（"切了标签却又跳回去"的经典症状）。
+   */
+  const seqRef = useRef(0)
+  const loadList = useCallback(async (view?: TkFilter): Promise<void> => {
+    const v = view ?? filterRef.current
+    const seq = ++seqRef.current
     setListLoading(true)
     try {
-      const items = await window.api.ticketList(view)
-      setList(items)
+      const items = await window.api.ticketList(v)
+      if (seq === seqRef.current) setList(items)
     } finally {
-      setListLoading(false)
+      if (seq === seqRef.current) setListLoading(false)
     }
   }, [])
 
@@ -152,12 +172,14 @@ export function TicketsView({
           : prev
       )
       void loadStatus()
-      void loadList(filter)
+      // 用当前筛选（ref），不用 effect 捕获的那份 —— 否则自动同步回来会刷错列表
+      void loadList()
     })
     return off
-  }, [filter, loadStatus, loadList])
+  }, [loadStatus, loadList])
 
   const switchFilter = async (f: TkFilter): Promise<void> => {
+    filterRef.current = f
     setFilter(f)
     await loadList(f)
   }
@@ -213,7 +235,7 @@ export function TicketsView({
     const r = await window.api.ticketConfirmBatch()
     toast(fmt(COPY.ticket.syncDone, { inserted: r.confirmed, updated: 0, tasks: r.tasksCreated }))
     if (r.warnings.length) setHint(r.warnings.join('\n'))
-    await loadList(filter)
+    await loadList()
   }
 
   // ---- 形态①：未配置 → 引导 ----

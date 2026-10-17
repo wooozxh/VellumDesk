@@ -107,6 +107,7 @@ NODE_OPTIONS= node _shotapp/run-verify4.cjs wizard           # 界面验证：�
 NODE_OPTIONS= node _shotapp/run-verify4.cjs gencover         # 界面验证：无成品图任务的通用占位封面（第 59 批）
 NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 node _shotapp/run-verify4.cjs pluginlink  # 界面验证：PS 插件联动入口 + 设置弹窗降级态（第 62 批；⚠️ 必带 VELLUM_PLUGIN_SYNC=0，否则会写真实插件目录）
 NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 node _shotapp/run-verify4.cjs brandlib   # 界面验证：通用素材库（组树 / 扫描认领 / 网格 / 同步开关，第 62 批 Step 4；⚠️ 同样要 VELLUM_PLUGIN_SYNC=0）
+NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 node _shotapp/run-verify4.cjs tpllib     # 界面验证：PSD 模板库（多层树 / 参考线角标 / 未收录提示 / 折叠，第 66 批 docs/49；⚠️ 同样要 VELLUM_PLUGIN_SYNC=0）
 ```
 
 注意：

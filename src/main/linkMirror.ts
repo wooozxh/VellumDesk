@@ -27,6 +27,9 @@ import {
 import { createHash } from 'crypto'
 import { getDb, getMeta, setMeta } from './db'
 import { isImage, isVideo, isPsd, isPdf, ensureAnyThumb } from './thumbs'
+// 第 66 批（docs/49）：模板库的缩略图 + 元信息（ppi / 参考线条数）补齐逻辑放在 tplLib，这里只调用。
+// 依赖方向是单向的（tplLib 不认识 linkMirror），不会成环。
+import { ensureTplThumbsAndMeta } from './tplLib'
 
 // ---------------------------------------------------------------- 契约常量（两侧代码里都应是常量）
 export const CONTRACT_VERSION = 'vellum-link/1'
@@ -35,6 +38,8 @@ export const MIRROR_DIR = 'library'
 export const MANIFEST_FILE = 'manifest.json'
 export const TASK_FILE = 'task.json'
 export const BRAND_FILE = 'brand.json'
+/** 第 66 批（docs/49）：PSD 模板库的明细文件（契约 §5.7） */
+export const TPL_FILE = 'tpl.json'
 export const THUMB_DIR = 'thumb'
 export const HANDOFF_DIR = 'handoff'
 export const LAYOUT_VERSION = '3'
@@ -45,6 +50,9 @@ const META_SIG = 'plugin_sig_task'
 /** 第 62 批 Step 4（docs/46）：通用库的 revision / 内容签名（与任务库各自独立） */
 const META_REV_BRAND = 'plugin_rev_brand'
 const META_SIG_BRAND = 'plugin_sig_brand'
+/** 第 66 批（docs/49）：模板库的 revision / 内容签名（三库各自独立，互不影响） */
+const META_REV_TPL = 'plugin_rev_tpl'
+const META_SIG_TPL = 'plugin_sig_tpl'
 
 /** 图片/PSD/PDF 的镜像缩略图统一落 png，视频落 jpg（契约 §5.5：只允许 png / jpg） */
 const PNG_EXTS = new Set(['png'])
@@ -399,8 +407,9 @@ function refreshManifest(
     }
   }
   const others = prevScopes.filter((s) => s && s.id !== entry.id)
-  // task 恒在前、brand 在后（稳定顺序，便于人工核对）
-  const rank = (id: string): number => (id === 'task' ? 0 : id === 'brand' ? 1 : 2)
+  // 稳定顺序：task → brand → tpl（便于人工核对；将来加库时排到最后）
+  const rank = (id: string): number =>
+    id === 'task' ? 0 : id === 'brand' ? 1 : id === 'tpl' ? 2 : 9
   const scopes = [entry, ...others].sort((a, b) => rank(a.id) - rank(b.id))
   atomicWriteJson(p, {
     contract: CONTRACT_VERSION,
@@ -710,6 +719,193 @@ export async function syncBrandMirror(
       ok: false,
       wrote: false,
       revision: Number(getMeta(META_REV_BRAND) || '0'),
+      count: 0,
+      thumbs: 0,
+      targets,
+      error: e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
+// ---------------------------------------------------------------- PSD 模板库镜像（第 66 批 · docs/49 §6）
+
+/** 单条模板 → 契约 §5.7 的 `item` 结构 */
+function tplAssetToJson(a: {
+  id: number
+  folder_id: number | null
+  file_name: string
+  ext: string
+  size: number
+  width: number | null
+  height: number | null
+  color_mode: string | null
+  resolution: number | null
+  guides: number | null
+  thumb_path: string | null
+  card_path: string | null
+  missing_at: string | null
+  modified_at: string
+  abs_path: string
+}): Record<string, unknown> {
+  // 第 69 批：插件吃的是信息卡图（512），没有才回退 PSD 内嵌预览
+  const thumbSrc = a.card_path ?? a.thumb_path
+  const srcExt = thumbSrc ? extname(thumbSrc).replace(/^\./, '') : ''
+  return {
+    id: a.id,
+    groupId: a.folder_id,
+    name: a.file_name,
+    ext: a.ext,
+    // 契约 §5.4 的枚举值；**不新造 "template"** —— 插件用 scope=="tpl" 就能区分（docs/49 Q4）
+    kind: 'psd',
+    // 模板不属于 01-成品/02-素材/03-工程 三组子文件夹，与通用库同口径记「素材」
+    role: '素材',
+    size: a.size,
+    width: a.width,
+    height: a.height,
+    resolution: a.resolution,
+    mode: a.color_mode,
+    // 参考线条数：null = 没探到、0 = 确认没有线（两者含义不同，不合并）
+    guides: a.guides,
+    versionId: null,
+    thumb: thumbSrc ? `${THUMB_DIR}/${mirrorThumbName(a.id, srcExt, 'p')}` : null,
+    missing: a.missing_at !== null,
+    modifiedAt: a.modified_at,
+    absPath: a.abs_path,
+    tags: []
+  }
+}
+
+interface TplContent {
+  contract: string
+  scope: 'tpl'
+  groups: unknown[]
+  items: unknown[]
+}
+
+/**
+ * 组装 `tpl.json` 的**内容**（不含 revision / generatedAt —— 那两个写盘时补，签名基于本内容算）。
+ * · `groups[]` 是扁平表（父组用 `parentId` 指，深度 ≤5）—— 与 `brand.json` 完全同构
+ * · `items[]` 是扁平列表，层级只由 `groupId` 指向；**未分组的也照发**（`groupId: null`）
+ */
+function buildTplContent(): TplContent {
+  const db = getDb()
+  const folders = db
+    .prepare('SELECT id, parent_id, name, sort_order FROM tpl_folders')
+    .all() as Array<{
+    id: number
+    parent_id: number | null
+    name: string
+    sort_order: number
+  }>
+
+  const groups = folders
+    .slice()
+    .sort((a, b) => {
+      const pa = a.parent_id ?? 0
+      const pb = b.parent_id ?? 0
+      if (pa !== pb) return pa - pb
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+      return a.id - b.id
+    })
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      // 顶层省略 parentId（契约 §5.3 的既有读法：省略 / null 都是顶层）
+      ...(f.parent_id !== null ? { parentId: f.parent_id } : {}),
+      sortOrder: f.sort_order
+    }))
+
+  const items = (
+    db
+      .prepare(
+        `SELECT id, folder_id, file_name, ext, size, width, height, color_mode, resolution,
+                guides, thumb_path, card_path, missing_at, modified_at, abs_path FROM tpl_assets`
+      )
+      .all() as Array<Parameters<typeof tplAssetToJson>[0]>
+  ).map(tplAssetToJson)
+
+  return { contract: CONTRACT_VERSION, scope: 'tpl', groups, items }
+}
+
+export interface TplMirrorResult extends MirrorWriteResult {}
+
+/**
+ * 把「PSD 模板库」镜像写进给定的每个插件目录（第 66 批 · docs/49 §6）。
+ * 与任务库/通用库同一套办法：内容签名短路 + 原子写 + 命名空间缩略图（`p<id>`）。
+ */
+export async function syncTplMirror(
+  workspaceRoot: string,
+  targets: MirrorTarget[],
+  opts: { appVersion: string; force?: boolean }
+): Promise<TplMirrorResult> {
+  try {
+    // 补缩略图与元信息（ppi / 参考线条数）—— 没这一步，刚导入的模板在插件里会是空白格
+    await ensureTplThumbsAndMeta(workspaceRoot)
+
+    const content = buildTplContent()
+    const count = content.items.length
+    const sig = createHash('sha1').update(JSON.stringify(content)).digest('hex')
+    const prevSig = getMeta(META_SIG_TPL)
+    const prevRev = Number(getMeta(META_REV_TPL) || '0')
+    const allTargetsPopulated = targets.every(
+      (t) =>
+        existsSync(join(t.pluginDataDir, MIRROR_DIR, TPL_FILE)) &&
+        sameRoot(mirrorWorkspaceOf(t.pluginDataDir), workspaceRoot)
+    )
+    const unchanged = !opts.force && prevSig === sig && allTargetsPopulated
+
+    if (unchanged) {
+      return { ok: true, wrote: false, revision: prevRev, count, thumbs: 0, targets }
+    }
+
+    const revision = prevRev + 1
+    const generatedAt = isoLocal()
+
+    let thumbs = 0
+    for (const t of targets) {
+      const lib = join(t.pluginDataDir, MIRROR_DIR)
+      const thumbDir = join(lib, THUMB_DIR)
+      mkdirSync(thumbDir, { recursive: true })
+
+      // 第 69 批（docs/53）：优先用**信息卡渲染图**（512px，插件里也清晰）；
+      // 没有就回退到 PSD 内嵌预览（160px，糊但聊胜于无）。
+      const assetRows = getDb()
+        .prepare(
+          `SELECT id, card_path, thumb_path FROM tpl_assets
+            WHERE card_path IS NOT NULL OR thumb_path IS NOT NULL`
+        )
+        .all() as Array<{ id: number; card_path: string | null; thumb_path: string | null }>
+      for (const a of assetRows) {
+        const rel = await writeMirrorThumb(
+          workspaceRoot,
+          thumbDir,
+          a.id,
+          a.card_path ?? a.thumb_path!,
+          'p'
+        )
+        if (rel) thumbs += 1
+      }
+
+      atomicWriteJson(join(lib, TPL_FILE), { ...content, revision, generatedAt })
+
+      // 合并式写 manifest：**别把 task / brand 两条抹掉**（scopes[] 是插件列库的唯一依据）
+      refreshManifest(lib, { psMajor: t.psMajor, appVersion: opts.appVersion, workspaceRoot }, {
+        id: 'tpl',
+        label: '模板',
+        file: TPL_FILE,
+        revision,
+        count
+      })
+    }
+
+    setMeta(META_SIG_TPL, sig)
+    setMeta(META_REV_TPL, String(revision))
+    return { ok: true, wrote: true, revision, count, thumbs, targets }
+  } catch (e) {
+    return {
+      ok: false,
+      wrote: false,
+      revision: Number(getMeta(META_REV_TPL) || '0'),
       count: 0,
       thumbs: 0,
       targets,

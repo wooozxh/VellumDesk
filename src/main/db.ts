@@ -902,6 +902,77 @@ function migrate(d: Database.Database, workspaceRoot: string): void {
     CREATE INDEX IF NOT EXISTS idx_brand_folders_parent ON brand_folders(parent_id);
     CREATE INDEX IF NOT EXISTS idx_brand_assets_folder ON brand_assets(folder_id);
   `)
+
+  // ---- 迁移 23：PSD 模板库两张表（第 66 批 docs/49）----
+  // 「模板库」= 专存**参考线打好**的 PSD 模板，给 PS 插件「新建稿」用（插件 `app.open` 打开成新文档）。
+  // 与通用库同构（两张独立表）；差别有三处，都是本批的拍板：
+  //   ① **分组层数不封顶到 2，而是 ≤5**（契约 §5.3 第 1 条；两层封顶在模板场景明显不够用）；
+  //   ② **体积/尺寸/格式在收录时就卡**（≤20 MB、必须读到画布尺寸、只收 psd/psb）——
+  //      因为模板要通过 handoff 整份拷进插件在 C 盘的 PluginData，且画布尺寸是列表上唯一可分辨的信息；
+  //   ③ 多存 `resolution`（ppi）与 `guides`（参考线条数），供插件按用途/尺寸筛排、
+  //      并让用户一眼看出"这份模板到底有没有打好参考线"。
+  //
+  // 同样**不复用 `assets` / `brand_assets`**（理由同迁移 22）：独立表 = 零污染。
+  // 也**不建永远空着的列**（`usage` / `frame_mm` / `bleed_mm` 都没建 —— 分类由分组路径表达）。
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tpl_folders (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_id   INTEGER REFERENCES tpl_folders(id) ON DELETE CASCADE,
+      name        TEXT    NOT NULL,
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      rel_path    TEXT    NOT NULL DEFAULT '',
+      created_at  TEXT    NOT NULL,
+      -- ⚠️ SQLite 的 UNIQUE 对 NULL **不去重**（NULL 互不相等）⇒ 顶层同名拦不住，
+      --    必须靠应用层显式查重（见 tplLib.createTplFolder 的 dup 查询）。
+      UNIQUE(parent_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS tpl_assets (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      folder_id    INTEGER REFERENCES tpl_folders(id) ON DELETE SET NULL,
+      file_name    TEXT    NOT NULL,
+      ext          TEXT    NOT NULL DEFAULT '',
+      size         INTEGER NOT NULL DEFAULT 0,
+      abs_path     TEXT    NOT NULL UNIQUE,
+      rel_path     TEXT    NOT NULL DEFAULT '',
+      thumb_path   TEXT,
+      width        INTEGER,
+      height       INTEGER,
+      color_mode   TEXT,
+      resolution   REAL,
+      -- 参考线条数：NULL = 没探到（老 PSD / 没有 IRB 1032），0 = 探到了、确认没有线
+      guides       INTEGER,
+      missing_at   TEXT,
+      created_at   TEXT    NOT NULL,
+      modified_at  TEXT    NOT NULL,
+      scanned_at   TEXT    NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tpl_folders_parent ON tpl_folders(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_tpl_assets_folder ON tpl_assets(folder_id);
+  `)
+
+  // ---- 迁移 24：tpl_assets 加 keywords（第 69 批 docs/51）----
+  // 模板库用它承载「成品尺寸 / 出血」这类 PSD **没有标准字段**的印刷参数
+  // （用户写在 PSD 的关键词里，XnView / PS 文件简介 / ExifTool 都能写）。
+  //
+  // 🔴 三态语义，别压成两态：
+  //   NULL            = 还没读过（下次扫描要补）
+  //   '[]'            = 读过了、这份模板没有关键词
+  //   '["80cm×180cm"]'= 有
+  // 少了第三态，每次扫描都会把所有「本来就没写关键词」的模板重读一遍（几百个就是几十秒）。
+  const tplCols24 = d.prepare('PRAGMA table_info(tpl_assets)').all() as Array<{ name: string }>
+  if (!tplCols24.some((c) => c.name === 'keywords')) {
+    d.exec('ALTER TABLE tpl_assets ADD COLUMN keywords TEXT')
+  }
+
+  // ---- 迁移 25：tpl_assets 加 card_path（第 69 批 docs/53）----
+  // 信息卡渲染图的相对路径（`_thumbs/tpl-card/<sig>.png`）。
+  // 为什么要和 `thumb_path` 分开：`thumb_path` 是 PSD 内嵌预览（160px，软件界面已不用但留着兜底），
+  // `card_path` 才是发给 PS 插件的那张（512px 信息卡）。渲染失败时镜像自动回退到 thumb。
+  if (!tplCols24.some((c) => c.name === 'card_path')) {
+    d.exec('ALTER TABLE tpl_assets ADD COLUMN card_path TEXT')
+  }
 }
 
 // ---------------------------------------------------------------- 第 3 批：标签维度定义

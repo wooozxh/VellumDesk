@@ -47,7 +47,113 @@ export const COPY = {
     current: '当前',
     fileCount: '{n} 个文件',
     confirmDelete: '确认删除',
-    failed: '操作失败'
+    failed: '操作失败',
+
+    // ---- 第 67 批（docs/50）：卡片 / 列表视图切换 ----
+    /** 切换按钮组的无障碍名 */
+    viewSwitchLabel: '切换视图',
+    viewCard: '卡片视图（看缩略图）',
+    viewList: '列表视图（一屏看更多，可勾选批量操作）',
+    /** 列表视图没内容时 */
+    listEmpty: '这里还没有内容',
+    /** 列表表头的全选 / 全不选（`{n}` 不需要，只作用于当前筛选出的行） */
+    selectAllAll: '全选当前列出的条目',
+    selectNoneAll: '取消全选',
+    /** 行的悬停提示：双击打开 */
+    dblClickOpen: '双击打开',
+
+    // ---- 第 67 批（docs/50）：列表视图的勾选批量条 ----
+    /** 批量条左侧：`已选 3 项` */
+    bulkCount: '已选 {n} 项',
+    /** 批量条的「取消勾选」 */
+    bulkClearSel: '取消勾选',
+    /** 批量执行中 */
+    bulkWorking: '处理中…',
+    /**
+     * 清除记录 = **只删软件里的登记，不动磁盘文件**。
+     * 文案里必须把「文件还在」说透 —— 否则用户会以为文件被删了而不敢点。
+     */
+    bulkForget: '清除记录',
+    bulkForgetTip: '只把登记从软件里去掉，**不删磁盘上的文件**；以后重新扫描还能再收录回来',
+    /** 执行后的汇总：`已清除 3 条记录（文件仍在原处）` */
+    bulkForgetDone: '已清除 {n} 条记录（文件仍在原处）',
+    bulkForgetPartial: '清除 {ok} 条，{fail} 条失败：{msg}',
+    /** 批量条上的「删除」 */
+    bulkRemove: '删除',
+    bulkRemoveTip: '把文件移到回收站（可在资源管理器里找回）',
+    bulkRemoveDone: '已删除 {n} 个文件（已移到回收站）',
+    bulkRemovePartial: '删除 {ok} 个，{fail} 个失败：{msg}',
+    /** 危险动作的二次确认（`{n}` 条数） */
+    bulkRemoveConfirm: '确定删除这 {n} 个文件吗？\n它们会被移到回收站，不会立刻消失。',
+    bulkForgetConfirm: '确定清除这 {n} 条记录吗？\n磁盘上的文件不会被删除，以后重新扫描还能再收录。',
+    /** 批量条上的「打包」 */
+    bulkPack: '批量打包（{n}）',
+
+    // ---- 第 67 批（docs/50 §6）：批量移动到分组 ----
+    /** 批量条上的按钮 */
+    bulkMove: '移动到分组',
+    bulkMoveTip: '把勾中的条目移到另一个分组 —— 磁盘文件会一起搬；目标组里有同名文件时自动加序号（-2 / -3）',
+    /** 分组选择弹窗的标题 */
+    moveTitle: '移动到…',
+    /** 弹窗里没有任何可选分组（除「未分组」外） */
+    moveEmpty: '还没有建过别的分组',
+    moveNoTarget: '目标分组已不存在，刷新后再试',
+    /** `已移动 3 个到「海报」` */
+    moveDone: '已移动 {n} 个到「{name}」',
+    /** 补在 moveDone 后面：有几个本来就在那个分组 */
+    moveSkipped: '（{n} 个本来就在这个分组）',
+    movePartial: '移动 {ok} 个，{fail} 个失败：{msg}',
+
+    // ---- 第 68 批（docs/50 §6）：批量复制到任务 ----
+    bulkCopyToPack: '复制到任务',
+    bulkCopyToPackTip: '把勾中的条目**复制**一份进某个任务的「02-素材」（原文件留在库里不动）',
+    pickPackTitle: '复制到哪个任务？',
+    pickPackEmpty: '还没有任务，先去任务视图建一个',
+    copyDone: '已复制 {n} 个到「{name}」',
+    copyPartial: '复制 {ok} 个，{fail} 个失败：{msg}',
+
+    // ---- 第 68 批（docs/50 §6）：序号化批量改名 ----
+    bulkRename: '批量改名',
+    bulkRenameTip: '按序号统一改名：前缀-01、前缀-02…（扩展名不变）',
+    renameTitle: '按序号改名',
+    renamePrefix: '前缀',
+    renamePrefixPh: '如：易拉宝',
+    renameStart: '起始序号',
+    renamePad: '位数',
+    renamePreview: '效果：{sample}',
+    renameApply: '开始改名',
+    renameDone: '已改名 {n} 个',
+    renamePartial: '改名 {ok} 个，{fail} 个失败：{msg}',
+    renameSkipped: '（{n} 个本来就叫这个名）',
+
+    // ---- 第 68 批（docs/50 §6）：任务的批量设置 ----
+    bulkSettings: '批量设置',
+    bulkSettingsTip: '一次给勾中的任务改 项目 / 类别 / 场景 / 分级',
+    bulkSettingsTitle: '批量设置任务信息',
+    bulkSettingsHint: '只有选了的项才会改，留「（不改）」的保持原样。',
+    keepUnchanged: '（不改）',
+    settingsDone: '已更新 {n} 个任务',
+    settingsPartial: '更新 {ok} 个，{fail} 个失败：{msg}',
+    settingsNothing: '一项都没选，什么都没改',
+    settingsApply: '应用',
+
+    // ---- 第 67 批（docs/50）：列表视图的列名（三处共用这几条） ----
+    colName: '名称',
+    colGroup: '所在分组',
+    colSize: '大小',
+    colTime: '修改时间',
+    colSource: '来源',
+    colProject: '项目',
+    colFiles: '素材',
+    colVersions: '稿数',
+    /** 像素尺寸 / 分辨率 / 参考线 —— 通用库与模板库的列表都要用，所以放公共段 */
+    colPx: '尺寸',
+    colPpi: '分辨率',
+    colGuides: '参考线',
+    /** 空值占位（尺寸没读到 / 分组为空等）—— 用一个小横线，不要留白也不要写「未知」 */
+    none: '—',
+    /** 任务列表里的「N 个文件丢失」小徽标 */
+    missingChip: '{n} 个丢失'
   },
 
   // ==================== 标签维度默认名 ====================
@@ -1260,6 +1366,7 @@ export const COPY = {
     intro: '公司通用素材（logo / 字体 / 教材封面…）与个人收藏 —— 不属于任何任务，可同步给 PS 插件调用。',
     scan: '扫描磁盘',
     scanning: '扫描中…',
+
     importFiles: '导入文件',
     importFolder: '导入文件夹',
     newFolder: '新建分组',
@@ -1278,7 +1385,7 @@ export const COPY = {
     emptyAll: '通用库还是空的 —— 点「导入文件」放点东西进来',
     totalText: '共 {folders} 个分组 · {assets} 条素材',
     unsortedHint: '「未分组」的素材不会同步到插件 —— 把它导入到某个分组即可。',
-    skippedDeep: '{n} 个三层以上的目录被跳过（通用库只做两层）',
+    skippedDeep: '{n} 个超过 5 层的目录被跳过',
     delConfirmTitle: '删除分组',
     delConfirmBody: '「{name}」里的 {n} 条素材会移到「未分组」，文件一个都不会删。',
     delConfirmOk: '删除分组',
@@ -1288,6 +1395,13 @@ export const COPY = {
     namePlaceholder: '分组名',
     imported: '已导入 {n} 个文件（新建 {folders} 个分组）',
     importedRenamed: '已导入 {n} 个文件，其中 {renamed} 个因同名自动改名',
+    /**
+     * 第 67 批（docs/50）修：**扫描磁盘**原来复用上面那条「已导入…」，
+     * 而打开视图时已经自动扫过一遍，手动再扫就是 0 条 ⇒ 常弹「已导入 0 个文件」，
+     * 与实际动作（扫描）不符。扫描和导入是两件事，文案分开。
+     */
+    scanDone: '扫描完成：新增 {n} 个文件（新建 {folders} 个分组）',
+    scanDoneNone: '扫描完成：没有发现新文件',
     importNone: '没有可导入的文件',
     removeTitle: '移出通用库',
     removeBody: '「{name}」会移到工作区的「_回收站」，记录一并移除。',
@@ -1306,8 +1420,73 @@ export const COPY = {
     company: '公司',
     user: '个人',
     needFolder: '先建一个分组，再来导入',
-    depthLimit: '只支持两层分组（父组 / 子组）',
+    depthLimit: '通用库最多 5 层分组',
     dupName: '同名分组已存在',
+    failed: '操作失败：{msg}'
+  },
+
+  // 第 66 批（docs/49）：PSD 模板库 —— 单列一个分区，专存带参考线的 PSD 模板，
+  // 在 PS 插件的「新建稿」里选中即可打开成一张新稿（不是置入到当前画布）。
+  tpl: {
+    entry: '模板',
+    title: 'PSD 模板库',
+    intro:
+      '专存参考线打好的 PSD 模板 —— 在 PS 插件的「新建稿」里选中它，直接开一张新稿。模板不属于任何任务。',
+    statsText: '共 {folders} 个分组 · {assets} 份模板',
+    scan: '扫描磁盘',
+    scanning: '扫描中…',
+    // ---- 第 69 批（docs/53）：给插件用的信息卡渲染图 ----
+    rebuildCards: '重建卡片图',
+    rebuildCardsTip: '重新渲染「给 PS 插件用的卡片图」。平时不用点 —— 扫描会自动补；改过卡片样式才需要',
+    rebuildCardsRunning: '正在重建…',
+    rebuildCardsDone: '已重建 {n} 张卡片图（插件下次同步即可看到）',
+    importFiles: '导入 PSD',
+    pickFilter: 'PSD 模板',
+    newFolder: '新建分组',
+    newSubFolder: '新建子分组',
+    all: '全部模板',
+    unsorted: '未分组',
+    unsortedHint: '「未分组」的模板还在库里，但插件里会归到「未分类」。',
+    searchPlaceholder: '搜索名称',
+    emptyAll: '模板库还是空的 —— 点「导入 PSD」把做好的模板放进来',
+    emptyGroup: '这个分组还没有模板',
+    namePlaceholder: '分组名',
+    assetNamePlaceholder: '模板文件名',
+    renameFolderTitle: '分组改名',
+    renameAssetTitle: '模板改名',
+    rename: '改名',
+    delFolder: '删除分组',
+    delFolderBody: '「{name}」里的 {n} 份模板会移到「未分组」，文件一个都不会删。',
+    delFolderOk: '删除分组',
+    delFolderDone: '已删除分组，{n} 份模板移到「未分组」',
+    openFile: '用 Photoshop 打开',
+    locate: '在资源管理器中显示',
+    removeTitle: '移出模板库',
+    removeBody: '「{name}」会移到工作区的「_回收站」，记录一并移除。',
+    removeOk: '移出到回收站',
+    removeDone: '已移出到 _回收站',
+    forget: '只移出记录',
+    forgetDone: '已移出记录（文件保留在原处）',
+    imported: '已导入 {n} 份模板（新建 {folders} 个分组）',
+    importedRenamed: '已导入 {n} 份，其中 {renamed} 份因同名自动改名',
+    /** 第 67 批（docs/50）：「扫描磁盘」有自己的口径，与「导入」分开（同通用库那条） */
+    scanDone: '扫描完成：新增 {n} 份模板（新建 {folders} 个分组）',
+    scanDoneNone: '扫描完成：没有发现新模板',
+    importNone: '没有可导入的模板',
+    missing: '文件已丢失',
+    noGuides: '无参考线',
+    guidesBadge: '{n} 条参考线',
+    guidesUnknown: '参考线未知',
+    sizeInfo: '{w}×{h}',
+    sizeInfoWithPpi: '{w}×{h} · {ppi}ppi',
+    depthLimit: '模板库最多 5 层分组',
+    dupName: '同名分组已存在',
+    rejectedTitle: '{n} 个文件没有收录',
+    rejectedTooLarge: '超过 20 MB，请瘦身',
+    rejectedNotPsd: '不是 PSD',
+    rejectedNoSize: '读不到画布尺寸',
+    rejectedTooDeep: '目录超过 5 层',
+    skippedDeep: '{n} 个目录超过 5 层，已跳过',
     failed: '操作失败：{msg}'
   }
 } as const

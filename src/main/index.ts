@@ -6,6 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { startLinkService, stopLinkService, flushMirrorNow, hasPendingMirror } from './linkService'
+import { destroyTplCardRenderer } from './tplCardImage'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
 import { locateBundledExe, setBundledCliExe } from './wecomCli'
 import {
@@ -195,6 +196,8 @@ app.on('before-quit', (e) => {
 app.on('will-quit', () => {
   // 第 62 批（docs/45）：停掉插件联动的 handoff 轮询（照 ipc.ts 的 stopTicketScheduler 路数）
   stopLinkService()
+  // 第 69 批（docs/53）：销毁离屏渲染窗口 —— 隐藏窗口会拖住进程不让退出
+  destroyTplCardRenderer()
 })
 
 app.on('window-all-closed', () => {
