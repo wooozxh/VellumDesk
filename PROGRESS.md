@@ -2652,3 +2652,17 @@ accept **1294 → 1307 全过**（`[55]` **+13 条**：通用库正常置入 / *
 **gh CLI 未登录** ⇒ 用 git 凭据管理器里的 token 直接调 REST API 建 release（`git credential fill` 取 token，不落盘）。
 
 **顺手改的**：场景里写死 `v1.0.0` 的版本断言改成正则（否则版本一 bump 就假失败）。
+
+
+### 更新说明出单文件 HTML
+
+- `tools/make_release_notes_html.py`：md → 单文件 HTML（内联 CSS + base64 卡片图，**零外部依赖**，
+  双击能看、能打印 `@media print`、能直接发人）
+- 样式沿用 `docs/manual/manual.css` 的同一套设计语言（同一组配色变量、表格/代码块观感）
+- **卡片演示图**用 `tplCardHtml()` + Edge 无头截图重新渲染了一张「展架 / 80cm×180cm / 5mm / CMYK」，
+  和正文举例一致（原来的测试图是「根下散模板 38.1cm」，图文对不上）
+- md 里那段 ASCII 卡片图**换成了表格**（等宽字体下中文占两格，对不齐；GitHub 上表格也更好看）
+- 产物：`docs/更新说明-v1.11.0.html`（67KB）
+
+**发布侧**：release 正文已用新 md 更新（PATCH `releases/{id}`，**不能用 tags 路径** —— 那个只支持 GET）；
+HTML 作为附件上传，**文件名必须纯 ASCII**（中文名会被 GitHub 截成 `-v1.11.0.html`）。
