@@ -2817,3 +2817,29 @@ HTML 作为附件上传，**文件名必须纯 ASCII**（中文名会被 GitHub 
   实际逐行量最暗亮度才准（39 / 105）
 
 **未 commit / 未 push**；版本仍 1.11.0，未出包未发版。
+
+
+### 发版 v1.12.0（2026-10-30 10:2x）
+
+| 项 | 结果 |
+|---|---|
+| 版本号 | 1.11.0 → **1.12.0**（`package.json`；lock 无实质变更） |
+| commit | `7da14c1`（第 65+70+71 批代码 / 场景 / 手册 / docs/55）+ `79e6c63`（更新说明）+ `c511e20`（忽略 `release-*/`） |
+| push | ✅ `feature/pslink-preview` 远端 = `c511e20`（`git ls-remote` 核对过） |
+| tag | `v1.12.0-pslink`（annotated，指向 `c511e20`） |
+| 安装包 | `release-1.12.0/VellumDesk-1.12.0-Setup.exe`（220 MB，electron-builder 26.15.3 / Electron 39.8.10） |
+| SHA256 | `030dbfcb4f50d4954b25a587b026530c092d5e5be42b9dd95014dd0c3c4fe141` |
+| Release | https://github.com/wooozxh/VellumDesk/releases/tag/v1.12.0-pslink（Pre-release） |
+| 附件 | `VellumDesk-1.12.0-Setup.exe`（220.0 MB）+ `VellumDesk-Manual-v1.12.0.html`（7.9 MB，单文件手册） |
+| 更新说明 | `docs/更新说明-v1.12.0.md`（六节：主题 / 弹窗 / 齿轮 / 隐藏名 / 升级 / 已知限制） |
+| 手册 | v1.12.0（封面+页脚+版本规则示例全部改号，日期 2026-10-30）、体检 0 提醒 |
+
+**打包踩坑（重要）**：`npm run build:win` 第一次挂在
+`EBUSY: resource busy or locked, unlink 'release\win-unpacked\resources\app.asar'`
+—— 旧产物被某个句柄占着（`tasklist` / `Get-Process` 都看不到 Vellum/electron 进程，
+但 `Rename-Item app.asar` 报"另一个进程正在使用此文件"，`shutil.rmtree` 也被 safe-delete 拦在回收站）。
+**绕法**：不清旧目录，直接换输出目录打包 ——
+`npx electron-builder --win --config.directories.output=release-1.12.0`（前提：`npm run build` 已跑过，`out/` 是最新的）。
+`.gitignore` 已加 `release-*/`，避免 220MB 产物被 `git add .` 带进仓库。
+
+**附件命名**：中文文件名在 GitHub 附件里会被截断（上次 `-v1.11.0.html`），上传前复制成纯 ASCII 名。
