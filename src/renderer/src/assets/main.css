@@ -62,6 +62,148 @@
   --sel-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1.2 1.4 5 5.2l3.8-3.8' stroke='%23b3b3b3' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
+/* ============================================================
+   第 70 批（docs/55）：浅色主题「暖纸」
+   —— 只在 `<html data-theme="light">` 时生效；不写属性 = 深色（老用户零变化）。
+   三条口径：
+   ① 不纯白：画布是压暗的纸 #eeebe4，卡片 #fbf9f4 只比纯白差 2%，不刺眼但浮得起来
+   ② 层级靠"纸的明暗"（画布最暗 → 面板 → 卡片最亮），不靠白色高光
+   ③ 强调色/语义色全部压深一档 —— 深色主题那档蓝在浅底上会"发光"
+   下面同时把**写死深色的那几处**（阴影/遮罩/滚动条/下拉箭头/占位封面/青色徽标）逐条覆盖，
+   它们是换变量换不到的地方（清单见 docs/55 §4）。
+   ============================================================ */
+html[data-theme='light'] {
+  --bg: #eeebe4;
+  --bg-soft: #f6f3ec;
+  --bg-mute: #e8e4da;
+  --bg-card: #fbf9f4;
+  --bg-hover: #e2ddd1;
+
+  --line: #d5cfc2;
+  --line-soft: #e3ddd1;
+
+  --text: #2a2721;
+  --text-2: #57514a;
+  /* 比深色主题那档 #7c7c7c 更"实"一点：纸底上的弱化文字若照搬深色的灰度，只有约 2.9:1，
+     13px 中文读着费劲。#6f685d ≈ 4.4:1 —— 仍明显弱于正文，但看得清。 */
+  --text-3: #6f685d;
+
+  --accent: #1a6fd4;
+  --accent-hover: #0f5fb8;
+  --accent-down: #0b4f9c;
+  --accent-soft: rgba(26, 111, 212, 0.12);
+  --accent-line: rgba(26, 111, 212, 0.45);
+  --accent-text: #0f5fb8;
+
+  --warn: #a8630d;
+  --warn-soft: rgba(168, 99, 13, 0.12);
+  --ok: #1f7a5c;
+  --ok-soft: rgba(31, 122, 92, 0.12);
+  --danger: #bd2b33;
+  --danger-soft: rgba(189, 43, 51, 0.1);
+  --purple: #6b4fbb;
+  --purple-soft: rgba(107, 79, 187, 0.12);
+
+  --focus: 0 0 0 2px var(--bg-soft), 0 0 0 4px var(--accent);
+  --focus-in: 0 0 0 2px var(--accent);
+
+  /* 下拉自绘箭头：深色描边在浅底上才看得见（原图写死 #b3b3b3） */
+  --sel-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1.2 1.4 5 5.2l3.8-3.8' stroke='%2357514a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* 原生控件（滚动条 / select 弹出层 / 日期选择器）跟着亮 */
+  color-scheme: light;
+}
+
+/* ⚠️ 必须**单独**覆盖 select / input：`select { color-scheme: dark }` 与 `.tk-date input` 都是
+   元素/类选择器上写死的 dark，继承不过去 —— 不覆盖的话浅色界面里下拉展开仍是深色列表。 */
+html[data-theme='light'] select,
+html[data-theme='light'] input,
+html[data-theme='light'] textarea,
+html[data-theme='light'] .tk-date input {
+  color-scheme: light;
+}
+
+/* 悬停边框与滚动条滑块：写死的 #4a4a4a / #4f4f4f 在浅底上是一条黑边 */
+html[data-theme='light'] .btn:hover {
+  border-color: #c6bfb1;
+}
+html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #c2b9a9;
+}
+
+/* 遮罩与投影：深色主题靠"黑压黑"，浅色要改成"暖灰压纸" */
+html[data-theme='light'] .mask {
+  background: rgba(38, 33, 24, 0.34);
+}
+html[data-theme='light'] .modal {
+  box-shadow: 0 18px 48px rgba(58, 47, 30, 0.2);
+}
+
+/* 「电子物料」徽标写死青色 #57d4d4 —— 浅底上会发光，压成墨青 */
+html[data-theme='light'] .tk-type.digital {
+  color: #0d6b6b;
+  background: rgba(13, 107, 107, 0.12);
+}
+
+/* 无成品图的占位封面：原按 #16181c/#0f1013 混底，浅色下要按纸底混 */
+html[data-theme='light'] .pack-card .thumb .gen-cover {
+  --pc-ink: color-mix(in srgb, var(--pc) 72%, #241d16);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0 6px, transparent 6px 13px),
+    linear-gradient(
+      152deg,
+      color-mix(in srgb, var(--pc) 16%, #f7f3ea) 0%,
+      color-mix(in srgb, var(--pc) 7%, #efeade) 100%
+    );
+}
+html[data-theme='light'] .pack-card .thumb .gc-code {
+  color: rgba(60, 52, 40, 0.62);
+}
+html[data-theme='light'] .pack-card .thumb .gc-mark {
+  color: rgba(48, 41, 31, 0.6);
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(60, 52, 40, 0.16);
+}
+
+/* 页签上的"未指派"角标、状态条一类写死的深灰底 —— 浅色下换成浅底深字 */
+html[data-theme='light'] .tk-hint .txt,
+html[data-theme='light'] .scan-prog {
+  color: var(--text-2);
+}
+
+/* 第 70 批（docs/55）：顶栏主题切换按钮 —— 只有图标，做成正方圆角，与旁边的文字按钮同高 */
+.topbar .btn.theme-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+/**
+ * 第 70 批：工单表「历史单 / 已驳回」那种整行压暗。
+ * 深色主题用 `opacity: .45` 把浅字压暗是成立的；浅色底上同样的 45% 会把深字冲成浅灰，
+ * 整行几乎读不出来（用户截图里「已驳回」那行就是这样）。⇒ 浅色下**不降透明度，只降一档文字色**。
+ */
+html[data-theme='light'] .tk-row.dim {
+  opacity: 1;
+}
+html[data-theme='light'] .tk-row.dim .c-no,
+html[data-theme='light'] .tk-row.dim .c-title,
+html[data-theme='light'] .tk-row.dim .c-task,
+html[data-theme='light'] .tk-row.dim .c-applicant,
+html[data-theme='light'] .tk-row.dim .c-project,
+html[data-theme='light'] .tk-row.dim .c-designer,
+html[data-theme='light'] .tk-row.dim .c-due {
+  color: var(--text-3);
+}
+/* 状态徽标「已驳回 / 已撤销」也吃 --text-3，浅色下再深一级（它是要被读的字，不是装饰） */
+html[data-theme='light'] .tk-state.st-dim {
+  color: var(--text-2);
+  background: var(--bg-mute);
+}
+
 *,
 *::before,
 *::after {
@@ -3106,11 +3248,19 @@ svg {
 }
 
 /* 设置弹窗 */
+/* 第 70 批修复（用户报）：填完工单链接后多出子表列表 / 授权身份 / 自动同步 / 危险区，
+   这一块原来**既没 overflow 也没 min-height:0** ⇒ 内容撑高后整块溢出 `.modal`
+   （`.modal` 只是 max-height，不裁剪），底部的「保存 / 取消」被推到视窗外，点不到。
+   现在它与 `.modal .content` 同一套写法：flex:1 + min-height:0 + overflow-y:auto，
+   底部动作条挪到它**外面**（`.modal > .foot`），不随内容滚动。 */
 .tk-settings {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 /* 弹窗内裸文本输入框统一深色样式（导出报表链接框 / 工单设置链接框） */
 .tk-settings input[type='text'] {

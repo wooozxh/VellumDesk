@@ -161,6 +161,12 @@ const BASE = 'D:\\_accept_ws'
 const BLOCKER = join(BASE, 'shot4_blocker.txt')
 
 const SCENARIOS = {
+  // 第 70 批（docs/55）：深 / 浅双主题（只验顶栏按钮与变量，不依赖库里的内容）
+  theme: {
+    userData: join(BASE, 'shot4_theme'),
+    workspaceRoot: join(BASE, 'shot_ws'),
+    shot: 'shot-b70-1-theme-dark.png'
+  },
   banner: {
     userData: join(BASE, 'shot4_banner'),
     workspaceRoot: join(BLOCKER, 'dead'),
@@ -1494,7 +1500,11 @@ app.whenReady().then(async () => {
     return r
   }
 
-  await win.loadFile(join(ROOT, 'out/renderer/index.html'))
+  // 第 70 批（docs/55）：真机是主进程把 ?theme= 带进 URL 的，这里照同一套路
+  // （SHOT_THEME=light 可让任意场景跑在浅色下，肉眼复查用）
+  await win.loadFile(join(ROOT, 'out/renderer/index.html'), {
+    query: { theme: process.env.SHOT_THEME === 'light' ? 'light' : 'dark' }
+  })
   await wait(3000)
 
   say('scenario              : ' + SCEN)
@@ -1555,7 +1565,54 @@ app.whenReady().then(async () => {
     `[...document.querySelectorAll('.side .proj-item .pname')].map((b) => b.innerText.trim())`
   )
 
-  if (SCEN === 'banner') {
+  // 第 70 批（docs/55）：深 / 浅双主题 —— 按钮在不在、点了变不变、写不写盘、能不能切回来
+  if (SCEN === 'theme') {
+    const readTheme = async () =>
+      await js(`(() => {
+        const btn = document.querySelector('.topbar .theme-btn')
+        const root = getComputedStyle(document.documentElement)
+        return {
+          attr: document.documentElement.getAttribute('data-theme') || '',
+          bg: root.getPropertyValue('--bg').trim(),
+          text: root.getPropertyValue('--text').trim(),
+          bodyBg: getComputedStyle(document.body).backgroundColor,
+          hasBtn: !!btn,
+          tip: btn ? (btn.getAttribute('title') || '') : '',
+          iconPaths: btn ? btn.querySelectorAll('svg path').length : 0,
+          btnW: btn ? Math.round(btn.getBoundingClientRect().width) : 0
+        }
+      })()`)
+
+    const t0 = await readTheme()
+    ok(t0.attr === '', '默认不带 data-theme 属性（＝深色，老用户升级零变化）')
+    ok(t0.bg === '#111111', `深色 --bg 仍是 #111111（实际 ${t0.bg}）`)
+    ok(t0.hasBtn, '顶栏最右有主题切换按钮')
+    ok(t0.btnW >= 28 && t0.btnW <= 34, `按钮是 30px 的方钮，不挤旁边的「插件」（实际 ${t0.btnW}px）`)
+    ok(t0.iconPaths >= 1, `按钮里有实心图形（太阳），实际 ${t0.iconPaths} 条 path`)
+    ok(t0.tip === plain(COPY.top.themeToLight), `深色下提示「${t0.tip}」—— 说的是点完会变成什么`)
+    await shot('shot-b70-1-theme-dark.png')
+
+    await js(`(() => { const b = document.querySelector('.topbar .theme-btn'); if (b) b.click(); return 'ok' })()`)
+    await wait(700)
+    const t1 = await readTheme()
+    ok(t1.attr === 'light', '点一下 → <html data-theme="light">')
+    ok(t1.bg === '#eeebe4', `浅色 --bg = 暖纸 #eeebe4（实际 ${t1.bg}）`)
+    ok(t1.text === '#2a2721', `浅色 --text 同步换成深字（实际 ${t1.text}）—— 不然白字压浅底看不见`)
+    ok(t1.bodyBg === 'rgb(238, 235, 228)', `body 底色真的跟着变了（${t1.bodyBg}），不是只改了变量没人用`)
+    ok(t1.tip === plain(COPY.top.themeToDark), `浅色下提示「${t1.tip}」`)
+    // 只改界面不写盘 = 重启就忘；直接问主进程，验它真的落库了
+    const saved1 = await js(`window.api.uiTheme().then(r => r.theme)`)
+    ok(saved1 === 'light', `切换已写盘：主进程读到 ${saved1}（重启仍是浅色）`)
+    await shot('shot-b70-2-theme-light.png')
+
+    await js(`(() => { const b = document.querySelector('.topbar .theme-btn'); if (b) b.click(); return 'ok' })()`)
+    await wait(700)
+    const t2 = await readTheme()
+    ok(t2.attr === '' && t2.bg === '#111111', '再点一下回到深色（属性移除，让 :root 缺省值生效）')
+    const saved2 = await js(`window.api.uiTheme().then(r => r.theme)`)
+    ok(saved2 === 'dark', `切回深色同样写盘（主进程读到 ${saved2}）`)
+    await shot('shot-b70-3-theme-back.png')
+  } else if (SCEN === 'banner') {
     ok(typeof bannerText === 'string' && bannerText.length > 0, '工作区不可用时出现顶部提示条')
     ok(bannerText.includes(s.workspaceRoot), '提示条里写清了具体是哪个路径（' + s.workspaceRoot + '）')
     ok(bannerText.includes('移动硬盘') || bannerText.includes('磁盘'), '提示条给出了人看得懂的原因')
@@ -4027,6 +4084,61 @@ app.whenReady().then(async () => {
       !!danger && danger.hints.length >= 1 && danger.hints.some((h) => h.length > 0),
       `危险操作区有说明文案（${danger ? danger.hints.join(' / ').slice(0, 60) : '—'}）`
     )
+    // (9d-2) 第 70 批修复（用户报）：填完工单链接后多出子表列表 / 身份 / 自动同步 / 危险区，
+    // 设置弹窗的内容撑高后把「保存」顶到视窗外，点不到。
+    // 布局铁律：内容区自己当滚动体，动作条在滚动区**之外**（`.modal > .foot`）。
+    const tkLayout = await js(
+      `(() => {
+         const st = document.querySelector('.tk-settings')
+         if (!st) return null
+         const modal = st.closest('.modal')
+         const foot = modal && modal.querySelector('.foot')
+         const cs = getComputedStyle(st)
+         return {
+           overflowY: cs.overflowY,
+           minHeight: cs.minHeight,
+           footInsideBody: !!st.querySelector('.foot, .tk-actions'),
+           hasFoot: !!foot
+         }
+       })()`
+    )
+    ok(
+      !!tkLayout && tkLayout.overflowY === 'auto' && tkLayout.minHeight === '0px',
+      `设置弹窗内容区是滚动体（overflowY=${tkLayout && tkLayout.overflowY} / minHeight=${tkLayout && tkLayout.minHeight}）`
+    )
+    ok(
+      !!tkLayout && tkLayout.hasFoot && tkLayout.footInsideBody === false,
+      '「保存 / 取消」在滚动区之外（结构上就不可能被内容顶出视窗）'
+    )
+    // 动态验：硬塞 900px 内容（= 用户填完链接后多出一堆区块），内容区自己滚、动作条不动
+    const tkSqueeze = await js(
+      `(() => {
+         const st = document.querySelector('.tk-settings')
+         if (!st) return null
+         const modal = st.closest('.modal')
+         const foot = modal && modal.querySelector('.foot')
+         if (!foot) return null
+         const sp = document.createElement('div')
+         sp.style.height = '900px'
+         sp.style.flex = '0 0 auto'
+         st.appendChild(sp)
+         const fr = foot.getBoundingClientRect()
+         const out = {
+           bodyScrolls: st.scrollHeight > st.clientHeight + 10,
+           footBottom: Math.round(fr.bottom),
+           modalBottom: Math.round(modal.getBoundingClientRect().bottom),
+           vh: window.innerHeight
+         }
+         sp.remove()
+         return out
+       })()`
+    )
+    ok(!!tkSqueeze && tkSqueeze.bodyScrolls, '内容超长时内容区自行滚动（不再顶穿弹窗）')
+    ok(
+      !!tkSqueeze && tkSqueeze.footBottom <= tkSqueeze.modalBottom && tkSqueeze.footBottom <= tkSqueeze.vh,
+      `内容超长时「保存」仍贴在弹窗底边、留在视窗内（bottom ${tkSqueeze && tkSqueeze.footBottom} ≤ 弹窗底 ${tkSqueeze && tkSqueeze.modalBottom} / 视窗 ${tkSqueeze && tkSqueeze.vh}）`
+    )
+
     await shot('shot-b17-1-settings-switch.png')
 
     // (9d) 第 26 批（docs/31）：设置里的「自动同步」区 —— 开关默认开 + 间隔默认 30
@@ -4189,13 +4301,17 @@ app.whenReady().then(async () => {
     const selStyle = await js(
       `(() => { const s = document.querySelector('.tk-assign select'); if (!s) return null; const cs = getComputedStyle(s); return { bg: cs.backgroundColor, color: cs.color, scheme: cs.colorScheme } })()`
     )
+    // 第 70 批（docs/55）：这条口径从「必须是深色」改成「必须跟当前主题的面板色一致」——
+    // 断言的是"别掉回浏览器默认白控件"，而不是钉死某一个颜色（否则加浅色主题就假失败）
+    const themeAttr = await js(`document.documentElement.getAttribute('data-theme') || 'dark'`)
+    const wantSelBg = themeAttr === 'light' ? 'rgb(232, 228, 218)' : 'rgb(35, 35, 35)'
     ok(
-      !!selStyle && selStyle.bg === 'rgb(35, 35, 35)',
-      `指派下拉闭合态用深色面板色（实际 ${selStyle ? selStyle.bg : '—'}）`
+      !!selStyle && selStyle.bg === wantSelBg,
+      `指派下拉闭合态用${themeAttr === 'light' ? '浅' : '深'}色面板色（实际 ${selStyle ? selStyle.bg : '—'}）`
     )
     ok(
-      !!selStyle && selStyle.scheme === 'dark',
-      `下拉设了 color-scheme:dark —— 展开的列表跟着深色走，不再是白底（实际 ${selStyle ? selStyle.scheme : '—'}）`
+      !!selStyle && selStyle.scheme === (themeAttr === 'light' ? 'light' : 'dark'),
+      `下拉的 color-scheme 跟着主题走（${themeAttr}，实际 ${selStyle ? selStyle.scheme : '—'}）—— 展开的列表不会是另一种底色`
     )
     const openTableBtn = await js(
       `(() => { const b = [...document.querySelectorAll('.tk-actions .btn')].find(x => x.innerText.includes(${JSON.stringify(COPY.ticket.openTable)})); return b ? 'ok' : 'no' })()`
@@ -5396,7 +5512,7 @@ app.whenReady().then(async () => {
       const dirInput = modal.querySelector('.tk-linkrow input[type=text]')
       const pickBtn = [...modal.querySelectorAll('.tk-linkrow .btn')]
         .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.pick))})
-      const syncBtn = [...modal.querySelectorAll('.tk-actions .btn')]
+      const syncBtn = [...modal.querySelectorAll('.foot .btn, .tk-actions .btn')]
         .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.syncBtn))})
       const none = modal.querySelector('.pl-none')
       const lastV = modal.querySelector('.pl-last .v')
@@ -5449,7 +5565,7 @@ app.whenReady().then(async () => {
 
     // ③ 点「同步到插件」→ 没目录，给友好提示（不报错、不写任何东西）
     await js(`(() => {
-      const b = [...document.querySelectorAll('.modal .tk-actions .btn')]
+      const b = [...document.querySelectorAll('.modal .foot .btn, .modal .tk-actions .btn')]
         .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.syncBtn))})
       if (b) b.click()
       return 'ok'

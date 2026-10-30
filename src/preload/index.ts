@@ -242,7 +242,11 @@ const api = {
   tplMoveAssets: (input) => ipcRenderer.invoke('tpl:moveAssets', input),
   tplCopyAssetsToPack: (input) => ipcRenderer.invoke('tpl:copyAssetsToPack', input),
   tplRebuildCards: () => ipcRenderer.invoke('tpl:rebuildCards'),
-  tplRenameAssetsSeq: (input) => ipcRenderer.invoke('tpl:renameAssetsSeq', input)
+  tplRenameAssetsSeq: (input) => ipcRenderer.invoke('tpl:renameAssetsSeq', input),
+
+  // 第 70 批（docs/55）：界面主题（深 / 浅）—— 读一次用于校准，切换时写盘
+  uiTheme: () => ipcRenderer.invoke('ui:theme'),
+  uiSetTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme)
 }
 
 if (process.contextIsolated) {

@@ -63,6 +63,13 @@
   ⚠️ 全仓只有一个工作树（`D:/proj_media`），三线共用 —— 切分支前先 `git status` 确认干净；
   判定当前分支用 `git rev-parse --abbrev-ref HEAD`（WorkBuddy 那个分支标签可能不实时刷新）。
 
+- **分支与版本现状（2026-10-19 核对）**：`feature/pslink-preview` 已拉齐远端 **`ee76388`**
+  （第 66~69 批 + 更新说明，版本 **1.11.0**，tag `v1.11.0-pslink` 已发 Pre-release）；
+  `main`（`4c77774`）与 `feature/vellum_desk-PSlink`（`6767e60`）均未动。
+  工作区仍有**未提交**的第 65 批隐藏名修复（`accept.ts` / `src/main/brandLib.ts`）；
+  stash 重放时 `uniqueFile` 一处冲突按「双方保留」解决，typecheck / build 通过。
+  直连 git 端点被 reset，本次走 `ghfast.top` 镜像，细节见 `NEXT.md` §五。
+
 ## 分支现状（2026-09-30 晚核对 —— 历史快照，仅供追溯）
 
 | 分支 | 指向提交 | 内容 | 状态 |
@@ -2666,3 +2673,147 @@ accept **1294 → 1307 全过**（`[55]` **+13 条**：通用库正常置入 / *
 
 **发布侧**：release 正文已用新 md 更新（PATCH `releases/{id}`，**不能用 tags 路径** —— 那个只支持 GET）；
 HTML 作为附件上传，**文件名必须纯 ASCII**（中文名会被 GitHub 截成 `-v1.11.0.html`）。
+
+
+### 2026-10-19　同步远端 v1.11.0（维护，不计批次）
+
+- `feature/pslink-preview`：`7ffb980` → **`ee76388`**（快进 6 个提交，v1.11.0-pslink）。
+- 本地未提交的**第 65 批隐藏名修复**先备份（`.git/wip-backup-20261019-144454/`，含 `wip.patch`）
+  再 `stash → merge --ff-only → stash pop`；唯一冲突在 `src/main/brandLib.ts` 的 `uniqueFile`
+  （远端改成 export 供 `tplLib` 复用），按「保留 `isHiddenName` + 用远端导出版本」解决。
+- 验证：typecheck 0 错、`npm run build` 三端通过；本地修复仍是未提交状态（未替用户提交）。
+- 网络：直连 github.com 的 git 端点被 reset（首页 / API / codeload 同时都通），改走
+  `https://ghfast.top/https://github.com/...` 镜像 fetch；镜像 SHA 已用 API 核对。
+  这条坑已补进 `NEXT.md` §五。
+
+
+### 2026-10-19　官网提案（未开工）
+
+- 目标：GitHub Pages 官方站，介绍 VellumDesk / Vellum Toolbox + 两个产品的更新说明。
+- 产出：`docs/54-官网方案.md`（可行性 / 5 页结构 / 部署 / 风险 / 工作量）+
+  `website/`（A/B/C 三方向 mock、截图、brand-spec / product-facts / design-spec）。
+- 三方向：A 轨道深空 / B 纸张编辑 / C 工具台；建议 B 为主 + A 的 hero + C 的更新日志。
+- 待拍板：方向、仓库/域名、Toolbox changelog（本机只有 0.9.37 的 .ccx，
+  `D:\ps-uxp-dev\vellum-toolbox` 不存在）、Desk 截图脱敏（现有图带真实项目名）。
+- 未改产品代码；`website/` 与 `docs/54` 为新增，未提交。
+
+### 2026-10-19　官网方向敲定 A（深化）
+
+- 用户选定 **A · 轨道深空**；反馈三点：03/04 挪到右半边、面板倾斜向左改右、图 1 字体与正文统一。
+- 已改 A：Desk 能力区改全宽 2×2（01/02 左列、03/04 右列，截图移到上方全宽）；
+  Toolbox 面板 `rotateY(-6deg)` → `rotateY(6deg)`；图片标签/图注改 Noto Sans，面板按 Noto Sans 重渲染。
+- 产物：`website/direction-approved.md`；A 的截图已重出（A.png / A-full.png / A-mobile.png / A-desk.png / A-toolbox.png / A-updates.png）。
+- **Toolbox changelog 已补**：用户 2026-10-19 提供 0.8.0→0.9.37 四个版本段，
+  已并入 A 的更新区（v0.9.11–37 / v0.9.6–10 / v0.9.0–5 / v0.8.0）；逐版日期待补。
+- 仍待定：仓库/域名、Toolbox 逐版日期、Desk 截图脱敏；生产 5 页未开始。
+
+### 2026-10-20　官网生产版落地（A）
+
+- 仓库 **`wooozxh/vellum-site`**（public）已建；站点在 `website/site/`，已推 `main`（`1cf9e2f` → `4474e8d`）。
+- 5 页：首页 / `desk/` / `toolbox/` / `updates/` / `download/` + 404、sitemap、robots、.nojekyll。
+- 下载：Desk 链 Release `v1.11.0-pslink`（SHA256 dd2bc5…e496）；Toolbox 包放 `downloads/VellumToolbox-0.9.37.ccx`（619,253 字节，SHA256 55F5…CBB）。
+- Pages 已开：**Deploy from branch `main` / root**（首版不走 Actions；原 workflow 已移除）。
+- ✅ **已上线（2026-10-20）**：GitHub 故障恢复后 Pages 构建成功（01:43 UTC），
+  `https://wooozxh.github.io/vellum-site/` 首页 / desk / toolbox / updates / download / 404 / .ccx 全部 200。
+- **2026-10-20 排版修正**（用户反馈）：首页 H1 去掉逗号和句号、下载标题去掉句号；
+  顶部导航、标题上方小字、首屏文字块做垂直居中（提交 `6d37ae9`、`b0ed087`；
+  导航改为三列等宽 grid，真正落在页面水平中心）。
+- 本地预览：`node website/tools/serve.js` → `http://127.0.0.1:8123/`。
+- 待办：恢复后核线上 5 页/下载/404；Desk 截图脱敏；要不要自定义域名。
+
+
+---
+
+## 2026-10-28（第 70 批）工单设置弹窗：内容一多「保存」被顶出视窗（用户报 bug）
+
+**症状（用户原话）**：首次配置引导里 / 打开工单同步设置，**填完工单链接后**弹出来的那些文字
+（子表列表 / 授权身份 / 允许指派 / 自动同步 / 危险区）把「保存」按钮挤出视窗外，点不到。
+
+**复现（先量再改）**：用 Electron 起 1360×860 窗口加载真 `main.css` + 同构 DOM（`_junk/repro-tksettings.html`），
+读几何值 —— 视窗 1268×718，`.modal` 被 `max-height` 夹到 670，但 `.tk-settings` 内容高 **930**、
+`overflowY = visible` ⇒ `.tk-actions` 底边 **991**，**超出视窗 273px**。现象 100% 稳定复现。
+
+**根因**：`.tk-settings` 是 `.modal`（`max-height` 的 flex 列）的直接 flex 子元素，但它
+**既没 `overflow-y` 也没 `min-height:0`** ⇒ 子项按内容撑高、`min-height:auto` 让它无法收缩，
+整块溢出 `modal`（`.modal` 本身不裁剪）⇒ 底部动作条被推到视窗外。
+对照 `.modal .content`：那边三件套齐全（`flex:1 / min-height:0 / overflow-y:auto`），所以从不犯这毛病。
+
+**修法（一处 CSS + 三处结构，都是同构弹窗）**：
+- `.tk-settings` 补 `flex: 1; min-height: 0; overflow-y: auto`（与 `.modal .content` 同一套写法）
+- 动作条**挪到滚动区外面**：`TicketSettingsModal` / `ExportReportModal` / `PluginLinkModal` 三处
+  `<div class="tk-actions">` → `<div class="foot">`（`main.css` 里现成的弹窗页脚：上边框 + 右对齐 + `flex-shrink:0`）
+- **为什么不只加 `overflow`**：只加滚动的话保存按钮仍在内容流末尾，得滚到底才看得见；
+  用户报的是"点不到"，不是"要滚"。固定页脚才是根治（顺带三个弹窗视觉统一）
+
+**回归（新增 4 条，`tickets` 场景）**：
+- 内容区 `overflowY=auto` 且 `minHeight=0px`（结构铁律）
+- 「保存 / 取消」**不在**滚动区里（结构上就不可能被顶出去）
+- 动态塞 900px 内容 → 内容区 `scrollHeight > clientHeight`（自己滚）
+- 同一状态下 `foot.bottom(692) ≤ modal.bottom(693) ≤ 视窗(717)` —— 这条是照着用户现象写的
+
+**验收**：typecheck 0 错 · `npm run build` 三端通过 · accept **1434 全过** ·
+`tickets` / `export` / `pluginlink` / `wizard` 四场景全绿（另 15 个场景见下）· 手册体检通过（2 条提醒＝便携版/PDF 大产物未生成，正常）
+
+**顺手修的两处（都不是这次 UI 改动的锅）**：
+1. `pluginlink` 场景有两处选择器写死 `.tk-actions .btn`（同步按钮）—— 按钮挪进 `.foot` 后取不到，
+   当场报 2 项失败。已改成 `.foot .btn, .tk-actions .btn`（两个位置都认，以后谁搬都不会假失败）。
+2. **第 65 批（隐藏名修复）里有一条断言写死条数**：`真实素材一条不少` 判 `=== 3`，实际布景有
+   **4 条**（品牌logo 组 3 条 + 第 3 层 `深处.png`）⇒ accept 一直红着 1 项。改成
+   「扫描前先数一遍、扫描后相等」，顺带把这条断言的**本意**写对了（考的是"只清隐藏名"，不是"必须 3 条"）。
+   ⚠️ 这条说明第 65 批当时**没跑完 accept** 就收工了 —— typecheck / build 过了不代表断言过。
+
+**踩坑（记一笔）**：`npx electron` 跑脚本这次被 SIGTERM 掉，真因是脚本里
+`document.querySelector('.tk-actions')` 改结构后取不到 → `TypeError` 被 Promise 吞掉 →
+窗口不退出 → 超时被杀，**日志一片空白、看着像"electron 起不来"**。
+⇒ 这类一次性脚本必须 `try/catch` + 落盘日志 + 自带超时退出，别只看 exit code。
+
+**未 commit / 未 push**（用户一贯指示）。
+
+
+---
+
+## 2026-10-30（第 71 批）深 / 浅双主题 + 顶栏切换按钮（docs/55）
+
+**需求**：同事反映要浅色界面。**不是全站换浅色**，是保留深色再加一套浅色，顶栏一个按钮随时切。
+用户三条口径：① 只两态，不跟系统 ② **不要纯白**（刺眼）③ 先看 mock。
+
+**mock 阶段（先出图再动代码）**：两套色板（A 暖纸 / B 冷雾）× 两种按钮（单键 / 分段），
+用**追加覆盖到构建产物**的方式把浅色贴到真界面截图（模板库 / 任务卡片 / 工单表），
+跑完 `npm run build` 还原 —— 界面是真界面，不是另画一套。（`_junk/theme-light-*.css`、`_junk/mock-theme-toggle.html`）
+用户拍板：**A 暖纸 + 单键 + 不做三态 + 手册不出浅色截图**。
+
+**实施**：
+- 变量：`html[data-theme='light']` 一份覆盖块，不写属性＝深色（老用户零变化）
+- 持久化：`src/main/uiPrefs.ts` → `userData/ui-prefs.json`。**刻意不进工作区库** ——
+  工作区可能在没插的移动硬盘上，界面照样得知道自己是深是浅
+- 通道：`ui:theme` / `ui:setTheme`，两条都加进 `NO_MIRROR_CHANNELS`（换主题不该排一次插件镜像同步）
+- 首帧不闪：主进程按主题给 `backgroundColor`，并把 `?theme=` 带进 URL；渲染层在 `render()` **之前**
+  打到 `<html>`（`theme.ts`）。**不能写内联脚本** —— `index.html` 的 CSP 是 `script-src 'self'`
+- 按钮：顶栏最右 30×30 圆钮，新增 `sun` / `moon` 图标；tooltip 说的是**点完会变成什么**
+- 文案进字典：`COPY.top.themeToLight / themeToDark`
+
+**顺带返工 `gear` 图标（用户报）**：原来是「小圆 + 8 根细射线」，13px 下被当成**小太阳** ——
+工单工具条上那个"报表同步设置"按钮（`title=工单同步设置`）就是这么被认错的。
+改成真齿形轮廓（6 齿 + 内孔），全局共用（含设置弹窗标题）。做了 6 齿 / 8 齿对比图才定。
+
+**浅色下逐项校的 5 处**（换变量换不到的"深底假设"）：
+1. `.tk-row.dim`（已驳回 / 已撤销整行）原 `opacity:.45` ⇒ 浅底上整行几乎消失。
+   浅色改为**不降透明度、只降文字色**。实测：正常行文字亮度 39，压暗行 105（≈4.4:1）
+2. 浅色 `--text-3` 从 `#8a8377` 压到 `#6f685d`（原值在纸底上只有 ~2.9:1，13px 中文费劲）
+3. `select / input / textarea` 的 `color-scheme` **必须单独覆盖**：`select{color-scheme:dark}` 是元素选择器，
+   写在 `html[data-theme]` 上的值继承不过去 —— 不覆盖则浅色里下拉展开仍是深色列表
+4. 阴影 / 遮罩 / 滚动条滑块 / 下拉自绘箭头 / 占位封面混色 —— 全部按纸底重算
+5. `.tk-type.digital` 写死的青色 `#57d4d4` → 墨青 `#0d6b6b`（浅底上原色发光）
+
+**验收**：typecheck 0 错 · build 三端通过 · accept **1434 → 1441 全过** ·
+界面场景 **20 个全绿**（新增 `theme` 14 条；`tickets` 在深色与 `SHOT_THEME=light` 两种下都跑过）· 手册体检通过
+
+**踩过的坑**：
+- 场景壳的 IPC 走 `out/test/ipc.cjs`，**加了新通道必须重打 bundle**，否则 UI 点得动、`ui:theme` 却是
+  "No handler registered"（先是 2 条假失败）
+- `tickets` 里那条"指派下拉必须是 `rgb(35,35,35)`"是**写死深色**的断言，加浅色主题后必然假失败 ⇒
+  改成"跟当前主题的面板色一致"（断言的意图是"别掉回浏览器默认白控件"）
+- 用像素法验对比度比肉眼截缩略图靠谱：crop 后放大看图会误判成"几乎看不见"，
+  实际逐行量最暗亮度才准（39 / 105）
+
+**未 commit / 未 push**；版本仍 1.11.0，未出包未发版。

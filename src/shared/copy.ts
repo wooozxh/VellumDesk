@@ -198,7 +198,10 @@ export const COPY = {
     rescan: '刷新/扫描',
     rescanning: '处理中...',
     rescanTip: '重新扫描素材工作区',
-    newPack: '新建任务'
+    newPack: '新建任务',
+    // 第 70 批（docs/55）：深/浅主题切换（tooltip 说的是"点了会变成什么"）
+    themeToLight: '切换到浅色',
+    themeToDark: '切换到深色'
   },
 
   // ==================== 左栏 ====================

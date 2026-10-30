@@ -8,6 +8,7 @@ import { registerIpc } from './ipc'
 import { startLinkService, stopLinkService, flushMirrorNow, hasPendingMirror } from './linkService'
 import { destroyTplCardRenderer } from './tplCardImage'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
+import { readUiPrefs } from './uiPrefs'
 import { locateBundledExe, setBundledCliExe } from './wecomCli'
 import {
   enrichAllImageMeta,
@@ -33,6 +34,13 @@ function locateFfmpegDir(): string {
 }
 
 function createWindow(): void {
+  /**
+   * 第 70 批（docs/55）：主题要在**首屏之前**就定下来，否则浅色用户每次启动会先闪一帧深灰。
+   * 两道保险：① 窗口底色按主题给（Chromium 空闲底色）；② 主题经 URL 查询串带给渲染层，
+   * 由 `index.html` 里的内联脚本在 React 挂载前打到 `<html data-theme>` 上。
+   */
+  const theme = readUiPrefs(userDataDir).theme
+
   const mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -40,7 +48,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#15161a',
+    backgroundColor: theme === 'light' ? '#eeebe4' : '#15161a',
     title: COPY.app.name,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
@@ -67,9 +75,9 @@ function createWindow(): void {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?theme=${theme}`)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { theme } })
   }
 }
 

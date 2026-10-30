@@ -198,15 +198,16 @@ export function PluginLinkModal({ onClose }: { onClose: () => void }): React.JSX
               {last ?? COPY.pluginLink.lastNone}
             </span>
           </div>
+        </div>
 
-          <div className="tk-actions">
-            <button className="btn primary" disabled={syncing} onClick={() => void doSync()}>
-              {syncing ? COPY.pluginLink.syncing : COPY.pluginLink.syncBtn}
-            </button>
-            <button className="btn" onClick={onClose}>
-              {COPY.common.close}
-            </button>
-          </div>
+        {/* 第 70 批：动作条移到滚动区外面（同「工单设置」，内容再多也点得到） */}
+        <div className="foot">
+          <button className="btn primary" disabled={syncing} onClick={() => void doSync()}>
+            {syncing ? COPY.pluginLink.syncing : COPY.pluginLink.syncBtn}
+          </button>
+          <button className="btn" onClick={onClose}>
+            {COPY.common.close}
+          </button>
         </div>
       </div>
     </div>

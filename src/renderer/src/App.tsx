@@ -21,6 +21,7 @@ import type {
 } from './types'
 
 import { Icon } from './components/Icon'
+import { applyTheme, type Theme } from './theme'
 import { PackCard, UnassignedCard } from './components/PackCard'
 import { FileRow, fmtSize } from './components/FileRow'
 import { NewPackModal } from './components/NewPackModal'
@@ -93,6 +94,26 @@ export default function App(): React.JSX.Element {
     return saved >= SIDE_MIN && saved <= SIDE_MAX ? saved : SIDE_DEFAULT
   })
   const [resizing, setResizing] = useState(false)
+
+  /**
+   * 第 70 批（docs/55）：界面主题（深 / 浅）。
+   * 初值直接读 `<html data-theme>` —— `theme.ts` 已在首帧前按主进程给的查询串设好，
+   * 这里再判断一次来源就会有两个真相，迟早跑偏。
+   */
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+  )
+
+  /** 先改界面再落盘：写盘失败（盘只读等）不该卡住用户已经看到的切换 */
+  const toggleTheme = (): void => {
+    const next: Theme = theme === 'light' ? 'dark' : 'light'
+    setTheme(next)
+    applyTheme(next)
+    void window.api.uiSetTheme(next).catch(() => undefined)
+  }
+
+  /** 文案说的是「点了会变成什么」，不是「现在是什么」—— 按钮该往用户想去的地方指 */
+  const themeTooltip = theme === 'light' ? COPY.top.themeToDark : COPY.top.themeToLight
 
   const [packs, setPacks] = useState<PackCardType[]>([])
   const [stats, setStats] = useState({
@@ -1388,6 +1409,13 @@ export default function App(): React.JSX.Element {
           onClick={() => setShowPlugin(true)}
         >
           <Icon name="layers" size={13} />  {COPY.pluginLink.entry}
+        </button>
+
+        {/* 第 70 批（docs/55）：深 / 浅主题切换。
+            图标画的是「点它会变成的那种模式」：深色时给太阳（点了变浅），浅色时给月亮（点了变深）。
+            放最右、不带文字 —— 它是常用开关，不该藏进设置弹窗里（设置里也有入口）。 */}
+        <button className="btn theme-btn" onClick={toggleTheme} title={themeTooltip}>
+          <Icon name={theme === 'light' ? 'moon' : 'sun'} size={14} />
         </button>
       </div>
 

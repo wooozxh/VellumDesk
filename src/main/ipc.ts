@@ -56,6 +56,8 @@ import {
   type CreateVersionInput,
   type BindVersionInput
 } from './workspace'
+// 第 70 批（docs/55）：界面外观偏好（深/浅主题），落在 userData 而非工作区库
+import { readUiPrefs, writeTheme, type Theme } from './uiPrefs'
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
@@ -317,6 +319,9 @@ export function registerIpc(opts?: {
     'file:reveal',
     'shell:openPath',
     'dialog:pickOutputDir',
+    // 第 70 批（docs/55）：主题只是界面外观，跟素材内容无关 —— 绝不能因此排一次镜像同步
+    'ui:theme',
+    'ui:setTheme',
     'setup:wizardDone'
   ])
   /** 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容） */
@@ -334,6 +339,17 @@ export function registerIpc(opts?: {
     })
   }
   const documentsDir = app.getPath('documents')
+
+  // ---------- 界面外观（第 70 批 · docs/55）----------
+  /**
+   * 主题存在 `userData/ui-prefs.json`（不是工作区 meta）：
+   * 工作区可能在没插的移动硬盘上，界面照样得知道自己是深是浅。
+   * 非法值一律回落到 dark —— 前端传错不该把界面弄成一片白。
+   */
+  handleIpc('ui:theme', () => ({ theme: readUiPrefs(appData).theme }))
+  handleIpc('ui:setTheme', (_e, theme: unknown) => ({
+    theme: writeTheme(appData, theme as Theme)
+  }))
 
   // ---------- 工作区 ----------
   /**

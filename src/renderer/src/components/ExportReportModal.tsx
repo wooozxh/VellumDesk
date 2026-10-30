@@ -98,19 +98,20 @@ export function ExportReportModal({
           </div>
 
           {err && <div className="tk-err">{err}</div>}
+        </div>
 
-          <div className="tk-actions">
-            <button
-              className="btn primary"
-              disabled={busy || start === '' || end === ''}
-              onClick={() => void doExport()}
-            >
-              {busy ? COPY.common.saving : COPY.ticket.exportReportRun}
-            </button>
-            <button className="btn" onClick={onClose}>
-              {COPY.common.cancel}
-            </button>
-          </div>
+        {/* 第 70 批：动作条移到滚动区外面（同「工单设置」，内容再多也点得到） */}
+        <div className="foot">
+          <button
+            className="btn primary"
+            disabled={busy || start === '' || end === ''}
+            onClick={() => void doExport()}
+          >
+            {busy ? COPY.common.saving : COPY.ticket.exportReportRun}
+          </button>
+          <button className="btn" onClick={onClose}>
+            {COPY.common.cancel}
+          </button>
         </div>
       </div>
     </div>

@@ -1217,6 +1217,14 @@ export interface Api {
     start: number
     pad: number
   }) => Promise<SeqRenameResultVM>
+
+  /**
+   * 第 70 批（docs/55）：界面主题（深 / 浅）。
+   * `uiTheme` 是校准用（真机首屏由主进程经 `?theme=` 带进来，这里只在需要时复核）；
+   * `uiSetTheme` 写 `userData/ui-prefs.json` —— 与工作区解耦，换库不掉。
+   */
+  uiTheme: () => Promise<{ theme: 'dark' | 'light' }>
+  uiSetTheme: (theme: 'dark' | 'light') => Promise<{ theme: 'dark' | 'light' }>
 }
 
 /** 第 62 批（docs/45）：PS 插件联动状态 */

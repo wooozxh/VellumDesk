@@ -46,13 +46,13 @@
     <!-- ============ 封面 ============ -->
     <header class="cover">
       <img class="logo" src="images/logo.png" alt="Vellum Desk" />
-      <span class="tag">USER MANUAL · v1.11.0</span>
+      <span class="tag">USER MANUAL · v1.12.0</span>
       <h1>Vellum工作台 用户使用手册</h1>
       <p class="lede">本地素材管理桌面软件。把设计物料、任务稿、企微工单这三件事，收进一个「看得见磁盘真相」的工作台里 —— 所有素材都在你本机硬盘上，不上传任何云端。</p>
       <div class="kv">
-        <div><b>1.11.0</b>软件版本</div>
+        <div><b>1.12.0</b>软件版本</div>
         <div><b>Windows 10 / 11 · 64 位</b>适用系统</div>
-        <div><b>2026-10-11</b>手册更新</div>
+        <div><b>2026-10-30</b>手册更新</div>
         <div><b>40+ 张</b>界面截图</div>
         <div><b>内部使用</b>分发范围</div>
       </div>
@@ -1142,7 +1142,7 @@
 
     <section id="s5-1">
       <h2><span class="n">5.1</span>顶栏</h2>
-      <p>从左到右：软件名 → 搜索框 → <b>四格视图</b>（工单队列 / 任务视图 / 文件视图 / 通用库）→ 刷新扫描 → 新建任务 → 插件。</p>
+      <p>从左到右：软件名 → 搜索框 → <b>五格视图</b>（工单队列 / 任务视图 / 文件视图 / 通用库 / 模板）→ 刷新扫描 → 新建任务 → 插件 → <b>主题切换</b>。</p>
       <table>
         <thead><tr><th style="width:170px">控件</th><th>作用</th><th>限制 / 注意</th></tr></thead>
         <tbody>
@@ -1151,9 +1151,11 @@
           <tr><td>任务视图</td><td>显示任务卡片</td><td>—</td></tr>
           <tr><td>文件视图</td><td>显示文件列表</td><td>—</td></tr>
           <tr><td>通用库</td><td>显示通用素材库（公司通用素材 + 个人收藏）</td><td>里面的素材<b>不属于任何任务</b>，详见 <a href="#s6-1">6.1</a></td></tr>
+          <tr><td>模板</td><td>显示 PSD 模板库（多层分组 / 信息卡 / 卡片与列表双视图）</td><td>模板只用于「找一份拿来用」，不参与任务归属；详见 <a href="#s6-7">6.7</a></td></tr>
           <tr><td>刷新 / 扫描</td><td>重新扫描工作区磁盘 → 更新记录、生成缩略图</td><td>扫描期间按钮变灰并显示百分比，例如 <code>生成缩略图 12/40 · 43%</code></td></tr>
           <tr><td>＋ 新建任务</td><td>建一个新任务（文件夹当场长好）</td><td>需要工作区可用；项目至少有一个</td></tr>
           <tr><td>插件</td><td>打开 PS 插件联动设置（总开关 / 插件数据目录 / 手动同步）</td><td>详见 <a href="#s6-4">6.4</a></td></tr>
+          <tr><td>主题切换</td><td>顶栏最右的圆钮：点一下在<b>深色 / 浅色</b>之间切换</td><td>切换后<b>记住</b>，下次打开还是这个模式；按钮上的图标画的是<b>点完会变成的模式</b>（太阳＝现在深色、点了转浅色；月亮反之）。浅色是为不习惯深底的人准备的，功能完全一样</td></tr>
         </tbody>
       </table>
       <div class="call warn"><span class="h">什么时候必须点「刷新/扫描」</span><b>任何在软件外部改动了文件或文件夹之后</b> —— 新增、改名、移动、删除。软件不会自动感知磁盘变化。</div>
@@ -1808,9 +1810,9 @@ note:主推款，上方留白给标题</code></pre>
       <table>
         <thead><tr><th style="width:170px">位置</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td><code>1.11.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
+          <tr><td><code>1.12.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
           <tr><td>状态栏右下角</td><td>软件里唯一的版本号显示位置 —— 报问题时顺手截这里</td></tr>
-          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.11.0</b>）</td></tr>
+          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.12.0</b>）</td></tr>
         </tbody>
       </table>
 
@@ -1818,7 +1820,7 @@ note:主推款，上方留白给标题</code></pre>
       <div class="call warn"><span class="h">升级前顺手备份一次</span>把整个工作区文件夹复制一份到移动硬盘。虽然升级不动素材，但这是零成本的保险。</div>
 
       <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px">
-        本手册对应软件版本 <b>1.11.0</b>　|　最后更新 2026-10-17　|　内部使用，请勿外传
+        本手册对应软件版本 <b>1.12.0</b>　|　最后更新 2026-10-30　|　内部使用，请勿外传
       </div>
     </section>
 
@@ -1832,7 +1834,7 @@ note:主推款，上方留白给标题</code></pre>
 <button class="totop" id="totop" title="回到顶部">↑</button>
 
 <footer style="max-width:1240px;margin:0 auto;padding:0 24px 60px">
-  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.11.0　|　2026-10-17</span></div>
+  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.12.0　|　2026-10-30</span></div>
   <span>下载与更新见页面右上角 <b style="font-family:var(--mono)">GitHub</b> 图标，或翻到 <a href="#s7-7">7.7 下载与更新</a></span>
 </footer>
 

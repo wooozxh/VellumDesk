@@ -106,6 +106,8 @@ import {
   MIRROR_DEBOUNCE_MS
 } from './src/main/linkService'
 import { setLinkConfig } from './src/main/linkConfig'
+// 第 70 批（docs/55）：深/浅主题偏好（落 userData，不进工作区库）
+import { readUiPrefs, writeTheme } from './src/main/uiPrefs'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -7553,6 +7555,94 @@ async function main(): Promise<void> {
       '第 3 层里的文件**进库**了（只跳过超过 5 层的）'
     )
 
+    // ⑥b 【第 65 批 bug 修复】隐藏名文件（macOS `._xxx` / `.DS_Store`）不入库、脏记录被清、且不挡「删组」
+    // 布景三路：① 混入 `._xxx` / `.DS_Store`（考「不收」）；② 人为塞历史脏记录（考「清掉」）；
+    //            ③ 一个只剩隐藏名文件的组（考「删组时目录也能清掉，不会被下次扫描又认领回来」）
+    const bJunG = createBrandFolder({ workspaceRoot: bWs, name: '垃圾组', parentId: bCompany.id })
+    ok(bJunG.ok && !!bJunG.value, '布景：建一个「垃圾组」')
+    const bJunGid = bJunG.value!.id
+    const bJunDir = join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '垃圾组')
+    writeFileSync(join(bJunDir, '._真图.png'), Buffer.from([0x00, 0x05, 0x16, 0x07]))
+    writeFileSync(join(bJunDir, '.DS_Store'), Buffer.from([0x00]))
+    const insJunk = getDb().prepare(
+      `INSERT INTO brand_assets
+         (folder_id, file_name, ext, size, abs_path, rel_path, source, created_at, modified_at, scanned_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    insJunk.run(
+      bLogoId,
+      '._ghost.jpg',
+      'jpg',
+      4096,
+      join(bWs, BRAND_ROOT_DIR, BRAND_TOP_COMPANY, '品牌logo', '._ghost.jpg'),
+      'ghost1',
+      'user',
+      'x',
+      'x',
+      'x'
+    )
+    insJunk.run(null, '.DS_Store', '', 6148, join(bWs, '.DS_Store'), 'ghost2', 'user', 'x', 'x', 'x')
+    const junkBefore = (
+      getDb().prepare("SELECT COUNT(*) AS c FROM brand_assets WHERE file_name LIKE '.%'").get() as { c: number }
+    ).c
+    ok(junkBefore >= 2, `布景：扫描前库里有 ${junkBefore} 条隐藏名脏记录`)
+    // 真实素材口径**扫描前先数一遍**，不写死条数 —— 后面布景再加素材也不会假失败
+    // （原写死 === 3，实际布景有 4 条：品牌logo 组 3 条 + 第 3 层的深处.png）
+    const realBefore = listBrandAssets({}).filter((a) => !a.file_name.startsWith('.')).length
+    const bScan3 = await scanBrand(bWs)
+    const junkAfter = (
+      getDb().prepare("SELECT COUNT(*) AS c FROM brand_assets WHERE file_name LIKE '.%'").get() as { c: number }
+    ).c
+    ok(junkAfter === 0, '【回归·核心】扫描后隐藏名记录清零（`._xxx` / `.DS_Store` 不入库，已登记的也被摘掉）')
+    ok(bScan3.pruned >= 2, `本次清理了 ${bScan3.pruned} 条隐藏名记录（布景 2 条）`)
+    ok(
+      !listBrandAssets({}).some((a) => a.file_name.startsWith('.')),
+      '素材列表里不再出现任何隐藏名文件（界面不再显示）'
+    )
+    ok(
+      listBrandAssets({}).filter((a) => !a.file_name.startsWith('.')).length === realBefore,
+      `真实素材一条不少（清理只动隐藏名记录，前后都是 ${realBefore} 条）`
+    )
+    ok(
+      readdirSync(join(bWs, '_system', 'backup')).some((f) => f.startsWith('brand-junk-')),
+      '清理前留痕到 `_system/backup/brand-junk-*.json`'
+    )
+    ok(
+      existsSync(join(bJunDir, '._真图.png')) && existsSync(join(bJunDir, '.DS_Store')),
+      '【磁盘零改动】扫描阶段 `._真图.png` 与 `.DS_Store` 仍在磁盘上'
+    )
+    // ③ 删「垃圾组」：目录里只剩隐藏名文件 —— 目录也该被清掉（否则下次扫描又认领回来）
+    const bDelJunk = deleteBrandFolder({ workspaceRoot: bWs, id: bJunGid })
+    ok(bDelJunk.ok && bDelJunk.value!.moved === 0, '「垃圾组」无真实素材，移走 0 条')
+    ok(!existsSync(bJunDir), '【连带修复】目录里只剩隐藏名文件时，删组仍能清掉目录（防「删了又回来」）')
+    ok(
+      readdirSync(join(bWs, TRASH_DIR)).some((f) => f.startsWith('._真图') || f.startsWith('.DS_Store')),
+      '隐藏名文件被挪进 `_回收站`（挪走而非删除）'
+    )
+    // ④ 导入也跳过隐藏名条目（否则「从 Mac 导文件夹」会把 `._` / `.DS_Store` 再复制进库）
+    const bJunkSrc = join(bRoot, 'junksrc')
+    mkdirSync(bJunkSrc, { recursive: true })
+    writeFileSync(join(bJunkSrc, '._正常.png'), Buffer.from([0x00, 0x05, 0x16, 0x07]))
+    writeFileSync(join(bJunkSrc, '.DS_Store'), Buffer.from([0x00]))
+    const bImpJunk = importBrandPaths({ workspaceRoot: bWs, paths: [bJunkSrc], folderId: bUser.id })
+    ok(bImpJunk.ok && bImpJunk.imported === 0, `导入只含隐藏名的文件夹 → 一个文件都不收（实际 ${bImpJunk.imported}）`)
+    const bJunkGroupDir = join(bWs, BRAND_ROOT_DIR, BRAND_TOP_USER, 'junksrc')
+    ok(
+      existsSync(bJunkGroupDir) && readdirSync(bJunkGroupDir).length === 0,
+      '目标组目录里没有 `._正常.png` / `.DS_Store`（导入时隐藏名条目被跳过）'
+    )
+    const bHiddenSrc = join(bRoot, '._hiddensrc')
+    mkdirSync(bHiddenSrc, { recursive: true })
+    makePng(join(bHiddenSrc, 'x.png'), 6, 6, [5, 5, 5])
+    const bImpHidden = importBrandPaths({ workspaceRoot: bWs, paths: [bHiddenSrc], folderId: bUser.id })
+    ok(
+      bImpHidden.imported === 0 && bImpHidden.createdFolders === 0,
+      '隐藏名文件夹整个被跳过（不建组、不导文件）'
+    )
+    const bJunkFolders = listBrandFolders().filter((f) => f.name === 'junksrc')
+    if (bJunkFolders[0]) deleteBrandFolder({ workspaceRoot: bWs, id: bJunkFolders[0].id })
+    ok(!existsSync(bJunkGroupDir), '（清场）导入测试建的临时组与目录已清掉，不影响后续断言')
+
     // ⑦ 进镜像：brand.json + b<id> 缩略图 + 两层 parentId + source
     const bHits = discoverPluginDataDirs(bAppData)
     const br1 = await syncBrandMirror(bWs, bHits, { appVersion: '1.9.7' })
@@ -8789,6 +8879,33 @@ async function main(): Promise<void> {
 
     const unknownKey = parseTplKeywords(['材质:KT板'])
     ok(unknownKey.others.length === 1, '没定义的 key（材质）⇒ 进 others，不影响其它字段')
+  }
+
+  log('\n[70] 第 70 批：深/浅主题偏好的读写（userData/ui-prefs.json，docs/55）')
+  {
+    const uDir = join('D:////_accept_ws', `uitheme_${RUN_ID}`)
+    hardRm(uDir)
+    mkdirSync(uDir, { recursive: true })
+
+    ok(readUiPrefs(uDir).theme === 'dark', '没有偏好文件时默认深色（老用户升级第一眼不变）')
+    ok(writeTheme(uDir, 'light') === 'light', '写 light：返回实际生效的值')
+    ok(readUiPrefs(uDir).theme === 'light', '写进去再读回来是 light（重启也记得）')
+
+    // 非法值：前端传错 / 手改文件，都不许把界面弄成一片白
+    writeFileSync(join(uDir, 'ui-prefs.json'), '{"theme":"neon"}', 'utf-8')
+    ok(readUiPrefs(uDir).theme === 'dark', '未知值回落深色，不抛错')
+    writeFileSync(join(uDir, 'ui-prefs.json'), 'not json at all', 'utf-8')
+    ok(readUiPrefs(uDir).theme === 'dark', '文件损坏也回落深色（坏一个偏好不能让软件起不来）')
+    writeTheme(uDir, 'nonsense' as never)
+    ok(readUiPrefs(uDir).theme === 'dark', '写非法值等同写深色（不落进文件里）')
+
+    // 以后再加别的界面偏好时，不能被主题写入顺手抹掉
+    writeFileSync(join(uDir, 'ui-prefs.json'), '{"theme":"dark","zoom":1.25}', 'utf-8')
+    writeTheme(uDir, 'light')
+    const j = JSON.parse(readFileSync(join(uDir, 'ui-prefs.json'), 'utf-8')) as Record<string, unknown>
+    ok(j.theme === 'light' && j.zoom === 1.25, '只改 theme，不动同文件里的其它键')
+
+    hardRm(uDir)
   }
 
 // ============ 汇总 ============

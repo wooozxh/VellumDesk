@@ -26,7 +26,7 @@
   合回：`git switch feature/vellum_desk-PSlink && git merge feature/pslink-preview`（或 cherry-pick 挑功能）。
 - **软件名（docs/28 全站改名）**：界面 **Vellum工作台**；exe / 安装包 / 仓库 **VellumDesk**；appId `com.vellumdesk`；userData `vellumdesk_project`；工作区默认 `D:\vellum_workspace`。
 - **发版渠道**：GitHub Release 已开（最新 **v1.9.7**，2026-10-10 已发）。**发 Release = 对外发布**（仓库 PUBLIC），发之前先确认。
-- **验收基线（本机实测，2026-10-11 第 64 次会话）**：**accept 1307 项全过 + 18 个界面场景全绿**（新增 `pluginlink` / `brandlib`；第 64 批为纯后端 bug 修复，无 UI 改动）。
+- **验收基线（2026-10-30 第 71 批之后：accept 1441 / 20 个场景；此处旧文为历史记录）**：（历史）2026-10-11 第 64 次会话：**accept 1307 项全过 + 18 个界面场景全绿**（新增 `pluginlink` / `brandlib`；第 64 批为纯后端 bug 修复，无 UI 改动）。
   ⚠️ **口径**：断言总数随机器的 PSD 样本有无而固定差 11 条（PSD 条件断言，没样本就跳过，不是回归）：本机 17736（无样本）
   第 58 批 = 1155、第 59 批 = 1163、**第 62 批：1163 → 1185（Step 1）→ 1204（Step 2）→ 1214（Step 3a）→ 1268（Step 4 通用库）**、**第 63 批：1268 → 1294**、**第 64 批：1294 → 1307**；有样本的机器 = 本机数 +11。
   **以后基线一律以本机 `accept-result.txt` 为准。**
@@ -334,6 +334,7 @@ M6 还剩的其他小项：
 | **`bin/mcporter` 是 sh 包装，Node 里 spawn 不了** | 起 `node <...>/node_modules/mcporter/dist/cli.js`；且必须**异步 spawn + argv 数组**（`spawnSync`/`execFileSync` 沙箱里全 EBUSY）。`--args '<json>'` 走命令行有 ~32KB 上限，大文本要分块（本次 484 行分 12 次） |
 | **改文案后的连锁影响** | accept 与场景里有一批断言**直接检查某句话出现过**。改文案会让它们集体报红 —— 这不是改坏了，是断言没跟上。处理：逐条更新断言字面值（**保持断言强度，绝不改成"永远通过"**）+ 输出变更清单给用户过目；断言**数量只增不减**（当前 800） |
 | ⛔ **`github.com:443` 会被间歇拦截（2026-10-04 第 21 批实测）** | `git push` 连报 `Failed to connect to github.com:443`，但同一时刻 `api.github.com` / `codeload.github.com` / `ssh.github.com:443` **全通**（典型 SNI 拦截）；`curl --resolve github.com:443:<任一已知 IP>` 也全部 200。**别据此判定"推不上去"** —— 换时间窗口重试即成（本批第 5 次重试一次性推上 4 个分支）。SSH 通道 22/443 始终通，但本机没有 SSH 密钥（`~/.ssh` 不存在），走不了 SSH 兜底 |
+| ⛔ **直连 `github.com` 的 git 端点会被 reset（2026-10-19 实测；首页 / API / codeload 同时都通）** | `git fetch` 在 TLS 握手后、请求发出约 30 秒报 `Recv failure: Connection was reset`（`Invoke-WebRequest https://github.com` 与 `api.github.com` 却 200）。**不要据此判定仓库或凭据坏了** —— 开 VPN（TUN）或走镜像：`git fetch https://ghfast.top/https://github.com/wooozxh/VellumDesk.git '+refs/heads/*:refs/remotes/origin/*'`。走镜像后 `origin/*` 直接更新；若先落到 `mirror/*`，记得 `git update-ref refs/remotes/origin/<分支> <sha>` 对齐，否则 `git status` 会误报 ahead。镜像属第三方，**要拿 `api.github.com/repos/.../branches/<分支>` 的 SHA 核对**（本次一致） |
 | **本机 electron-builder 二进制要现下，但只需设一个镜像** | `%LOCALAPPDATA%\electron-builder` 目录不存在（NSIS / winCodeSign 从没缓存过），而 `%LOCALAPPDATA%\electron\Cache` 里**已有** `electron-v39.8.10-win32-x64.zip`。2026-10-04 实测：**只设** `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/` 就能出包成功（4 分 34 秒，自动下 nsis-3.0.4.1 / 7zip / nsis-resources） |
 | ⛔ **`resources/ffmpeg` 的两个 exe 会丢（gitignore 不入库），出包前必查** | 2026-10-04 实测：目录里只剩 README，而**包内必须有** `ffmpeg.exe` + `ffprobe.exe`，否则视频缩略图/信息全部降级（`locateFfmpegDir` 返回空 → 只打 warning，不报错，极易漏掉）。最稳的恢复方式＝**从历史安装包原地取回**（字节级一致、许可不变）：① 用 Bandizip 控制台（`/d/software/Bandizip/bz.exe`）从旧安装包取出内层 payload：`bz.exe x -y -o:<项目目录> <旧安装包> $PLUGINSDIR\app-64.7z`；② 再对取出的 `app-64.7z` **给完整相对路径**解出三个文件：`bz.exe x -y -o:<项目目录> app-64.7z "resources\ffmpeg\ffmpeg.exe" "resources\ffmpeg\ffprobe.exe" "resources\ffmpeg\LICENSE.txt"`（过滤参数只给目录名会**静默不出东西**）。本次第一版包就漏了 ffmpeg，重出一版才补上 |
 | ⛔ **清出包目录别用 `rm -rf`** | `rel_out/v1.8.0` 有 593 个文件，`rm -rf` 直接撞 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`；更坑的是它在 `&&` 链首，失败后**后续出包静默没跑**（日志只有一行 safe-delete）。正解：`mv` 把旧目录挪开（move 不触发护栏），或换一个全新空目录 |

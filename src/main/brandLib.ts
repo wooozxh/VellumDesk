@@ -26,6 +26,7 @@ import { join, basename, extname, dirname, relative } from 'path'
 import {
   existsSync,
   mkdirSync,
+  writeFileSync,
   readdirSync,
   statSync,
   copyFileSync,
@@ -90,6 +91,13 @@ export function uniqueDir(baseDir: string, name: string): string {
   }
   return p
 }
+
+/**
+ * 隐藏名判定（第 65 批提成单一来源）：`_` / `.` 开头。
+ * 覆盖 macOS AppleDouble `._xxx`、`.DS_Store`，以及软件自己的 `_thumbs` / `_system` / 两个收纳区。
+ * ⚠️ 扫描、清理、删组三处都用它 —— 判据只能有一份，别再各写一遍（本项目栽过「两套清单对不上」的跟头）。
+ */
+export const isHiddenName = (n: string): boolean => n.startsWith('_') || n.startsWith('.')
 
 /** 磁盘上找一个不撞名的文件名（导入同名文件时自动 -2 -3）。第 66 批起 `tplLib` 也复用。 */
 export function uniqueFile(dir: string, fileName: string): string {
@@ -570,6 +578,22 @@ export function deleteBrandFolder(input: {
   for (const dir of dirsToClean) {
     if (!existsSync(dir)) continue
     try {
+      // 第 65 批：目录里可能只剩**被忽略的隐藏名文件**（macOS `._xxx` / `.DS_Store`）——
+      // 它们不归库管（扫描不登记），但挡着 `rmdirSync` 会让目录删不掉 → 下次扫描又把它认领回来，
+      // 「删组」等于白删。先把它们挪进 `_回收站`（**不删文件**，与「移出素材」同一去处），再删空目录。
+      const left = readdirSync(dir)
+      const ignoredOnly = left.length > 0 && left.every((n) => isHiddenName(n))
+      if (ignoredOnly) {
+        const trashDir = join(workspaceRoot, TRASH_DIR)
+        mkdirSync(trashDir, { recursive: true })
+        for (const n of left) {
+          try {
+            renameSync(join(dir, n), uniqueFile(trashDir, n))
+          } catch {
+            /* 挪不动就留着，目录也就留着（宁可留目录，也不删文件） */
+          }
+        }
+      }
       // ⚠️ `rmSync` 删目录必须 recursive；这里要的是"非空就不删"的语义 → 用 rmdirSync
       if (readdirSync(dir).length === 0) rmdirSync(dir)
     } catch {
@@ -588,6 +612,8 @@ export interface BrandScanResult {
   missing: number
   /** 被跳过的三层以上目录数（只做两层，给它一个提示口径） */
   skippedDeep: number
+  /** 本次清理掉的隐藏名脏记录数（macOS `._xxx` / `.DS_Store`；只清记录、磁盘零改动） */
+  pruned: number
   thumbs: number
 }
 
@@ -597,6 +623,11 @@ export interface BrandScanResult {
  *  · 顶层目录（不以 `_` / `.` 开头）→ 顶层组；其子目录 → 子组；**再往下跳过**并计数。
  *  · 直接躺在根下 / 组目录下的文件 → 记为该组素材（根下的 folder_id = NULL = 未分组）。
  *  · 磁盘上已不存在的记录 → 打 `missing_at`（照第 8 批口径，**不删记录**）。
+ *
+ * ⚠️ **第 65 批 bug 修复**：文件名以 `_` / `.` 开头的**一律不算素材**（`listFiles` 里已过滤）——
+ * macOS 把文件拷到 exFAT / 网络盘时，会给每个文件配一个 `._xxx.jpg`（AppleDouble 副作用文件，
+ * 固定 4096 字节、内容是资源分支元数据，跟真实素材无关），`.DS_Store` 同理；不挡的话它们会顶满素材墙。
+ * （与任务库 `collectFiles` 同一口径。）库里**已登记的**同类脏记录也在本次扫描一并摘掉（只摘记录、磁盘零改动）。
  */
 export async function scanBrand(workspaceRoot: string): Promise<BrandScanResult> {
   ensureBrandRoot(workspaceRoot)
@@ -609,10 +640,11 @@ export async function scanBrand(workspaceRoot: string): Promise<BrandScanResult>
     newAssets: 0,
     missing: 0,
     skippedDeep: 0,
+    pruned: 0,
     thumbs: 0
   }
 
-  const skipHidden = (n: string): boolean => n.startsWith('_') || n.startsWith('.')
+  const skipHidden = isHiddenName
   const listDirs = (p: string): string[] => {
     if (!existsSync(p)) return []
     try {
@@ -627,7 +659,8 @@ export async function scanBrand(workspaceRoot: string): Promise<BrandScanResult>
     if (!existsSync(p)) return []
     try {
       return readdirSync(p, { withFileTypes: true })
-        .filter((d) => d.isFile())
+        // 第 65 批：隐藏名文件（`._xxx` AppleDouble / `.DS_Store`）不是素材，不收
+        .filter((d) => d.isFile() && !skipHidden(d.name))
         .map((d) => join(p, d.name))
     } catch {
       return []
@@ -724,6 +757,47 @@ export async function scanBrand(workspaceRoot: string): Promise<BrandScanResult>
     }
   })
   tx(files)
+
+  // 第 65 批：清理隐藏名脏记录（macOS `._xxx.jpg` / `.DS_Store` 之类）。
+  // `._xxx` 是 macOS 给每个文件配的 AppleDouble 副作用文件，从来不是素材 —— 扫描已不再登记它们
+  // （见 `listFiles`）；库里**修复前已登记的**同类记录也一并摘掉，否则它们会以「文件已丢失」
+  // 的形态继续显示在素材墙上。与第 7 批「包记录清理」同一规矩：**只摘记录、磁盘零改动**，摘前留痕。
+  const junkRows = (
+    db
+      .prepare('SELECT id, file_name, abs_path, rel_path, ext, size FROM brand_assets')
+      .all() as Array<{
+      id: number
+      file_name: string
+      abs_path: string
+      rel_path: string
+      ext: string
+      size: number
+    }>
+  ).filter((r) => skipHidden(r.file_name))
+  if (junkRows.length) {
+    try {
+      const bkDir = join(workspaceRoot, '_system', 'backup')
+      mkdirSync(bkDir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      writeFileSync(
+        join(bkDir, `brand-junk-${stamp}.json`),
+        JSON.stringify(
+          { at: ts, reason: 'hidden-name', count: junkRows.length, records: junkRows },
+          null,
+          2
+        ),
+        'utf-8'
+      )
+    } catch {
+      /* 留痕失败不拦住清理本身（记录本来就该走） */
+    }
+    const del = db.prepare('DELETE FROM brand_assets WHERE id = ?')
+    const txDel = db.transaction((ids: number[]) => {
+      for (const id of ids) del.run(id)
+    })
+    txDel(junkRows.map((r) => r.id))
+    out.pruned = junkRows.length
+  }
 
   // 失效检查：磁盘上已无 → 打标记（不删记录）
   for (const a of db.prepare('SELECT id, abs_path, missing_at FROM brand_assets').all() as Array<{
@@ -852,6 +926,9 @@ export function importBrandPaths(input: {
   }
 
   for (const p of paths) {
+    // 第 65 批：导入时也跳过隐藏名条目（macOS `._xxx` / `.DS_Store`）——
+    // 否则「从 Mac 导文件夹」会把同批垃圾一并复制进库（虽然扫描不收，但白占磁盘）。
+    if (isHiddenName(basename(p))) continue
     let st: ReturnType<typeof statSync>
     try {
       st = statSync(p)
@@ -876,6 +953,7 @@ export function importBrandPaths(input: {
     const groupDir = brandFolderDir(workspaceRoot, made.value.id)!
     mkdirSync(groupDir, { recursive: true })
     for (const entry of readdirSync(p, { withFileTypes: true })) {
+      if (isHiddenName(entry.name)) continue
       const abs = join(p, entry.name)
       if (entry.isFile()) copyInto(groupDir, abs)
       else if (entry.isDirectory()) {
@@ -885,6 +963,7 @@ export function importBrandPaths(input: {
           const subDir = brandFolderDir(workspaceRoot, sub.value.id)!
           mkdirSync(subDir, { recursive: true })
           for (const f of readdirSync(abs, { withFileTypes: true })) {
+            if (isHiddenName(f.name)) continue
             if (f.isFile()) copyInto(subDir, join(abs, f.name))
           }
         }

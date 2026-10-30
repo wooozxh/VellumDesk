@@ -436,19 +436,20 @@ export function TicketSettingsModal({
           )}
 
           {err && <div className="tk-err">{err}</div>}
+        </div>
 
-          <div className="tk-actions">
-            <button
-              className="btn primary"
-              disabled={busy || !canSave}
-              onClick={() => void probeOrSave('save')}
-            >
-              {COPY.common.save}
-            </button>
-            <button className="btn" onClick={onClose}>
-              {COPY.common.cancel}
-            </button>
-          </div>
+        {/* 第 70 批：动作条放在滚动区**外面** —— 内容再多也不挡、不滚走，永远点得到 */}
+        <div className="foot">
+          <button
+            className="btn primary"
+            disabled={busy || !canSave}
+            onClick={() => void probeOrSave('save')}
+          >
+            {COPY.common.save}
+          </button>
+          <button className="btn" onClick={onClose}>
+            {COPY.common.cancel}
+          </button>
         </div>
       </div>
 
