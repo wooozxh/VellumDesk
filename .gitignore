@@ -1,6 +1,8 @@
 node_modules
 dist
 release
+# electron-builder 临时输出目录（EBUSY 换目录打包时会用，产物 200MB+，绝不入库）
+release-*/
 out
 .DS_Store
 .eslintcache
