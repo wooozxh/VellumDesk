@@ -21,7 +21,10 @@ import type {
 } from './types'
 
 import { Icon } from './components/Icon'
+import { SettingsModal } from './components/SettingsModal'
 import { applyTheme, type Theme } from './theme'
+/** 第 77 批：顶栏图标位（工单 / 模板 / 通用库三个视图用），由 build/icon-source.png 缩出 */
+import appIcon from './assets/app-icon.png'
 import { PackCard, UnassignedCard } from './components/PackCard'
 import { FileRow, fmtSize } from './components/FileRow'
 import { NewPackModal } from './components/NewPackModal'
@@ -94,6 +97,8 @@ export default function App(): React.JSX.Element {
     return saved >= SIDE_MIN && saved <= SIDE_MAX ? saved : SIDE_DEFAULT
   })
   const [resizing, setResizing] = useState(false)
+  /** 第 74 批（docs/57）：左栏可收起 —— 工单表列多、窄窗口时把 216px 让出来 */
+  const [sideCollapsed, setSideCollapsed] = useState(false)
 
   /**
    * 第 70 批（docs/55）：界面主题（深 / 浅）。
@@ -105,12 +110,17 @@ export default function App(): React.JSX.Element {
   )
 
   /** 先改界面再落盘：写盘失败（盘只读等）不该卡住用户已经看到的切换 */
-  const toggleTheme = (): void => {
-    const next: Theme = theme === 'light' ? 'dark' : 'light'
+  const changeTheme = (next: Theme): void => {
+    if (next === theme) return
     setTheme(next)
     applyTheme(next)
     void window.api.uiSetTheme(next).catch(() => undefined)
   }
+
+  const toggleTheme = (): void => changeTheme(theme === 'light' ? 'dark' : 'light')
+
+  /** 第 74 批（docs/57）：全局设置弹窗（插件 / 企微 / 工单同步这些配置项从顶栏收口到这里） */
+  const [showSettings, setShowSettings] = useState(false)
 
   /** 文案说的是「点了会变成什么」，不是「现在是什么」—— 按钮该往用户想去的地方指 */
   const themeTooltip = theme === 'light' ? COPY.top.themeToDark : COPY.top.themeToLight
@@ -1258,31 +1268,54 @@ export default function App(): React.JSX.Element {
     return p ? p.name : ''
   }, [projectFilter, projects])
 
+  /** 第 77 批：只有任务 / 文件视图共用左栏、才有「收起左栏」这回事 */
+  const showSideToggle = view === 'packs' || view === 'files'
+
   return (
     <div className="app">
       {/* 顶栏 */}
       <div className="topbar">
-        <div className="brand">
-          <span className="dot" />
-          
-          {COPY.app.name}
-        </div>
+        {/* 第 74 批（docs/57）：左栏折叠 —— 只有任务 / 文件视图用得上（它们共用左栏）。
+            第 77 批：工单 / 模板 / 通用库这三个视图自带树，折叠按钮没意义，原来只是
+            `visibility:hidden` 占着位，看上去就是**左上角空了一块**。现在这个位置改放
+            软件 logo（`tools/gen-topbar-logo.cjs` 生成，第 78 批已改成透明底），
+            既补上视觉空缺，又让"这是 Vellum"在三个视图里都还在 ——
+            位置仍是 28px 见方，所以后面搜索框的 x 坐标一个像素都不动（56 那条断言继续成立）。 */}
+        {showSideToggle ? (
+          <button
+            className={`btn side-toggle${sideCollapsed ? ' off' : ''}`}
+            title={sideCollapsed ? COPY.side.expand : COPY.side.collapse}
+            onClick={() => setSideCollapsed((v) => !v)}
+          >
+            <Icon name="listView" size={14} />
+          </button>
+        ) : (
+          <span className="tb-logo" title={COPY.app.name} role="img" aria-label={COPY.app.name}>
+            <img src={appIcon} alt="" draggable={false} />
+          </span>
+        )}
 
-        {view !== 'tickets' && view !== 'brand' && view !== 'tpl' && (
-          <div className="search-wrap">
+        {/* 第 75 批（docs/57 续）：搜索框**常驻**且定宽 ——
+            原来只在任务/文件视图出现，切到工单/模板时页签会整体左移，是顶栏"跳动"的主因之一。 */}
+        <div className="search-wrap">
             <span className="icon">
               <Icon name="search" size={13} />
             </span>
             <input
               type="text"
               value={keyword}
-              placeholder={view === 'packs' ? COPY.top.searchPack : COPY.top.searchFile}
+              disabled={view !== 'packs' && view !== 'files'}
+              title={view !== 'packs' && view !== 'files' ? COPY.top.searchOnlyHere : undefined}
+              placeholder={
+                view === 'files'
+                  ? COPY.top.searchFile
+                  : view === 'packs'
+                    ? COPY.top.searchPack
+                    : COPY.top.searchGlobal
+              }
               onChange={(e) => setKeyword(e.target.value)}
             />
-          </div>
-        )}
-
-        <div className="spacer" />
+        </div>
 
         {/* 第 21 批：三格顺序按使用逻辑重排 —— 工单队列在最前（先看单、再回任务、最后查文件） */}
         <div className="tabs">
@@ -1310,20 +1343,29 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
 
-        {/* 第 14 批：扫描阶段进度（主进程推送）—— 让用户知道跑到哪、还剩多少 */}
-        {scanning && (
-          <span className="scan-prog" title={COPY.top.rescanTip}>
-            {scanProgress && scanProgress.total > 0
-              ? fmt(COPY.scan.progressText, {
-                  label: scanProgress.label,
-                  done: scanProgress.done,
-                  total: scanProgress.total
-                })
-              : (scanProgress?.label ?? COPY.top.rescanning)}
-          </span>
-        )}
+        <div className="spacer" />
 
-        <button className="btn" onClick={doRefresh} disabled={scanning} title={COPY.top.rescanTip}>
+        {/* 第 14 批：扫描阶段进度（主进程推送）—— 让用户知道跑到哪、还剩多少 */}
+        <span
+          className="scan-prog"
+          style={{ visibility: scanning ? 'visible' : 'hidden' }}
+          title={COPY.top.rescanTip}
+        >
+          {scanProgress && scanProgress.total > 0
+            ? fmt(COPY.scan.progressText, {
+                label: scanProgress.label,
+                done: scanProgress.done,
+                total: scanProgress.total
+              })
+            : (scanProgress?.label ?? COPY.top.rescanning)}
+        </span>
+
+        <button
+          className="btn rescan-btn"
+          onClick={doRefresh}
+          disabled={scanning}
+          title={COPY.top.rescanTip}
+        >
           {scanning ? (
             <>
               <Icon name="refresh" size={13} />{' '}
@@ -1338,77 +1380,14 @@ export default function App(): React.JSX.Element {
           )}
         </button>
 
-        <button className="btn primary" onClick={() => setShowNew(true)}>
-          <Icon name="plus" size={13} strokeWidth={2} />  {COPY.top.newPack}
-        </button>
-
-        {/* 第 58 批（docs/43）：任务视图 —— 「新建任务」后面加「备份打包」。
-            点它 → 全部卡片进入打勾模式，按钮变「批量打包」、旁边冒「取消」。
-            第 67 批（docs/50）：列表视图里勾选**直接就是**备份多选 ⇒
-            勾了人就该看见「批量打包（n）」，不必先去点「备份打包」进模式。 */}
-        {view === 'packs' && (
-          <>
-            {backupMode || (packsView === 'list' && backupSel.size > 0) ? (
-              <>
-                <button
-                  className="btn primary"
-                  disabled={backupSel.size === 0 || backupBusy}
-                  onClick={() => void doBackup()}
-                >
-                  {backupBusy ? COPY.backup.packing : fmt(COPY.backup.doBatch, { n: backupSel.size })}
-                </button>
-                <button
-                  className="btn"
-                  disabled={backupBusy || backupSel.size === 0}
-                  title={COPY.common.bulkSettingsTip}
-                  onClick={() => setBulkSetOpen(true)}
-                >
-                  {COPY.common.bulkSettings}
-                </button>
-                <button
-                  className="btn"
-                  disabled={backupBusy}
-                  onClick={() => {
-                    setBackupMode(false)
-                    setBackupSel(new Set())
-                  }}
-                >
-                  {COPY.common.cancel}
-                </button>
-              </>
-            ) : (
-              <button
-                className="btn"
-                title={COPY.backup.enterTip}
-                onClick={() => {
-                  setBackupMode(true)
-                  setBackupSel(new Set())
-                }}
-              >
-                <Icon name="archive" size={13} />  {COPY.backup.enter}
-              </button>
-            )}
-            {/* 第 67 批（docs/50）：卡片 / 列表切换。切视图就清空勾选 ——
-                两边的勾选语义不同（卡片是"备份模式"，列表是"浏览时顺手勾"），
-                带着勾选切过去只会让人误解数量。 */}
-            <ViewSwitch
-              mode={packsView}
-              onChange={(m) => {
-                setPacksView(m)
-                setBackupSel(new Set())
-                setBackupMode(false)
-              }}
-            />
-          </>
-        )}
-
-        {/* 第 62 批（docs/45）：PS 插件联动常驻入口（打开独立设置弹窗 —— 开关 / 手填目录 / 同步到插件） */}
+        {/* 第 74 批（docs/57）：设置（L0 配置统一入口）。插件联动 / 企微授权 / 工单同步配置
+            原来散在顶栏、工单视图、首次向导三处；它们都是「配完不再碰」的东西，收进设置更干净。 */}
         <button
-          className="btn"
-          title={COPY.pluginLink.title}
-          onClick={() => setShowPlugin(true)}
+          className="btn icon-btn-set"
+          title={COPY.set.title}
+          onClick={() => setShowSettings(true)}
         >
-          <Icon name="layers" size={13} />  {COPY.pluginLink.entry}
+          <Icon name="gear" size={15} />
         </button>
 
         {/* 第 70 批（docs/55）：深 / 浅主题切换。
@@ -1442,7 +1421,10 @@ export default function App(): React.JSX.Element {
           </div>
         ) : (
           <>
-        <div className="side" style={{ width: sideWidth }}>
+        <div
+          className={`side${sideCollapsed ? ' collapsed' : ''}`}
+          style={{ width: sideCollapsed ? 0 : sideWidth }}
+        >
           {/* 第 3 批：维度式标签筛选；第 7 批起标签计数跟随当前项目范围 */}
           <TagPanel
             dimensions={tagDimensions}
@@ -1731,12 +1713,14 @@ export default function App(): React.JSX.Element {
         </div>
 
         {/* 左栏宽度拖拽条：按住左右拖，双击复位 */}
+        {!sideCollapsed && (
         <div
           className={`side-resizer${resizing ? ' dragging' : ''}`}
           title={COPY.side.resizeTip}
           onMouseDown={startResize}
           onDoubleClick={resetSideWidth}
         />
+        )}
 
         <div className="main">
           {info && !info.workspaceOk && (
@@ -1783,6 +1767,84 @@ export default function App(): React.JSX.Element {
               </button>
             </div>
           )}
+        {/* 第 75 批（docs/57 续）：任务视图自己的工具条 ——
+            新建任务 / 备份打包 / 卡片列表切换都只对这一个视图有效，
+            原来放顶栏（L0）会随视图出现消失，把顶栏元素挤得来回跳。 */}
+        {view === 'packs' && (
+          <div className="view-bar">
+            <div className="view-bar-title">
+              <span className="t">{COPY.top.viewPacks}</span>
+              <span className="n">{fmt(COPY.stat.packsCount, { n: shownPacks.length })}</span>
+            </div>
+            <div className="view-bar-actions">
+        <button className="btn primary" onClick={() => setShowNew(true)}>
+          <Icon name="plus" size={13} strokeWidth={2} />  {COPY.top.newPack}
+        </button>
+
+        {/* 第 58 批（docs/43）：任务视图 —— 「新建任务」后面加「备份打包」。
+            点它 → 全部卡片进入打勾模式，按钮变「批量打包」、旁边冒「取消」。
+            第 67 批（docs/50）：列表视图里勾选**直接就是**备份多选 ⇒
+            勾了人就该看见「批量打包（n）」，不必先去点「备份打包」进模式。 */}
+        {view === 'packs' && (
+          <>
+            {backupMode || (packsView === 'list' && backupSel.size > 0) ? (
+              <>
+                <button
+                  className="btn primary"
+                  disabled={backupSel.size === 0 || backupBusy}
+                  onClick={() => void doBackup()}
+                >
+                  {backupBusy ? COPY.backup.packing : fmt(COPY.backup.doBatch, { n: backupSel.size })}
+                </button>
+                <button
+                  className="btn"
+                  disabled={backupBusy || backupSel.size === 0}
+                  title={COPY.common.bulkSettingsTip}
+                  onClick={() => setBulkSetOpen(true)}
+                >
+                  {COPY.common.bulkSettings}
+                </button>
+                <button
+                  className="btn"
+                  disabled={backupBusy}
+                  onClick={() => {
+                    setBackupMode(false)
+                    setBackupSel(new Set())
+                  }}
+                >
+                  {COPY.common.cancel}
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn"
+                title={COPY.backup.enterTip}
+                onClick={() => {
+                  setBackupMode(true)
+                  setBackupSel(new Set())
+                }}
+              >
+                <Icon name="archive" size={13} />  {COPY.backup.enter}
+              </button>
+            )}
+            {/* 第 67 批（docs/50）：卡片 / 列表切换。切视图就清空勾选 ——
+                两边的勾选语义不同（卡片是"备份模式"，列表是"浏览时顺手勾"），
+                带着勾选切过去只会让人误解数量。 */}
+            <ViewSwitch
+              mode={packsView}
+              onChange={(m) => {
+                setPacksView(m)
+                setBackupSel(new Set())
+                setBackupMode(false)
+              }}
+            />
+          </>
+        )}
+
+            </div>
+          </div>
+        )}
+
           <div className="main-scroll">
             {/* 第 58 批（docs/43）：多选备份模式的提示条 —— 否则用户不知道现在点卡片是勾选。
                 第 67 批（docs/50）：列表视图**不需要**这条 —— 表头就是全选、每行都有勾选框。 */}
@@ -2275,6 +2337,27 @@ export default function App(): React.JSX.Element {
           onOpenWizard={() => setWzSettingsOpen(false)}
           onClose={() => setWzSettingsOpen(false)}
           onSaved={() => setWzSettingsOpen(false)}
+        />
+      )}
+
+      {/* 第 74 批（docs/57）：全局设置（5 页：通用 / 工作区 / 企业微信 / PS 插件 / 关于） */}
+      {showSettings && (
+        <SettingsModal
+          theme={theme}
+          onThemeChange={changeTheme}
+          workspaceRoot={info?.workspaceRoot ?? ''}
+          onOpenWorkspace={() => void window.api.openFolder(info?.workspaceRoot ?? '')}
+          onChangeWorkspace={() => void doPickRoot()}
+          onOpenWecom={() => {
+            setShowSettings(false)
+            setShowWizard(true)
+          }}
+          onOpenPlugin={() => {
+            setShowSettings(false)
+            setShowPlugin(true)
+          }}
+          version={info?.appVersion ?? '—'}
+          onClose={() => setShowSettings(false)}
         />
       )}
 

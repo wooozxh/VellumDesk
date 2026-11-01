@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vellum工作台 · UI 优化原型 v1.12 → v1.13</title>
+<style>
+/* ============================================================
+   设计令牌（docs/56 §3）—— 所有尺寸只允许用这里的变量
+   ============================================================ */
+:root {
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px;
+  --h-ctl: 28px; --h-ctl-sm: 24px; --h-row: 32px; --h-row-lg: 40px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px;
+  --el-1: 0 1px 2px rgba(0,0,0,.28);
+  --el-2: 0 6px 24px rgba(0,0,0,.42);
+  --font: "Segoe UI", "Microsoft YaHei", -apple-system, "PingFang SC", sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", monospace;
+}
+html[data-theme="dark"] {
+  --bg: #111111; --panel: #1a1a1a; --panel-2: #232323; --card: #232323; --card-hover: #2a2a2a;
+  --line: #2e2e2e; --line-2: #3a3a3a;
+  --text: #e8e8e8; --text-2: #a9a9a9; --text-3: #767676;
+  --accent: #2f7fe0; --accent-2: #4d97ef; --accent-fg: #ffffff;
+  --st-ok: #2f9e6b; --st-warn: #d98b1f; --st-danger: #d9534f; --st-mute: #6f7681;
+  --mask: rgba(0,0,0,.62);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.35); --shadow-2: 0 6px 24px rgba(0,0,0,.5);
+  --scroll: #4a4a4a;
+}
+html[data-theme="light"] {
+  --bg: #eeebe4; --panel: #f6f3ec; --panel-2: #ece8df; --card: #fbf9f4; --card-hover: #fffdf8;
+  --line: #ded8cb; --line-2: #cfc7b6;
+  --text: #2a2721; --text-2: #57514a; --text-3: #6f685d;
+  --accent: #1a6fd4; --accent-2: #2f81e0; --accent-fg: #ffffff;
+  --st-ok: #1f7d52; --st-warn: #a86c11; --st-danger: #c23c38; --st-mute: #7d766a;
+  --mask: rgba(40,36,28,.38);
+  --shadow-1: 0 1px 2px rgba(60,50,30,.10); --shadow-2: 0 8px 28px rgba(60,50,30,.18);
+  --scroll: #c4bca9;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: var(--fs-md)/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 通用控件 ---------- */
+.btn {
+  height: var(--h-ctl); padding: 0 var(--sp-3);
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: var(--r-md); border: 1px solid var(--line-2);
+  background-color: var(--panel-2); color: var(--text);
+  white-space: nowrap;
+}
+.btn:hover { background-color: var(--card-hover); border-color: var(--text-3); }
+.btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.primary:hover { background-color: var(--accent-2); border-color: var(--accent-2); }
+.btn.ghost { background-color: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover { background-color: var(--panel-2); color: var(--text); }
+.btn.sm { height: var(--h-ctl-sm); padding: 0 var(--sp-2); font-size: var(--fs-sm); }
+.btn.icon { width: var(--h-ctl); padding: 0; justify-content: center; }
+.btn.icon.sm { width: var(--h-ctl-sm); }
+.btn.danger { color: var(--st-danger); border-color: var(--line-2); }
+.icon-btn {
+  width: var(--h-ctl); height: var(--h-ctl); border-radius: var(--r-md);
+  display: grid; place-items: center; color: var(--text-2); position: relative;
+}
+.icon-btn:hover { background-color: var(--panel-2); color: var(--text); }
+.icon-btn .tip {
+  position: absolute; top: calc(100% + 6px); right: 0; white-space: nowrap;
+  background: var(--el-2, #222); color: var(--text); font-size: var(--fs-xs);
+  padding: 3px 8px; border-radius: var(--r-sm); box-shadow: var(--shadow-2);
+  opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 60;
+}
+.icon-btn:hover .tip { opacity: 1; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 7px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs); line-height: 1; white-space: nowrap;
+}
+.tag.info { background: rgba(47,127,224,.16); color: var(--accent-2); }
+.tag.ok   { background: rgba(47,158,107,.16); color: var(--st-ok); }
+.tag.warn { background: rgba(217,139,31,.16); color: var(--st-warn); }
+.tag.danger{ background: rgba(217,83,79,.16); color: var(--st-danger); }
+.tag.mute { background: var(--panel-2); color: var(--text-3); }
+.chip { font-size: var(--fs-xs); color: var(--text-3); }
+.chip b { color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+input[type="text"], .search {
+  height: var(--h-ctl); padding: 0 var(--sp-3); border-radius: var(--r-md);
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--text);
+  outline: none; min-width: 0;
+}
+input[type="text"]:focus, .search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47,127,224,.22); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+
+/* ---------- 布局 ---------- */
+.app { display: grid; grid-template-rows: 48px 1fr 26px; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 0 var(--sp-4); border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.brand { display: flex; align-items: center; gap: var(--sp-2); font-weight: 700; font-size: var(--fs-md); letter-spacing: .2px; }
+.brand .logo { width: 20px; height: 20px; border-radius: 5px; background: linear-gradient(135deg,var(--accent),#7a5cf0); }
+.topbar .global-search { width: 220px; }
+.spacer { flex: 1; }
+.seg { display: flex; gap: 2px; background: var(--panel-2); padding: 3px; border-radius: var(--r-lg); }
+.seg button {
+  height: 24px; padding: 0 var(--sp-3); border-radius: var(--r-md);
+  font-size: var(--fs-md); color: var(--text-2); display: inline-flex; align-items: center; gap: 5px;
+}
+.seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-1); font-weight: 600; }
+.seg .badge { background: var(--st-warn); color: #fff; font-size: 10px; border-radius: 9px; padding: 0 5px; height: 14px; display: inline-flex; align-items: center; }
+.icongroup { display: flex; align-items: center; gap: 2px; padding-left: var(--sp-3); border-left: 1px solid var(--line); }
+
+.body { display: grid; grid-template-columns: 212px 1fr; min-height: 0; }
+.sider { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; padding: var(--sp-3) 0 var(--sp-4); }
+.side-sec { padding: var(--sp-2) var(--sp-4); }
+.side-h { font-size: var(--fs-xs); color: var(--text-3); letter-spacing: .6px; margin-bottom: var(--sp-2); display: flex; align-items: center; justify-content: space-between; }
+.side-h button { color: var(--text-3); font-size: var(--fs-sm); }
+.side-h button:hover { color: var(--text); }
+.tree { display: flex; flex-direction: column; gap: 1px; }
+.tree-row {
+  display: flex; align-items: center; gap: var(--sp-2); height: 26px;
+  padding: 0 var(--sp-2); border-radius: var(--r-sm); color: var(--text-2); font-size: var(--fs-md);
+}
+.tree-row:hover { background: var(--panel-2); color: var(--text); }
+.tree-row.sel { background: rgba(47,127,224,.16); color: var(--accent-2); font-weight: 600; }
+.tree-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .cnt { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.tree-row.zero .name, .tree-row.zero .cnt { opacity: .55; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); padding: var(--sp-1) var(--sp-2) var(--sp-3); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--text-3); }
+
+.main { display: grid; grid-template-rows: auto 1fr; min-height: 0; background: var(--bg); }
+.toolbar {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line);
+}
+.toolbar h1 { font-size: var(--fs-lg); font-weight: 700; display: flex; align-items: baseline; gap: var(--sp-2); }
+.toolbar h1 .cnt { font-size: var(--fs-sm); color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.tool-tools { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.tool-sep { width: 1px; height: 18px; background: var(--line-2); }
+.content { overflow: auto; padding: var(--sp-4); }
+.statusbar {
+  display: flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-4);
+  border-top: 1px solid var(--line); background: var(--panel);
+  font-size: var(--fs-xs); color: var(--text-3);
+}
+.statusbar .ws { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.statusbar b { color: var(--text-2); font-weight: 500; }
+
+/* ---------- 视图 1：任务卡片 ---------- */
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--sp-3); }
+.pcard {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+  overflow: hidden; display: flex; flex-direction: column; height: 176px;
+  transition: border-color .12s, transform .12s;
+}
+.pcard:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.pcard .cover { height: 96px; position: relative; overflow: hidden; }
+.pcard .cover .ph { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.45); font-size: var(--fs-xs); letter-spacing: .5px; }
+.pcard .cover .kind { position: absolute; left: var(--sp-2); top: var(--sp-2); }
+.pcard .body { padding: var(--sp-2) var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.pcard .title {
+  font-size: var(--fs-md); font-weight: 600; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pcard .meta { font-size: var(--fs-sm); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pcard .foot { margin-top: auto; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.pcard .foot .grow { flex: 1; }
+.card-title-row { display: flex; align-items: flex-start; gap: var(--sp-2); }
+
+/* ---------- 视图 2：工单表格 ---------- */
+.filters { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--line); }
+.filters .seg2 { display: flex; gap: var(--sp-1); }
+.filters .seg2 button {
+  height: 24px; padding: 0 var(--sp-3); border-radius: 999px; font-size: var(--fs-sm);
+  color: var(--text-2); border: 1px solid transparent;
+}
+.filters .seg2 button:hover { background: var(--panel-2); }
+.filters .seg2 button.on { background: rgba(47,127,224,.14); color: var(--accent-2); border-color: rgba(47,127,224,.4); font-weight: 600; }
+.tablewrap { overflow: auto; }
+table.tk { width: 100%; border-collapse: separate; border-spacing: 0; }
+table.tk th {
+  position: sticky; top: 0; z-index: 2; background: var(--panel);
+  text-align: left; font-weight: 600; color: var(--text-3); font-size: var(--fs-sm);
+  height: var(--h-row); padding: 0 var(--sp-3); border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.tk td {
+  height: var(--h-row); padding: 0 var(--sp-3); border-bottom: 1px solid var(--line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;
+}
+table.tk tr:hover td { background: var(--panel); }
+table.tk th:last-child, table.tk td:last-child { padding-right: var(--sp-5); }
+table.tk .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: var(--fs-sm); }
+table.tk .link { color: var(--accent-2); }
+.legend-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs); color: var(--text-3); border-bottom: 1px solid var(--line); }
+
+/* ---------- 视图 3：模板库 ---------- */
+.alert {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin: var(--sp-3) var(--sp-4) 0; padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md); font-size: var(--fs-md);
+  background: rgba(217,139,31,.12); color: var(--st-warn);
+  border: 1px solid rgba(217,139,31,.32);
+}
+.alert button { margin-left: auto; color: inherit; text-decoration: underline; font-size: var(--fs-sm); }
+.tplgrid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--sp-3); padding: var(--sp-4); }
+.tplcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-1); }
+.tplcard .info { padding: var(--sp-3); background: var(--card); position: relative; }
+.tplcard .info::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #e2711d; }
+.tplcard .brandline { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-2); }
+.tplcard .brandline .lg { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg,#3b82f6,#8b5cf6); }
+.tplcard .brandline .nm { font-size: var(--fs-xs); color: var(--text-3); }
+.tplcard .brandline .tag { margin-left: auto; }
+.tplcard .cat { font-size: 20px; font-weight: 800; line-height: 1.2; margin-bottom: var(--sp-2); }
+.tplcard .kv { display: grid; grid-template-columns: 56px 1fr; gap: 3px var(--sp-2); font-size: var(--fs-sm); }
+.tplcard .kv .k { color: var(--text-3); }
+.tplcard .kv .v { color: var(--text); }
+.tplcard .kv .v b { font-weight: 700; }
+.tplcard .foot { background: var(--panel-2); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--line); }
+.tplcard .foot .fn { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tplcard .foot .meta { font-size: var(--fs-xs); color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ---------- 视图 4：文件列表 ---------- */
+.filerow { display: grid; grid-template-columns: 26px 28px minmax(0,1fr) 84px; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--line); }
+.filerow:hover { background: var(--panel); }
+.filerow .ft { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.filerow .ft .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.filerow .ft .p { font-size: var(--fs-xs); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.filerow .ft .tags { display: flex; gap: 4px; }
+.filerow .ft .tags .tag { position: relative; }
+.filerow > .tag { justify-self: start; }
+.filerow .ft .tags .tag .x { display: none; margin-left: 2px; opacity: .7; }
+.filerow:hover .ft .tags .tag .x { display: inline; }
+.filetype { width: 24px; height: 24px; border-radius: var(--r-sm); display: grid; place-items: center; font-size: 9px; font-weight: 700; color: var(--text-2); background: var(--panel-2); border: 1px solid var(--line-2); }
+.check { width: 15px; height: 15px; border-radius: 3px; border: 1px solid var(--line-2); display: grid; place-items: center; }
+.check.on { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 10px; }
+
+/* ---------- 弹窗：任务详情 ---------- */
+.mask { position: fixed; inset: 0; background: var(--mask); display: grid; place-items: center; z-index: 50; }
+.modal { width: 720px; max-height: 86vh; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-xl); box-shadow: var(--shadow-2); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+.modal .mhead { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); }
+.modal .mhead h2 { font-size: var(--fs-lg); font-weight: 700; }
+.modal .mhead .proj { font-size: var(--fs-sm); color: var(--accent-2); background: rgba(47,127,224,.14); padding: 2px 8px; border-radius: var(--r-sm); }
+.modal .mbody { overflow: auto; padding: var(--sp-4); }
+.modal .mfoot { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line); background: var(--panel-2); }
+.sect { margin-bottom: var(--sp-4); }
+.sect > h3 { font-size: var(--fs-sm); color: var(--text-3); font-weight: 600; margin-bottom: var(--sp-2); display: flex; align-items: center; gap: var(--sp-2); }
+.sect > h3 .c { font-weight: 400; }
+.sect > h3 .act { margin-left: auto; font-size: var(--fs-sm); color: var(--accent-2); }
+.vcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); }
+.vcard { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); background: var(--card); }
+.vcard.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.vcard .vt { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+.vcard .vt .cur { font-size: 10px; background: var(--accent); color: #fff; padding: 0 5px; border-radius: var(--r-sm); }
+.vcard p { font-size: var(--fs-sm); color: var(--text-2); margin: 3px 0; }
+.mini { display: flex; gap: var(--sp-2); }
+.mini .th { width: 96px; height: 64px; border-radius: var(--r-md); background: var(--panel-2); border: 1px solid var(--line); display: grid; place-items: center; font-size: var(--fs-xs); color: var(--text-3); }
+.emptyline { font-size: var(--fs-sm); color: var(--text-3); padding: var(--sp-2) 0; }
+.mini .th.empty { border-style: dashed; color: var(--text-3); }
+
+/* ---------- Toast（右下角） ---------- */
+.toast {
+  position: fixed; right: var(--sp-4); bottom: 40px; z-index: 80;
+  background: var(--card); border: 1px solid var(--line-2); border-left: 3px solid var(--accent);
+  border-radius: var(--r-md); box-shadow: var(--shadow-2); padding: var(--sp-2) var(--sp-3);
+  display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-md); max-width: 340px;
+}
+.toast .x { color: var(--text-3); }
+
+/* ---------- 优化点抽屉 ---------- */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 90;
+  background: var(--panel); border-left: 1px solid var(--line-2); box-shadow: var(--shadow-2);
+  display: grid; grid-template-rows: auto 1fr; transform: translateX(100%); transition: transform .18s ease;
+}
+.drawer.open { transform: none; }
+.drawer .dhead { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); }
+.drawer .dhead h3 { font-size: var(--fs-md); font-weight: 700; }
+.drawer .dbody { overflow: auto; padding: var(--sp-3) var(--sp-4); }
+.opt { display: grid; grid-template-columns: 22px 1fr; gap: var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
+.opt:hover .num { background: var(--accent); color: #fff; }
+.opt .num { width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--panel-2); color: var(--text-2); font-size: var(--fs-xs); display: grid; place-items: center; font-weight: 700; }
+.opt .t { font-size: var(--fs-md); font-weight: 600; }
+.opt .d { font-size: var(--fs-sm); color: var(--text-3); margin-top: 2px; }
+.hl { animation: hl 1.4s ease; }
+@keyframes hl {
+  0%,100% { box-shadow: 0 0 0 0 transparent; }
+  25% { box-shadow: 0 0 0 3px var(--accent); }
+}
+.badge-opt { position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--st-warn); color: #fff; font-size: 9px; display: grid; place-items: center; font-weight: 700; }
+.screen { display: none; }
+.screen.on { display: block; }
+.hint { font-size: var(--fs-sm); color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="brand"><span class="logo"></span>Vellum工作台</div>
+    <div class="topbar global-search"><input class="search" placeholder="搜索文件 / 任务" style="width:100%" /></div>
+    <div class="seg" id="viewSeg">
+      <button class="on" data-screen="cards">任务视图</button>
+      <button data-screen="tickets">工单队列<span class="badge">3</span></button>
+      <button data-screen="files">文件视图</button>
+      <button data-screen="tpl">模板库</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="icongroup">
+      <button class="icon-btn" title="刷新扫描">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        <span class="tip">刷新扫描</span>
+      </button>
+      <button class="icon-btn" id="themeBtn" title="主题">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" id="themeIcon"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/></svg>
+        <span class="tip" id="themeTip">切换到浅色</span>
+      </button>
+      <button class="icon-btn" title="设置">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"/><path d="M12 2.8v2.4M12 18.8v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M2.8 12h2.4M18.8 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/></svg>
+        <span class="tip">设置</span>
+      </button>
+      <button class="icon-btn" title="插件联动" style="position:relative">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
+        <span class="tip">插件联动</span>
+      </button>
+    </div>
+    <button class="btn" id="optBtn" style="position:relative;margin-left:8px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"/><path d="M12 2.8v2.4M12 18.8v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M2.8 12h2.4M18.8 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/></svg>
+      改动点
+      <span class="badge-opt" id="optCount">5</span>
+    </button>
+  </header>
+
+  <!-- ================= 主体 ================= -->
+  <div class="body">
+    <!-- 左栏 -->
+    <aside class="sider" id="sider"></aside>
+
+    <!-- 内容 -->
+    <main class="main">
+      <div class="toolbar" id="toolbar"></div>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+
+  <!-- ================= 状态条 ================= -->
+  <footer class="statusbar">
+    <span>筛选：<b id="stFilter">全部</b></span>
+    <span>工作区：<b class="ws">D:\_accept_ws\shot_manual（海南升学集训营）</b></span>
+    <span class="spacer"></span>
+    <span>共 <b>6</b> 个任务 · <b>19</b> 份素材</span>
+    <span>v1.13.0-preview</span>
+  </footer>
+</div>
+
+<!-- 抽屉 -->
+<aside class="drawer" id="drawer">
+  <div class="dhead"><h3>本屏改动点</h3><span class="spacer"></span><button class="icon-btn" id="drawerClose">✕</button></div>
+  <div class="dbody" id="drawerBody"></div>
+</aside>
+
+<script>
+/* ================= 数据 ================= */
+const SCREENS = {
+  cards: {
+    name: "任务视图",
+    sider: `
+      <div class="side-sec">
+        <div class="side-h">筛选标签 <button>管理</button></div>
+        <div class="tree">
+          <div class="tree-row sel"><span class="name">全部任务</span><span class="cnt">6</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#4f9df7"></span>物料类别</span><span class="cnt">11</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#8b5cf6"></span>使用场景</span><span class="cnt">7</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#22a06b"></span>物料分级</span><span class="cnt">4</span></div>
+        </div>
+        <div class="legend">
+          <span><span class="dot" style="background:#4f9df7"></span>类别</span>
+          <span><span class="dot" style="background:#8b5cf6"></span>场景</span>
+          <span><span class="dot" style="background:#22a06b"></span>分级</span>
+        </div>
+        <div class="tree" style="margin-top:4px">
+          <div class="tree-row zero"><span class="name">集团 0</span></div>
+          <div class="tree-row zero"><span class="name">待归档-未归属 0</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">项目 <button>＋</button></div>
+        <div class="tree">
+          <div class="tree-row"><span class="dot" style="background:#4f9df7"></span><span class="name">海南升学集训营</span></div>
+          <div class="tree-row"><span class="dot" style="background:#22a06b"></span><span class="name">精英升学先锋营</span></div>
+          <div class="tree-row"><span class="dot" style="background:#e2711d"></span><span class="name">国达劲枫脱帽长图</span></div>
+          <div class="tree-row"><span class="dot" style="background:#8b5cf6"></span><span class="name">海南升学规划中心</span></div>
+          <div class="tree-row"><span class="dot" style="background:#0ea5a5"></span><span class="name">一对一项目部</span></div>
+        </div>
+      </div>`,
+    toolbar: `
+      <h1>任务视图 <span class="cnt">6 个任务 · 3 个待指派</span></h1>
+      <div class="tool-tools">
+        <input class="search" placeholder="搜索任务" style="width:170px"/>
+        <button class="btn sm">排序：最近更新</button>
+        <button class="btn sm icon" title="密度"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div class="tool-sep"></div>
+        <button class="btn sm">卡片视图</button>
+        <button class="btn primary">＋ 新建任务</button>
+      </div>`,
+    content: `
+      <div class="cards">
+        ${card({cover:"#2b4a6f",kind:"未指派",tag:"warn",t:"海南升学 2026 秋季招生",meta:"3 个文件 · 289 KB · 5 天前",tags:[["海南升学集训营","info"],["海报","mute"]]})}
+        ${card({cover:"#1f6f74",kind:"",t:"升学规划服务手册",meta:"2 个文件 · 137 KB · 2 天前",tags:[["KV-电子展示","info"],["物料长图","mute"]]})}
+        ${card({cover:"#6d4a8f",kind:"",t:"国达劲枫脱帽长图",meta:"2 个文件 · 182 KB · 6 天前",tags:[["一对一项目部","info"],["物料长图","mute"]]})}
+        ${card({cover:"#7a3b3b",kind:"待指派",tag:"warn",t:"精英升学先锋营 系列海报",meta:"2 个文件 · 156 KB · 1 天前",tags:[["精英升学先锋营","info"],["海报","mute"]]})}
+        ${card({cover:"#1e3a5f",kind:"",t:"海南升学规划中心",meta:"1 个文件 · 289 KB · 今天",tags:[["物料长图","mute"]]})}
+        ${card({cover:"#2b4a6f",kind:"",t:"初三集训班形象片",meta:"2 个文件 · 587 KB · 3 天前",tags:[["海南升学集训营","info"],["KV-电子展示","mute"]]})}
+      </div>`,
+    opts: [
+      ["1","卡片等高 176px","标题固定 2 行截断，不再有标题压到封面上（原第 6 张卡「国达」两行溢出）"],
+      ["2","徽标只留两种","Tag＝带底色（待指派/状态）；Chip＝纯文字（客户/渠道），不再胶囊+描边+纯色混用"],
+      ["3","卡片底部信息收成一行","原来两行小字（3 个文件 / 289 KB · 5 天前）挤在 12px 里，现在一行 tabular-nums"],
+      ["4","左栏色点加图例","彩色点原来没说明是啥；计数 0 也保留（降透明度而不是消失）"],
+      ["5","主按钮挪进工具条","「新建任务」只在任务视图成立，从顶栏下来后语义更准，顶栏只留全局动作"]
+    ]
+  },
+  tickets: {
+    name: "工单队列",
+    sider: `
+      <div class="side-sec">
+        <div class="side-h">工单类型</div>
+        <div class="tree">
+          <div class="tree-row sel"><span class="name">全部</span><span class="cnt">12</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#4f9df7"></span>电子</span><span class="cnt">7</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#e2711d"></span>印刷</span><span class="cnt">5</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">业务归属</div>
+        <div class="tree">
+          <div class="tree-row"><span class="name">海南升学集训营</span><span class="cnt">9</span></div>
+          <div class="tree-row"><span class="name">精英升学先锋营</span><span class="cnt">3</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">待处理</div>
+        <div class="tree">
+          <div class="tree-row"><span class="name">待指派</span><span class="cnt">2</span></div>
+          <div class="tree-row"><span class="name">编号重复</span><span class="cnt">1</span></div>
+          <div class="tree-row"><span class="name">历史单</span><span class="cnt">3</span></div>
+        </div>
+      </div>`,
+    toolbar: `
+      <h1>工单队列 <span class="cnt">共 12 条 · 2 条待指派</span></h1>
+      <div class="tool-tools">
+        <input class="search" placeholder="搜索编号 / 物料名" style="width:190px"/>
+        <button class="btn sm">排序：交稿日期</button>
+        <button class="btn sm">列设置</button>
+        <button class="btn sm icon" title="行密度"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div class="tool-sep"></div>
+        <button class="btn sm">导出报表</button>
+        <button class="btn sm">↻ 同步工单</button>
+      </div>`,
+    content: `
+      <div class="filters">
+        <div class="seg2">
+          <button class="on">我的</button><button>全部</button><button>未指派</button><button>历史单</button><button>已改派</button><button>待确认</button><button>异常</button>
+        </div>
+        <span class="spacer"></span>
+        <span class="hint">视图筛选与操作各归各位，操作不再混进胶囊组</span>
+      </div>
+      <div class="legend-row">
+        <span>状态图例：</span>
+        <span class="tag info">审批中</span><span class="tag ok">已通过</span>
+        <span class="tag mute">已驳回</span><span class="tag warn">待指派</span><span class="tag danger">异常</span>
+        <span class="hint">（图例常驻一行，不用背颜色）</span>
+      </div>
+      <div class="tablewrap">
+        <table class="tk">
+          <thead><tr>
+            <th style="width:46px">类型</th>
+            <th class="num" style="width:132px">编号</th>
+            <th style="width:200px">物料名称</th>
+            <th style="width:84px">状态</th>
+            <th style="width:96px">申请人</th>
+            <th style="width:140px">业务归属</th>
+            <th style="width:96px">设计师</th>
+            <th class="num" style="width:104px">交稿日期</th>
+            <th>关联任务</th>
+          </tr></thead>
+          <tbody>
+            ${tkrow("电子","202610010009","短视频封面-秋季","审批中","申请人乙","海南升学集训营","测试设计师","2026-10-06","不是我的单")}
+            ${tkrow("印刷","202610010010","大屏主视觉-多人协作","审批中","申请人甲","海南升学集训营","测试设计师","2026-10-05","不是我的单")}
+            ${tkrow("印刷","202610010008","清单单","审批中","申请人甲","海南升学集训营","测试设计师","2026-10-05","编号重复")}
+            ${tkrow("印刷","202610010007","新店-待确认","审批中","申请人甲","海南升学集训营","测试设计师","2026-10-05","待指派")}
+            ${tkrow("印刷","202610010006","旧单-开学季","审批中","申请人甲","海南升学集训营","测试设计师","2026-10-05","历史单")}
+            ${tkrow("印刷","202610010005","推文配图-双节","审批中","申请人甲","海南升学集训营","未指派","2026-10-05","不是我的单")}
+            ${tkrow("印刷","202610010004","详情长图-国庆版","审批中","申请人甲","海南升学集训营","别的同事","2026-10-08","不是我的单")}
+            ${tkrow("印刷","202610010003","易拉宝-校区门口","已驳回","申请人甲","海南升学集训营","测试设计师","2026-10-05","不是我的单")}
+            ${tkrow("印刷","202610010002","招生折页-B款","已通过","申请人甲","海南升学集训营","测试设计师","2026-10-05","不是我的单")}
+            ${tkrow("印刷","202610010001","海南招生海报-工单A","审批中","申请人甲","海南升学集训营","测试设计师","2026-10-05","海南招生海报-工单A")}
+          </tbody>
+        </table>
+      </div>
+      <div class="toast"><span>✓</span><span>报表已导出到 D:\\导出\\2026-10-30.xlsx</span><button class="x">✕</button></div>`,
+    opts: [
+      ["6","Toast 挪到右下角","原来落在页面中间偏下、正好压在内容上；现在贴右下，且不挡主操作区"],
+      ["7","同步不再做主按钮","「同步工单」会写远端，原蓝色主按钮紧挨「导出报表」容易误点 —— 降级 + 二次确认"],
+      ["8","表格对齐规范","编号/日期右对齐 + tabular-nums；长文本 ellipsis + tooltip；行高统一 32px，不再被换行撑开"],
+      ["9","状态图例常驻","五种状态色不靠记忆，表下一行图例"],
+      ["10","筛选与操作分层","左=视图筛选，右=操作，不再两排都是胶囊"]
+    ]
+  },
+  files: {
+    name: "文件视图",
+    sider: `
+      <div class="side-sec">
+        <div class="side-h">筛选标签 <button>管理</button></div>
+        <div class="tree">
+          <div class="tree-row sel"><span class="name">全部文件</span><span class="cnt">19</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#e2711d"></span>物料类别</span><span class="cnt">11</span></div>
+          <div class="tree-row"><span class="name"><span class="dot" style="background:#8b5cf6"></span>使用场景</span><span class="cnt">7</span></div>
+        </div>
+        <div class="legend"><span><span class="dot" style="background:#e2711d"></span>类别</span><span><span class="dot" style="background:#8b5cf6"></span>场景</span></div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">项目</div>
+        <div class="tree">
+          <div class="tree-row"><span class="dot" style="background:#4f9df7"></span><span class="name">海南升学集训营</span></div>
+          <div class="tree-row"><span class="dot" style="background:#22a06b"></span><span class="name">精英升学先锋营</span></div>
+        </div>
+      </div>`,
+    toolbar: `
+      <h1>文件视图 <span class="cnt">19 个文件 · 1.8 MB</span></h1>
+      <div class="tool-tools">
+        <label class="hint" style="display:flex;align-items:center;gap:5px"><span class="check on">✓</span>只看当前稿</label>
+        <input class="search" placeholder="搜索文件名" style="width:170px"/>
+        <button class="btn sm">排序：文件名</button>
+        <button class="btn sm">列设置</button>
+      </div>`,
+    content: `
+      <div class="filerow"><span class="check"></span><span class="filetype">MP4</span>
+        <span class="ft"><span class="n">宣传片-秋季形象片.mp4 <span class="tag mute">V1</span></span>
+        <span class="p">海南升学集训营 / 2026秋季 / V1 / 宣传片-秋季形象片.mp4</span>
+        <span class="tags"><span class="tag info">KV-电子展示 <span class="x">✕</span></span><span class="tag mute">A-基准 <span class="x">✕</span></span></span></span>
+        <span class="tag ok">成品</span></div>
+      <div class="filerow"><span class="check"></span><span class="filetype">PNG</span>
+        <span class="ft"><span class="n">临时导出的预览图.png</span>
+        <span class="p">海南招生海报-2026秋季 / 临时导出的预览图.png</span>
+        <span class="tags"><span class="tag mute">临时 <span class="x">✕</span></span></span></span>
+        <span class="tag warn">未归属</span></div>
+      <div class="filerow"><span class="check"></span><span class="filetype">PNG</span>
+        <span class="ft"><span class="n">公众号配图-待整理.png</span>
+        <span class="p">公众号配图-待整理.png</span>
+        <span class="tags"><span class="tag mute">D-待办2 <span class="x">✕</span></span></span></span>
+        <span class="tag warn">未归属</span></div>
+      <div class="filerow"><span class="check"></span><span class="filetype">PSD</span>
+        <span class="ft"><span class="n">主视觉文件.psd <span class="tag mute">V1</span></span>
+        <span class="p">海南升学集训营 / 2026秋季 / V1 / 主视觉文件.psd</span>
+        <span class="tags"><span class="tag info">物料 <span class="x">✕</span></span><span class="tag ok">对外派发 <span class="x">✕</span></span></span></span>
+        <span class="tag mute">工程</span></div>
+      <div class="filerow"><span class="check"></span><span class="filetype">JPG</span>
+        <span class="ft"><span class="n">素材-暗色渐变.jpg <span class="tag mute">V1</span></span>
+        <span class="p">精英升学先锋营 / A4 / 素材-暗色渐变.jpg</span>
+        <span class="tags"><span class="tag info">物料 <span class="x">✕</span></span><span class="tag mute">B-等级4 <span class="x">✕</span></span></span></span>
+        <span class="tag ok">素材</span></div>
+      <div class="filerow"><span class="check"></span><span class="filetype">PSD</span>
+        <span class="ft"><span class="n">折叠源文件.psd <span class="tag mute">V1</span></span>
+        <span class="p">海南升学集训营 / 2026秋季 / V1 / 折叠源文件.psd</span>
+        <span class="tags"><span class="tag info">物料 <span class="x">✕</span></span><span class="tag mute">C-待办2 <span class="x">✕</span></span></span></span>
+        <span class="tag mute">工程</span></div>`,
+    opts: [
+      ["11","类型图标统一","原来 MP4/PNG 是彩色方块字，和全站线性图标两套语言 —— 改线性图标 + 单色底"],
+      ["12","行内信息分层","主行只留名称 + 关键元信息；路径与标签收成第二行，路径不再长到换行遮挡"],
+      ["13","标签 × 仅悬浮出现","原来每颗标签都常驻一个 ✕，一屏 20 个 ✕ 是纯视觉噪声"],
+      ["14","状态与标签不混用","右侧「成品/素材/工程」是状态 Tag，左侧彩色的是分类 Tag，原来都是彩色胶囊分不清"]
+    ]
+  },
+  tpl: {
+    name: "模板库",
+    sider: `
+      <div class="side-sec">
+        <div class="side-h">分组</div>
+        <div class="tree">
+          <div class="tree-row sel"><span class="name">全部模板</span><span class="cnt">4</span></div>
+          <div class="tree-row"><span class="name">未分组</span><span class="cnt">1</span></div>
+        </div>
+        <div class="tree" style="margin-top:6px">
+          <div class="tree-row"><span class="name">▾ 展架</span><span class="cnt">1</span></div>
+          <div class="tree-row"><span class="name">▾ 海报</span><span class="cnt">1</span></div>
+          <div class="tree-row"><span class="name">　└ 2026春季</span><span class="cnt">1</span></div>
+          <div class="tree-row"><span class="name">　└ 海报</span><span class="cnt">1</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">检查</div>
+        <div class="tree">
+          <div class="tree-row"><span class="name">无素材组</span><span class="cnt" style="color:var(--st-warn)">1</span></div>
+        </div>
+      </div>`,
+    toolbar: `
+      <h1>PSD 模板库 <span class="cnt">4 个分组 · 4 份模板</span></h1>
+      <div class="tool-tools">
+        <input class="search" placeholder="搜索名称" style="width:170px"/>
+        <button class="btn sm">卡片视图</button>
+        <div class="tool-sep"></div>
+        <button class="btn sm">⟳ 扫描磁盘</button>
+        <button class="btn sm">重建卡片</button>
+        <button class="btn sm">＋ 新建分组</button>
+        <button class="btn primary">＋ 导入 PSD</button>
+      </div>`,
+    content: `
+      <div class="alert">
+        <span>⚠</span><span><b>1 个文件没有收录</b> · 超过 20 MB，请瘦身后再导入</span>
+        <button>查看这一个</button>
+      </div>
+      <div class="tplgrid">
+        ${tpl("无多步专色","warn","根下散模板","38.1cm×38.1cm","—","CMYK","根下散模板.psd","1000×1080 · 72ppi")}
+        ${tpl("4 步多步专色","info","招生海报A3","42cm×29.7cm","3mm","CMYK","招生海报A3.psd","3579×5031 · 300ppi · 海报")}
+        ${tpl("6 步多步专色","info","集团版易拉宝","30cm×70cm","5mm","CMYK","集团版易拉宝.psd","1772×4134 · 150ppi · 易拉宝")}
+        ${tpl("4 步多步专色","info","主视觉-易拉宝","80cm×180cm","5mm","CMYK","主视觉-易拉宝.psd","1772×4134 · 150ppi · 易拉宝 / 2026")}
+      </div>`,
+    opts: [
+      ["15","告警只出现一次","原来顶部橙色条 + 页面中间一个同样文案的 toast，两遍；现在只留常驻告警条"],
+      ["16","信息卡字号统一","字段名 12 / 值 13 / 强调值加粗，原来三四种字号混排"],
+      ["17","专色徽标统一","「无多步专色 / 4 步多步专色」原来是两个不同样式，现在统一 Tag 且位置一致"],
+      ["18","工具条顺序","扫描磁盘→重建卡片→新建分组→导入 PSD，主操作（导入）放最右且唯一实心"]
+    ]
+  },
+  detail: {
+    name: "任务详情",
+    sider: "",
+    toolbar: "",
+    content: ""
+  }
+};
+
+/* ================= 片段 ================= */
+function card(o){
+  return `<div class="pcard">
+    <div class="cover" style="background:linear-gradient(135deg,${o.cover},#111)">
+      ${o.kind?`<span class="tag ${o.tag} kind">${o.kind}</span>`:""}
+      <span class="ph">1920 × 1080</span>
+    </div>
+    <div class="body">
+      <div class="card-title-row"><span class="title">${o.t}</span></div>
+      <span class="meta">${o.meta}</span>
+      <div class="foot">${o.tags.map(t=>`<span class="tag ${t[1]}">${t[0]}</span>`).join("")}</div>
+    </div>
+  </div>`;
+}
+function tkrow(type,no,name,st,ap,org,des,date,rel){
+  const tagmap = {"审批中":"info","已通过":"ok","已驳回":"mute","待指派":"warn","异常":"danger"};
+  return `<tr>
+    <td><span class="chip"><span class="dot" style="background:${type==="电子"?"#4f9df7":"#e2711d"};margin-right:5px"></span>${type}</span></td>
+    <td class="num">${no}</td>
+    <td title="${name}">${name}</td>
+    <td><span class="tag ${tagmap[st]}">${st}</span></td>
+    <td>${ap}</td><td>${org}</td><td>${des}</td>
+    <td class="num">${date}</td>
+    <td title="${rel}" class="${rel.includes("任务")?"link":""}">${rel}</td>
+  </tr>`;
+}
+function tpl(sp,spc,cat,size,bleed,cmyk,fn,meta){
+  return `<div class="tplcard">
+    <div class="info">
+      <div class="brandline"><span class="lg"></span><span class="nm">Vellum</span><span class="tag ${spc}">${sp}</span></div>
+      <div class="cat">${cat}</div>
+      <div class="kv">
+        <span class="k">尺寸</span><span class="v"><b>${size}</b></span>
+        <span class="k">出血</span><span class="v"><b>${bleed}</b></span>
+        <span class="k">色彩模式</span><span class="v"><b>${cmyk}</b></span>
+      </div>
+    </div>
+    <div class="foot"><div class="fn" title="${fn}">${fn}</div><div class="meta">${meta}</div></div>
+  </div>`;
+}
+
+/* ================= 渲染 ================= */
+let cur = "cards";
+function render(){
+  const s = SCREENS[cur];
+  document.getElementById("sider").innerHTML = s.sider;
+  document.getElementById("toolbar").innerHTML = s.toolbar;
+  document.getElementById("content").innerHTML = s.content;
+  document.getElementById("content").scrollTop = 0;
+  document.querySelectorAll("#viewSeg button").forEach(b=>b.classList.toggle("on", b.dataset.screen===cur));
+  // 抽屉
+  const body = document.getElementById("drawerBody");
+  body.innerHTML = (s.opts||[]).map(o=>`<div class="opt"><span class="num">${o[0]}</span><div><div class="t">${o[1]}</div><div class="d">${o[2]}</div></div></div>`).join("")
+    || `<div class="hint">这一屏还没有整理改动点。</div>`;
+  document.getElementById("optCount").textContent = (s.opts||[]).length;
+  if(cur==="detail") mountDetail();
+}
+function mountDetail(){
+  document.getElementById("sider").innerHTML = `<div class="side-sec"><div class="hint" style="padding:8px 0">弹窗打开时左栏仍在（现状如此）；优化后建议弹窗打开时左栏不再抢注意力。</div></div>`;
+  document.getElementById("toolbar").innerHTML = "";
+  document.getElementById("content").innerHTML = `
+  <div class="mask" id="mask">
+    <div class="modal">
+      <div class="mhead">
+        <h2>海南招生海报-2026秋季</h2>
+        <span class="proj">海南升学集训营</span>
+        <span class="chip">类别：海报</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" title="更多">⋯</button>
+        <button class="icon-btn" title="关闭">✕</button>
+      </div>
+      <div class="mbody">
+        <div class="sect">
+          <h3>版本 <span class="c">（3）</span></h3>
+          <div class="vcards">
+            <div class="vcard cur"><div class="vt">V2 <span class="cur">当前</span></div><p>客户反馈：主标题放大 1 档</p><p>3 个文件 · 289 KB</p></div>
+            <div class="vcard"><div class="vt">V1</div><p>初稿 —— 顾客先出图张先上</p><p>3 个文件 · 199 KB</p></div>
+            <div class="vcard"><div class="vt">未归入版本</div><p>尚未归入任何版本的文件</p><p>1 个文件</p></div>
+          </div>
+        </div>
+        <div class="sect">
+          <h3>成品 <span class="c">（2）</span><span class="act">查看本组</span></h3>
+          <div class="mini"><div class="th">成品图</div><div class="th">成品图</div></div>
+        </div>
+        <div class="sect">
+          <h3>素材 <span class="c">（1）</span><span class="act">查看本组</span></h3>
+          <div class="mini"><div class="th">素材</div></div>
+        </div>
+        <div class="sect">
+          <h3>工程文件 <span class="c">（0）</span></h3>
+          <div class="mini"><div class="th empty">暂无文件</div></div>
+        </div>
+      </div>
+      <div class="mfoot">
+        <button class="btn">编辑任务信息</button>
+        <button class="btn">打开文件夹</button>
+        <span class="spacer"></span>
+        <button class="btn ghost">关闭</button>
+        <button class="btn primary">打包交付</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("drawerBody").innerHTML = [
+    ["19","底部固定操作栏","原来 5 个动作平铺在顶部（编辑/打开文件夹/快捷方式/打包交付/完成任务），主次不分；现在底部固定，次要动作进 ⋯"],
+    ["20","「类别：」不再为空","原来字段取值为空直接留白，现在有兜底值"],
+    ["21","版本区文案统一","「未分版本 / 不在任何一设的文件里」改成「未归入版本 / 尚未归入任何版本的文件」"],
+    ["22","四个小节同一套样式","成品/素材/工程文件/未归属 的标题、计数、缩略图尺寸统一（96×64）"]
+  ].map(o=>`<div class="opt"><span class="num">${o[0]}</span><div><div class="t">${o[1]}</div><div class="d">${o[2]}</div></div></div>`).join("");
+  document.getElementById("optCount").textContent = 4;
+}
+
+/* ================= 交互 ================= */
+document.querySelectorAll("#viewSeg button").forEach(b=>{
+  b.addEventListener("click",()=>{ cur=b.dataset.screen; render(); });
+});
+const drawer = document.getElementById("drawer");
+document.getElementById("optBtn").addEventListener("click",()=>drawer.classList.toggle("open"));
+document.getElementById("drawerClose").addEventListener("click",()=>drawer.classList.remove("open"));
+document.getElementById("themeBtn").addEventListener("click",()=>{
+  const dark = document.documentElement.getAttribute("data-theme")==="dark";
+  document.documentElement.setAttribute("data-theme", dark?"light":"dark");
+  document.getElementById("themeTip").textContent = dark ? "切换到深色" : "切换到浅色";
+});
+const h = (location.hash||'').replace('#','');
+if (SCREENS[h]) { cur = h; render(); }
+window.addEventListener('hashchange', () => { const k=(location.hash||'').replace('#',''); if (SCREENS[k]) { cur=k; render(); } });
+</script>
+</body>
+</html>

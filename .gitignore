@@ -55,3 +55,8 @@ docs/manual/*单文件*.html
 
 # 打包产物（electron-builder 输出，不入库）
 deliver/
+
+# 官网（website/ 自带 .git，是独立仓库，不进主仓库）
+website/
+# 本地垃圾草稿（_junk*.txt 已在上面忽略，这里补 md）
+_junk*.md

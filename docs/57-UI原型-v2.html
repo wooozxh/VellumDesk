@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vellum工作台 · UI 原型 v2（层级版）</title>
+<style>
+/* ============================================================
+   1. 令牌
+   ============================================================ */
+:root{
+  --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:20px; --sp6:24px; --sp8:32px;
+  --fs11:11px; --fs12:12px; --fs13:13px; --fs15:15px; --fs18:18px; --fs22:22px;
+  --h:28px; --h-sm:24px; --topbar:44px; --toolbar:48px; --status:26px;
+  --r4:4px; --r6:6px; --r8:8px; --r10:10px; --r14:14px;
+  --font:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",system-ui,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",ui-monospace,monospace;
+  --ease:cubic-bezier(.2,.7,.3,1);
+}
+html[data-theme="dark"]{
+  --bg:#0e0f11; --panel:#15171a; --panel2:#1b1e22; --card:#1e2126; --card2:#242830;
+  --line:#26292f; --line2:#333841;
+  --text:#e7e9ec; --text2:#9ba1aa; --text3:#6b7078;
+  --accent:#3b82f6; --accent2:#5b96f8; --accentSoft:rgba(59,130,246,.14);
+  --ok:#34a06a; --warn:#d99433; --danger:#d95a54; --purple:#8b5cf6; --teal:#14a3a3;
+  --mask:rgba(8,9,11,.66);
+  --sh1:0 1px 2px rgba(0,0,0,.4); --sh2:0 10px 30px rgba(0,0,0,.55);
+  --hl:rgba(255,255,255,.05);
+  --coverLine:rgba(255,255,255,.08);
+}
+html[data-theme="light"]{
+  --bg:#ebe8e1; --panel:#f4f1ea; --panel2:#e9e5dc; --card:#fbf9f4; --card2:#fffdf8;
+  --line:#ddd7ca; --line2:#c9c2b1;
+  --text:#26231e; --text2:#544e46; --text3:#6d665b;
+  --accent:#1a6fd4; --accent2:#2f81e0; --accentSoft:rgba(26,111,212,.10);
+  --ok:#1f7d52; --warn:#a86c11; --danger:#c23c38; --purple:#7048c8; --teal:#0d7d7d;
+  --mask:rgba(38,34,26,.34);
+  --sh1:0 1px 2px rgba(60,50,30,.10); --sh2:0 12px 32px rgba(60,50,30,.18);
+  --hl:rgba(255,255,255,.7);
+  --coverLine:rgba(0,0,0,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text); font:var(--fs13)/1.5 var(--font);
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+  font-variant-numeric:tabular-nums;
+}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--text3);background-clip:content-box}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r4)}
+
+/* ============================================================
+   2. 控件
+   ============================================================ */
+.btn{
+  height:var(--h); padding:0 12px; display:inline-flex; align-items:center; gap:6px;
+  border-radius:var(--r6); border:1px solid var(--line2); background:var(--panel2);
+  color:var(--text); white-space:nowrap; font-size:var(--fs13);
+}
+.btn:hover{background:var(--card2); border-color:var(--text3)}
+.btn:active{transform:translateY(.5px)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+.btn.primary:hover{background:var(--accent2); border-color:var(--accent2)}
+.btn.ghost{background:transparent; border-color:transparent; color:var(--text2)}
+.btn.ghost:hover{background:var(--panel2); color:var(--text)}
+.btn.sm{height:var(--h-sm); padding:0 9px; font-size:var(--fs12)}
+.btn.icon{width:var(--h); padding:0; justify-content:center}
+.btn.icon.sm{width:var(--h-sm)}
+.iconbtn{
+  width:var(--h); height:var(--h); border-radius:var(--r6); display:grid; place-items:center;
+  color:var(--text2); position:relative;
+}
+.iconbtn:hover{background:var(--panel2); color:var(--text)}
+.iconbtn.on{background:var(--accentSoft); color:var(--accent2)}
+.iconbtn .tip{
+  position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%) translateY(-3px);
+  background:var(--card2); color:var(--text); font-size:var(--fs11); padding:4px 8px;
+  border-radius:var(--r4); box-shadow:var(--sh2); border:1px solid var(--line2);
+  white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .1s var(--ease),transform .1s var(--ease); z-index:80;
+}
+.iconbtn:hover .tip{opacity:1; transform:translateX(-50%) translateY(0)}
+.tag{
+  display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 6px;border-radius:var(--r4);
+  font-size:var(--fs11);line-height:1;white-space:nowrap;font-weight:500;
+}
+.tag.info{background:var(--accentSoft);color:var(--accent2)}
+.tag.ok{background:rgba(52,160,106,.15);color:var(--ok)}
+.tag.warn{background:rgba(217,148,51,.15);color:var(--warn)}
+.tag.danger{background:rgba(217,90,84,.15);color:var(--danger)}
+.tag.mute{background:var(--panel2);color:var(--text3)}
+.tag.purple{background:rgba(139,92,246,.15);color:var(--purple)}
+.chip{font-size:var(--fs12);color:var(--text3)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
+.search{
+  height:var(--h); padding:0 10px 0 30px; border-radius:var(--r6);
+  border:1px solid var(--line2); background:var(--panel2); color:var(--text);
+  outline:none; min-width:0; font-size:var(--fs13);
+}
+.search::placeholder{color:var(--text3)}
+.search:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accentSoft); background:var(--panel)}
+.searchwrap{position:relative;display:flex;align-items:center}
+.searchwrap svg{position:absolute;left:9px;color:var(--text3);pointer-events:none}
+.kbd{
+  font-family:var(--mono);font-size:10px;color:var(--text3);border:1px solid var(--line2);
+  border-radius:3px;padding:0 4px;line-height:14px;background:var(--panel2);
+}
+
+/* ============================================================
+   3. 骨架
+   ============================================================ */
+.app{display:grid;grid-template-rows:var(--topbar) 1fr var(--status);height:100vh}
+.topbar{
+  display:flex;align-items:center;gap:var(--sp3);padding:0 var(--sp3) 0 var(--sp4);
+  background:var(--panel);border-bottom:1px solid var(--line);
+  box-shadow:inset 0 1px 0 var(--hl);
+  position:relative;z-index:30;
+}
+.brand{display:flex;align-items:center;gap:7px;font-weight:700;font-size:var(--fs13);letter-spacing:.2px;padding-right:var(--sp3);border-right:1px solid var(--line);height:22px}
+.brand .logo{width:18px;height:18px;border-radius:5px;background:linear-gradient(140deg,#3b82f6,#8b5cf6 60%,#e2711d);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.brand .ver{font-size:10px;color:var(--text3);font-weight:400;margin-left:2px}
+.global-search{width:240px}
+.seg{display:flex;gap:2px;background:var(--panel2);padding:3px;border-radius:var(--r8);border:1px solid var(--line)}
+.seg button{
+  height:24px;padding:0 11px;border-radius:var(--r6);font-size:var(--fs13);color:var(--text2);
+  display:inline-flex;align-items:center;gap:5px;transition:background .12s var(--ease),color .12s var(--ease);
+}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--card2);color:var(--text);box-shadow:var(--sh1);font-weight:600}
+.seg .badge{background:var(--warn);color:#fff;font-size:10px;border-radius:8px;padding:0 4px;height:14px;display:inline-flex;align-items:center;font-weight:700}
+.spacer{flex:1}
+.tgroup{display:flex;align-items:center;gap:2px}
+.tsep{width:1px;height:18px;background:var(--line2);margin:0 6px}
+
+.body{display:grid;grid-template-columns:216px 1fr;min-height:0}
+.sider{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.sider .scroll{overflow:auto;flex:1;padding:var(--sp2) 0 var(--sp3)}
+.side-sec{padding:var(--sp1) var(--sp3) var(--sp2)}
+.side-h{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:var(--fs11);color:var(--text3);letter-spacing:.5px;font-weight:600;
+  padding:var(--sp2) var(--sp1) 5px;
+}
+.side-h button{color:var(--text3);font-size:var(--fs12);font-weight:400}
+.side-h button:hover{color:var(--text)}
+.tree{display:flex;flex-direction:column;gap:1px}
+.row{
+  display:flex;align-items:center;gap:7px;height:27px;padding:0 7px;border-radius:var(--r4);
+  color:var(--text2);font-size:var(--fs13);cursor:default;
+}
+.row:hover{background:var(--panel2);color:var(--text)}
+.row.sel{background:var(--accentSoft);color:var(--accent2);font-weight:600}
+.row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .n{font-size:var(--fs11);color:var(--text3);font-weight:400}
+.row.zero .nm,.row.zero .n{opacity:.5}
+.row .indent{width:9px;color:var(--text3);font-size:9px}
+.sider-foot{border-top:1px solid var(--line);padding:var(--sp2) var(--sp3)}
+.wscard{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r8);padding:8px 9px}
+.wscard .k{font-size:10px;color:var(--text3);letter-spacing:.4px}
+.wscard .p{font-size:var(--fs12);color:var(--text2);margin-top:2px;word-break:break-all;line-height:1.35;max-height:32px;overflow:hidden}
+.wscard .acts{display:flex;gap:6px;margin-top:7px}
+.wscard .acts button{font-size:var(--fs11);color:var(--text2);border:1px solid var(--line2);border-radius:var(--r4);padding:2px 7px;background:var(--panel)}
+.wscard .acts button:hover{color:var(--text);border-color:var(--text3)}
+
+.main{display:grid;grid-template-rows:var(--toolbar) 1fr;min-height:0;position:relative;background:var(--bg)}
+.toolbar{
+  display:flex;align-items:center;gap:var(--sp2);padding:0 var(--sp4);
+  border-bottom:1px solid var(--line);background:var(--panel);
+}
+.toolbar .title{display:flex;align-items:baseline;gap:8px;font-size:var(--fs15);font-weight:700;letter-spacing:.1px}
+.toolbar .title .num{font-size:var(--fs12);color:var(--text3);font-weight:400}
+.toolbar .title .pill{
+  font-size:var(--fs11);color:var(--warn);background:rgba(217,148,51,.14);
+  border-radius:9px;padding:1px 7px;font-weight:600;
+}
+.tools{margin-left:auto;display:flex;align-items:center;gap:6px}
+.content{overflow:auto;padding:var(--sp4);position:relative}
+.statusbar{
+  display:flex;align-items:center;gap:var(--sp4);padding:0 var(--sp4);
+  background:var(--panel);border-top:1px solid var(--line);
+  font-size:var(--fs11);color:var(--text3);
+}
+.statusbar b{color:var(--text2);font-weight:500}
+.statusbar .path{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:10.5px}
+
+/* ============================================================
+   4. 卡片
+   ============================================================ */
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp3)}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r10);
+  overflow:hidden;display:flex;flex-direction:column;height:184px;position:relative;
+  transition:border-color .14s var(--ease),box-shadow .14s var(--ease),transform .14s var(--ease);
+}
+.card:hover{border-color:var(--line2);box-shadow:var(--sh2);transform:translateY(-1px)}
+.card .cover{height:104px;position:relative;overflow:hidden;background:var(--panel2)}
+.card .cover svg{display:block;width:100%;height:100%}
+.card .cover::after{content:"";position:absolute;inset:0;box-shadow:inset 0 -24px 28px -18px rgba(0,0,0,.55)}
+.card .cover .kind{position:absolute;left:8px;top:8px;z-index:2;backdrop-filter:blur(6px);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.card .cover .chk{
+  position:absolute;right:8px;top:8px;z-index:3;opacity:0;transition:opacity .12s var(--ease);
+  background:rgba(12,14,17,.55);border-color:rgba(255,255,255,.55);
+}
+.card:hover .chk,.card .cover .chk.on{opacity:1}
+.card .cover .more{
+  position:absolute;right:6px;bottom:6px;z-index:3;width:24px;height:24px;border-radius:var(--r4);
+  display:grid;place-items:center;color:#fff;background:rgba(12,14,17,.55);backdrop-filter:blur(6px);
+  opacity:0;transition:opacity .12s var(--ease);
+}
+.card:hover .cover .more{opacity:1}
+.card .cover .more:hover{background:rgba(12,14,17,.8)}
+.card .cb{padding:9px 11px 10px;display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}
+.card .t{font-size:var(--fs13);font-weight:600;line-height:1.38;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;letter-spacing:.1px}
+.card .m{font-size:var(--fs11);color:var(--text3);display:flex;align-items:center;gap:6px}
+.card .m .sep{opacity:.5}
+.card .f{margin-top:auto;display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden}
+.card .prog{height:2px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-top:2px}
+.card .prog i{display:block;height:100%;background:var(--accent);width:66%}
+
+/* ============================================================
+   5. 表格
+   ============================================================ */
+.filters{display:flex;align-items:center;gap:var(--sp2);padding:9px var(--sp4);border-bottom:1px solid var(--line);background:var(--panel)}
+.pills{display:flex;gap:2px}
+.pills button{
+  height:24px;padding:0 10px;border-radius:999px;font-size:var(--fs12);color:var(--text2);
+  border:1px solid transparent;display:inline-flex;align-items:center;gap:5px;
+}
+.pills button:hover{background:var(--panel2);color:var(--text)}
+.pills button.on{background:var(--accentSoft);color:var(--accent2);border-color:rgba(59,130,246,.35);font-weight:600}
+.pills .c{font-size:10px;opacity:.75}
+.legend{
+  display:flex;align-items:center;gap:var(--sp3);padding:6px var(--sp4);
+  border-bottom:1px solid var(--line);font-size:var(--fs11);color:var(--text3);background:var(--panel);
+}
+.tablewrap{overflow:auto;height:100%}
+table.tk{width:100%;border-collapse:separate;border-spacing:0}
+table.tk th{
+  position:sticky;top:0;z-index:2;background:var(--panel);text-align:left;
+  font-weight:600;color:var(--text3);font-size:var(--fs11);letter-spacing:.3px;
+  height:32px;padding:0 10px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+table.tk td{
+  height:34px;padding:0 10px;border-bottom:1px solid var(--line);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:280px;font-size:var(--fs13);
+}
+table.tk th:last-child,table.tk td:last-child{padding-right:10px}
+table.tk th:nth-last-child(2),table.tk td:nth-last-child(2){padding-right:18px}
+table.tk tr:hover td{background:var(--panel)}
+table.tk .num{text-align:right;font-family:var(--mono);font-size:var(--fs12);color:var(--text2)}
+table.tk .muted{color:var(--text3);font-size:var(--fs12)}
+table.tk .link{color:var(--accent2)}
+table.tk .rowact{width:28px;padding:0 4px;opacity:0}
+table.tk tr:hover .rowact{opacity:1}
+table.tk .rowact button{width:22px;height:22px;border-radius:var(--r4);display:grid;place-items:center;color:var(--text3)}
+table.tk .rowact button:hover{background:var(--panel2);color:var(--text)}
+
+/* ============================================================
+   6. 模板信息卡
+   ============================================================ */
+.tplgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp3)}
+.tplcard{
+  background:var(--card2);border:1px solid var(--line);border-radius:var(--r10);overflow:hidden;
+  box-shadow:var(--sh1);position:relative;transition:border-color .14s var(--ease),box-shadow .14s var(--ease),transform .14s var(--ease);
+}
+.tplcard:hover{border-color:var(--line2);box-shadow:var(--sh2);transform:translateY(-1px)}
+.tplcard .info{padding:14px 12px 12px;position:relative}
+.tplcard .info::before{content:"";position:absolute;left:0;right:0;top:-1px;height:4px;background:linear-gradient(90deg,#e2711d,#f6b26b)}
+.tplcard .bl{display:flex;align-items:center;gap:6px;margin-bottom:9px}
+.tplcard .bl .lg{width:15px;height:15px;border-radius:4px;background:linear-gradient(140deg,#3b82f6,#8b5cf6)}
+.tplcard .bl .nm{font-size:10px;color:var(--text3);letter-spacing:.6px;font-weight:600}
+.tplcard .bl .tag{margin-left:auto}
+.tplcard .cat{font-size:21px;font-weight:800;line-height:1.15;letter-spacing:-.2px;margin-bottom:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tplcard .kv{display:grid;grid-template-columns:56px 1fr;gap:4px 8px;font-size:var(--fs12)}
+.tplcard .kv .k{color:var(--text3)}
+.tplcard .kv .v{color:var(--text);font-weight:500}
+.tplcard .kv .v b{font-weight:700}
+.tplcard .foot{background:var(--panel2);border-top:1px solid var(--line);padding:7px 12px 8px}
+.tplcard .foot .fn{font-size:var(--fs12);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tplcard .foot .meta{font-size:10px;color:var(--text3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ============================================================
+   7. 文件行
+   ============================================================ */
+.frow{
+  display:grid;grid-template-columns:22px 28px minmax(0,1fr) 68px 26px;gap:9px;align-items:center;
+  padding:9px var(--sp4);border-bottom:1px solid var(--line);position:relative;min-height:62px;
+}
+.frow > .tag{justify-self:end}
+.frow:hover{background:var(--panel)}
+.frow .ft{display:flex;flex-direction:column;gap:2px;min-width:0}
+.frow .ft .n{font-size:var(--fs13);font-weight:600;display:flex;align-items:center;gap:6px;min-width:0}
+.frow .ft .n span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .ft .p{font-size:10.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+.frow .ft .tags{display:flex;gap:4px;margin-top:1px;overflow:hidden;max-height:19px}
+.frow .ft .tags .x{display:none;opacity:.6;margin-left:1px}
+.frow:hover .ft .tags .x{display:inline}
+.frow .more{opacity:0;width:22px;height:22px;border-radius:var(--r4);display:grid;place-items:center;color:var(--text3)}
+.frow:hover .more{opacity:1}
+.frow .more:hover{background:var(--panel2);color:var(--text)}
+.ftype{
+  width:26px;height:26px;border-radius:var(--r4);display:grid;place-items:center;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--text2);font-weight:700;
+}
+.frow:hover .ftype{color:var(--text);border-color:var(--text3)}
+.chk{width:15px;height:15px;border-radius:3px;border:1px solid var(--line2);display:grid;place-items:center;color:transparent;background:var(--panel)}
+.chk:hover{border-color:var(--text3)}
+.chk.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ============================================================
+   8. 批量条（L2）
+   ============================================================ */
+.bulkbar{
+  position:absolute;left:50%;bottom:20px;transform:translateX(-50%) translateY(8px);
+  display:flex;align-items:center;gap:var(--sp2);padding:7px 9px 7px 14px;
+  background:var(--card2);border:1px solid var(--accent2);border-radius:var(--r10);
+  box-shadow:0 14px 40px rgba(0,0,0,.7),0 0 0 4px var(--accentSoft);opacity:0;pointer-events:none;transition:opacity .16s var(--ease),transform .16s var(--ease);
+  z-index:20;white-space:nowrap;
+}
+.bulkbar.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+.bulkbar .n{font-size:var(--fs12);color:var(--text)}
+.bulkbar .btn.sm{background:var(--panel);border-color:var(--line2)}
+.bulkbar .btn.sm:hover{background:var(--card);border-color:var(--text3)}
+.bulkbar .n b{color:var(--text);font-weight:700}
+.bulkbar .div{width:1px;height:16px;background:var(--line2)}
+.bulkbar .close{width:24px;height:24px;border-radius:var(--r4);display:grid;place-items:center;color:var(--text3)}
+.bulkbar .close:hover{background:var(--panel2);color:var(--text)}
+
+/* ============================================================
+   9. 弹窗
+   ============================================================ */
+.mask{position:fixed;inset:0;background:var(--mask);display:grid;place-items:center;z-index:60;backdrop-filter:blur(1.5px)}
+.modal{
+  width:740px;max-height:84vh;background:var(--panel);border:1px solid var(--line2);
+  border-radius:var(--r14);box-shadow:var(--sh2);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;
+}
+.modal.wide{width:860px}
+.mhead{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.mhead h2{font-size:var(--fs15);font-weight:700;letter-spacing:.1px}
+.mhead .proj{font-size:var(--fs12);color:var(--accent2);background:var(--accentSoft);padding:2px 8px;border-radius:var(--r4)}
+.mhead .meta{font-size:var(--fs12);color:var(--text3)}
+.mbody{overflow:auto;padding:16px}
+.mfoot{display:flex;align-items:center;gap:var(--sp2);padding:11px 16px;border-top:1px solid var(--line);background:var(--panel2)}
+.sect{margin-bottom:16px}
+.sect:last-child{margin-bottom:0}
+.sect>h3{font-size:var(--fs12);color:var(--text3);font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px;letter-spacing:.3px}
+.sect>h3 .c{font-weight:400;opacity:.8}
+.sect>h3 .act{margin-left:auto;font-size:var(--fs12);color:var(--accent2);font-weight:500}
+.vcards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.vcard{border:1px solid var(--line);border-radius:var(--r8);padding:9px 11px;background:var(--card);position:relative}
+.vcard.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset,0 0 0 3px var(--accentSoft)}
+.vcard .vt{display:flex;align-items:center;gap:6px;font-weight:700;font-size:var(--fs13)}
+.vcard .vt .cur{font-size:9.5px;background:var(--accent);color:#fff;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.3px}
+.vcard p{font-size:var(--fs12);color:var(--text2);margin-top:4px;line-height:1.45}
+.vcard .files{font-size:var(--fs11);color:var(--text3);margin-top:5px}
+.mini{display:flex;gap:8px;flex-wrap:wrap}
+.mini .th{
+  width:104px;height:68px;border-radius:var(--r6);background:var(--panel2);border:1px solid var(--line);
+  display:grid;place-items:center;font-size:10px;color:var(--text3);overflow:hidden;position:relative;
+}
+.mini .th svg{width:100%;height:100%;display:block}
+.mini .th.empty{border-style:dashed}
+.fieldrow{display:grid;grid-template-columns:88px 1fr;gap:8px 12px;font-size:var(--fs13);align-items:center}
+.fieldrow .k{color:var(--text3);font-size:var(--fs12)}
+.fieldrow .v{display:flex;align-items:center;gap:6px;min-height:24px}
+
+/* 设置弹窗 */
+.setwrap{display:grid;grid-template-columns:180px 1fr;min-height:308px}
+.setnav{border-right:1px solid var(--line);padding:8px;background:var(--panel2)}
+.setnav button{
+  display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 9px;border-radius:var(--r6);
+  color:var(--text2);font-size:var(--fs13);text-align:left;
+}
+.setnav button:hover{background:var(--panel);color:var(--text)}
+.setnav button.on{background:var(--card2);color:var(--text);font-weight:600;box-shadow:var(--sh1)}
+.setnav .grp{font-size:10px;color:var(--text3);letter-spacing:.5px;padding:10px 9px 4px;font-weight:600}
+.setbody{padding:16px 20px;overflow:auto;max-height:60vh}
+.setrow{display:flex;align-items:flex-start;gap:16px;padding:11px 0;border-bottom:1px solid var(--line)}
+.setrow:last-child{border-bottom:0}
+.setrow .lab{width:172px;flex:none}
+.setrow .lab .t{font-size:var(--fs13);font-weight:600}
+.setrow .lab .d{font-size:var(--fs11);color:var(--text3);margin-top:2px;line-height:1.4}
+.setrow .ctl{flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.switch{width:34px;height:19px;border-radius:999px;background:var(--line2);position:relative;flex:none}
+.switch i{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:left .14s var(--ease)}
+.switch.on{background:var(--accent)}
+.switch.on i{left:17px}
+
+/* ============================================================
+   10. 层级可视化
+   ============================================================ */
+body.layers .app{margin-top:22px;height:calc(100vh - 22px)}
+body.layers [data-layer]:not(.bulkbar){outline:1.5px dashed var(--lc);outline-offset:-1px;position:relative;border-radius:var(--r4)}
+body.layers .bulkbar[data-layer]{outline:1.5px dashed var(--lc);outline-offset:2px}
+body.layers [data-layer]::before{
+  content:attr(data-layer);position:absolute;left:-1px;top:-17px;z-index:99;
+  font-size:10px;font-weight:800;letter-spacing:.6px;color:#fff;background:var(--lc);
+  padding:2px 7px;border-radius:4px 4px 0 0;line-height:13px;pointer-events:none;
+  box-shadow:0 -1px 0 rgba(0,0,0,.2);
+}
+body.layers [data-note]:hover::after{
+  content:attr(data-note);position:absolute;left:0;top:100%;margin-top:2px;z-index:99;
+  background:var(--card2);color:var(--text);border:1px solid var(--line2);border-radius:var(--r4);
+  font-size:11px;padding:4px 8px;box-shadow:var(--sh2);white-space:nowrap;pointer-events:none;
+}
+.L0{--lc:#8b5cf6}.L1{--lc:#3b82f6}.L2{--lc:#e2711d}.L3{--lc:#14a3a3}
+
+/* ============================================================
+   11. 抽屉
+   ============================================================ */
+.drawer{
+  position:fixed;top:0;right:0;bottom:0;width:360px;z-index:90;background:var(--panel);
+  border-left:1px solid var(--line2);box-shadow:var(--sh2);
+  display:grid;grid-template-rows:auto 1fr;transform:translateX(101%);
+  transition:transform .18s var(--ease);
+}
+.drawer.open{transform:none}
+.dhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dhead h3{font-size:var(--fs13);font-weight:700}
+.dbody{overflow:auto;padding:12px 16px}
+.dsec{font-size:10px;color:var(--text3);letter-spacing:.6px;font-weight:700;margin:14px 0 6px}
+.dsec:first-child{margin-top:0}
+.ditem{display:grid;grid-template-columns:20px 1fr;gap:8px;padding:8px 0;border-bottom:1px dashed var(--line)}
+.ditem:last-child{border-bottom:0}
+.ditem .n{width:18px;height:18px;border-radius:var(--r4);font-size:10px;font-weight:700;display:grid;place-items:center;background:var(--panel2);color:var(--text2)}
+.ditem .t{font-size:var(--fs13);font-weight:600}
+.ditem .d{font-size:var(--fs11);color:var(--text3);margin-top:2px;line-height:1.5}
+.ditem .d code{font-family:var(--mono);font-size:10px;background:var(--panel2);padding:0 3px;border-radius:2px}
+.hl{animation:hl 1.3s var(--ease)}
+@keyframes hl{0%,100%{box-shadow:0 0 0 0 transparent}25%{box-shadow:0 0 0 3px var(--accent)}}
+
+.screen{display:none}
+.screen.on{display:contents}
+.hint{font-size:var(--fs12);color:var(--text3)}
+.emptybig{display:grid;place-items:center;height:100%;text-align:center;gap:10px}
+.emptybig h3{font-size:var(--fs15);font-weight:600}
+.emptybig p{font-size:var(--fs12);color:var(--text3);max-width:300px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ========== L0 顶栏 ========== -->
+  <header class="topbar" data-layer="L0" data-note="L0 全局：换到任何视图都还在 —— 搜索 / 导航 / 刷新 / 偏好 / 设置">
+    <div class="brand"><span class="logo"></span>Vellum<span class="ver">1.13</span></div>
+
+    <div class="searchwrap global-search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input class="search" id="gsearch" placeholder="搜索全部内容" style="width:100%" />
+      <span class="kbd" style="position:absolute;right:8px">Ctrl K</span>
+    </div>
+
+    <div class="seg" id="nav">
+      <button data-s="cards" class="on">任务</button>
+      <button data-s="tickets">工单<span class="badge">3</span></button>
+      <button data-s="files">文件</button>
+      <button data-s="tpl">模板</button>
+      <button data-s="brand">通用库</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="tgroup">
+      <button class="iconbtn" id="layerBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg>
+        <span class="tip">层级视图</span>
+      </button>
+      <button class="iconbtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><path d="M20.5 3.5V9H15"/></svg>
+        <span class="tip">重新扫描（F5）</span>
+      </button>
+      <button class="iconbtn" id="themeBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" id="themeIcon"><circle cx="12" cy="12" r="4.4" fill="currentColor" stroke="none"/><path d="M12 2.2v2.2M12 19.6v2.2M2.2 12h2.2M19.6 12h2.2M5.1 5.1l1.6 1.6M17.3 17.3l1.6 1.6M18.9 5.1l-1.6 1.6M6.7 17.3l-1.6 1.6"/></svg>
+        <span class="tip" id="themeTip">浅色</span>
+      </button>
+      <button class="iconbtn" onclick="go('settings')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="2.9"/><path d="M12 2.4l1.5 1.9 2.4-.6.5 2.4 2.3 1-.9 2.3 1.5 2-1.9 1.5.6 2.4-2.4.5-1 2.3-2.3-.9-2 1.5-1.5-1.9-2.4.6-.5-2.4-2.3-1 .9-2.3-1.5-2 1.9-1.5-.6-2.4 2.4-.5 1-2.3 2.3.9z"/></svg>
+        <span class="tip">设置</span>
+      </button>
+    </div>
+
+    <div class="tsep"></div>
+    <button class="btn" id="optBtn" style="height:26px;font-size:12px">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
+      改动清单
+    </button>
+  </header>
+
+  <!-- ========== 主体 ========== -->
+  <div class="body">
+    <aside class="sider" id="sider"></aside>
+    <main class="main">
+      <div class="toolbar" id="toolbar"></div>
+      <div class="content" id="content"></div>
+      <div class="bulkbar" id="bulkbar">
+        <span class="n">已选 <b>0</b> 项</span>
+        <span class="div"></span>
+        <button class="btn sm">打包交付</button>
+        <button class="btn sm">改归属</button>
+        <button class="btn sm">打标签</button>
+        <span class="div"></span>
+        <button class="close" onclick="document.getElementById('bulkbar').classList.remove('show')">✕</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- ========== L0 状态条 ========== -->
+  <footer class="statusbar">
+    <span>筛选 <b id="stFilter">全部任务</b></span>
+    <span class="path" title="D:\_accept_ws\shot_ws">D:\_accept_ws\shot_ws</span>
+    <span class="spacer"></span>
+    <span>6 个任务 · 19 份素材</span>
+    <span>v1.13.0-preview</span>
+  </footer>
+</div>
+
+<aside class="drawer" id="drawer">
+  <div class="dhead">
+    <h3>改动清单</h3><span class="spacer"></span>
+    <button class="iconbtn" id="drawerClose" style="width:24px;height:24px">✕</button>
+  </div>
+  <div class="dbody" id="drawerBody"></div>
+</aside>
+
+<script>
+/* ============================================================
+   封面：用 SVG 画"设计稿缩略图"，比纯色块接近真机
+   ============================================================ */
+function cover(seed){
+  const P = [
+    {a:'#1b3a63',b:'#0b1626',fg:'#f0c260',word:'秋季招生',sub:'ENROLL 2026'},
+    {a:'#0f5f5c',b:'#062926',fg:'#9fe8dd',word:'升学规划',sub:'SERVICE'},
+    {a:'#4a2359',b:'#200d27',fg:'#e8b4f0',word:'国达',sub:'BRAND KV'},
+    {a:'#7a3218',b:'#321105',fg:'#ffd0a3',word:'精英',sub:'POSTER SET'},
+    {a:'#16233d',b:'#080e19',fg:'#8fb8ff',word:'规划中心',sub:'LONG PAGE'},
+    {a:'#1e4632',b:'#091a12',fg:'#a8e6b8',word:'初三',sub:'TRAINING CAMP'}
+  ][seed % 6];
+  const g = 'g' + seed;
+  return `<svg viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="${g}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="${P.a}"/><stop offset="1" stop-color="${P.b}"/>
+      </linearGradient>
+      <radialGradient id="${g}r" cx=".74" cy=".26" r=".72">
+        <stop offset="0" stop-color="${P.fg}" stop-opacity=".30"/><stop offset="1" stop-color="${P.fg}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="400" height="220" fill="url(#${g})"/>
+    <rect width="400" height="220" fill="url(#${g}r)"/>
+    <circle cx="322" cy="58" r="52" fill="none" stroke="${P.fg}" stroke-opacity=".30" stroke-width="1"/>
+    <circle cx="322" cy="58" r="34" fill="none" stroke="${P.fg}" stroke-opacity=".18" stroke-width="1"/>
+    <path d="M246 118 L400 96" stroke="${P.fg}" stroke-opacity=".18" stroke-width="1"/>
+    <path d="M246 130 L400 108" stroke="${P.fg}" stroke-opacity=".10" stroke-width="1"/>
+    <text x="26" y="158" font-family="Microsoft YaHei,sans-serif" font-size="26" font-weight="800" fill="${P.fg}" letter-spacing="1">${P.word}</text>
+    <text x="27" y="176" font-family="Microsoft YaHei,sans-serif" font-size="8.5" fill="${P.fg}" fill-opacity=".62" letter-spacing="2.4">${P.sub}</text>
+    <rect x="26" y="186" width="26" height="1.6" fill="${P.fg}" fill-opacity=".5"/>
+  </svg>`;
+}
+
+/* 通用库缩略图：logo / 版式 / 纹理 三种，各自长得像自己 */
+function swatch(kind, seed){
+  if (kind === 'logo') {
+    const mark = ['◆','●','▲','✦'][seed % 4];
+    return `<svg viewBox="0 0 200 130" xmlns="http://www.w3.org/2000/svg">
+      <defs><pattern id="ck${seed}" width="14" height="14" patternUnits="userSpaceOnUse">
+        <rect width="14" height="14" fill="#1a1d22"/><rect width="7" height="7" fill="#20242a"/>
+        <rect x="7" y="7" width="7" height="7" fill="#20242a"/>
+      </pattern></defs>
+      <rect width="200" height="130" fill="url(#ck${seed})"/>
+      <circle cx="100" cy="55" r="24" fill="none" stroke="#e8eaee" stroke-width="1.6"/>
+      <text x="100" y="63" text-anchor="middle" font-size="22" fill="#e8eaee">${mark}</text>
+      <rect x="68" y="90" width="64" height="3.4" rx="1.7" fill="#e8eaee" fill-opacity=".8"/>
+      <rect x="82" y="99" width="36" height="2" rx="1" fill="#e8eaee" fill-opacity=".35"/>
+    </svg>`;
+  }
+  if (kind === 'texture') {
+    const col = ['#8b5cf6','#3b82f6','#14a3a3','#e2711d'][seed % 4];
+    return `<svg viewBox="0 0 200 130" xmlns="http://www.w3.org/2000/svg">
+      <defs><pattern id="p${seed}" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+        <line x1="0" y1="0" x2="0" y2="9" stroke="${col}" stroke-opacity=".55" stroke-width="1.6"/>
+      </pattern></defs>
+      <rect width="200" height="130" fill="#14161a"/>
+      <rect width="200" height="130" fill="url(#p${seed})"/>
+      <rect width="200" height="130" fill="url(#none)"/>
+      <circle cx="150" cy="34" r="30" fill="${col}" fill-opacity=".22"/>
+    </svg>`;
+  }
+  // 版式
+  return `<svg viewBox="0 0 200 130" xmlns="http://www.w3.org/2000/svg">
+    <rect width="200" height="130" fill="#191c21"/>
+    <rect x="20" y="16" width="160" height="22" rx="2" fill="#ffffff" fill-opacity=".10"/>
+    <rect x="20" y="46" width="96" height="52" rx="2" fill="#3b82f6" fill-opacity=".22"/>
+    <rect x="124" y="46" width="56" height="10" rx="2" fill="#ffffff" fill-opacity=".16"/>
+    <rect x="124" y="62" width="56" height="6" rx="2" fill="#ffffff" fill-opacity=".10"/>
+    <rect x="124" y="74" width="38" height="6" rx="2" fill="#ffffff" fill-opacity=".10"/>
+    <rect x="20" y="106" width="52" height="8" rx="2" fill="#ffffff" fill-opacity=".10"/>
+    <rect x="80" y="106" width="34" height="8" rx="2" fill="#ffffff" fill-opacity=".07"/>
+  </svg>`;
+}
+
+/* ============================================================
+   屏定义
+   ============================================================ */
+const S = {};
+
+S.cards = {
+  layerMode: true,
+  sider: () => `
+    <div class="scroll">
+      <div class="side-sec">
+        <div class="side-h">全部任务 <button>管理</button></div>
+        <div class="tree">
+          <div class="row sel"><span class="nm">所有任务</span><span class="n">6</span></div>
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">待指派</span><span class="n">3</span></div>
+          <div class="row"><span class="dot" style="background:#34a06a"></span><span class="nm">进行中</span><span class="n">2</span></div>
+          <div class="row"><span class="dot" style="background:#6b7078"></span><span class="nm">已完成</span><span class="n">1</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">筛选标签 <button>编辑</button></div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#e2711d"></span><span class="nm">物料类别</span><span class="n">11</span></div>
+          <div class="row"><span class="dot" style="background:#8b5cf6"></span><span class="nm">使用场景</span><span class="n">7</span></div>
+          <div class="row"><span class="dot" style="background:#14a3a3"></span><span class="nm">物料分级</span><span class="n">4</span></div>
+          <div class="row zero"><span class="dot" style="background:#6b7078"></span><span class="nm">集团</span><span class="n">0</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">项目</div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">海南升学集训营</span><span class="n">3</span></div>
+          <div class="row"><span class="dot" style="background:#34a06a"></span><span class="nm">精英升学先锋营</span><span class="n">1</span></div>
+          <div class="row"><span class="dot" style="background:#e2711d"></span><span class="nm">国达劲枫脱帽长图</span><span class="n">1</span></div>
+          <div class="row"><span class="dot" style="background:#8b5cf6"></span><span class="nm">海南升学规划中心</span><span class="n">1</span></div>
+          <div class="row"><span class="dot" style="background:#14a3a3"></span><span class="nm">一对一项目部</span><span class="n">1</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="sider-foot">
+      <div class="wscard" data-layer="L0" data-note="工作区：跨视图的根目录，与状态栏同源">
+        <div class="k">工作区</div>
+        <div class="p">D:\_accept_ws\shot_ws</div>
+        <div class="acts"><button>打开文件夹</button><button>切换</button></div>
+      </div>
+    </div>`,
+  toolbar: () => `
+    <div class="title">任务视图 <span class="num">6 个任务</span><span class="pill">3 个待指派</span></div>
+    <div class="tools" data-layer="L1" data-note="L1 视图工具条：只对当前视图有效，切走就换一套">
+      <div class="searchwrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="search" placeholder="筛选本视图" style="width:150px;padding-left:28px"/></div>
+      <button class="btn sm">排序 · 最近更新</button>
+      <button class="btn sm icon" title="密度"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <button class="btn sm icon" title="更多视图设置"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></button>
+      <span class="tsep"></span>
+      <button class="btn primary" data-layer="L1" data-note="主操作随视图变：任务视图＝新建任务，文件视图＝导入文件，模板库＝导入 PSD">＋ 新建任务</button>
+    </div>`,
+  content: () => `
+    <div class="cards" data-layer="L3" data-note="L3 单项：每张卡悬浮才出 ⋯ —— 操作挂在对象上，不摆到面上">
+      ${[
+        {t:'海南升学 2026 秋季招生',meta:'3 个文件 · 289 KB · 5 天前',kind:['待指派','warn'],tags:[['海南升学集训营','info'],['海报','mute']]},
+        {t:'升学规划服务手册',meta:'2 个文件 · 137 KB · 2 天前',tags:[['KV-电子展示','info'],['物料长图','mute']]},
+        {t:'国达劲枫脱帽长图',meta:'2 个文件 · 182 KB · 6 天前',tags:[['一对一项目部','info'],['物料长图','mute']]},
+        {t:'精英升学先锋营 系列海报',meta:'2 个文件 · 156 KB · 1 天前',kind:['待指派','warn'],tags:[['精英升学先锋营','info'],['海报','mute']]},
+        {t:'海南升学规划中心 品牌长图',meta:'1 个文件 · 289 KB · 今天',tags:[['物料长图','mute']]},
+        {t:'初三集训班形象片',meta:'2 个文件 · 587 KB · 3 天前',kind:['待指派','warn'],tags:[['海南升学集训营','info'],['KV-电子展示','mute']]}
+      ].map((c,i)=>`
+      <div class="card">
+        <div class="cover">${cover(i)}
+          ${c.kind?`<span class="tag ${c.kind[1]} kind">${c.kind[0]}</span>`:''}
+          <span class="chk"></span>
+          <button class="more" title="更多"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+        </div>
+        <div class="cb">
+          <div class="t">${c.t}</div>
+          <div class="m">${c.meta.split(' · ').map((x,j)=>j?`<span class="sep">·</span><span>${x}</span>`:`<span>${x}</span>`).join('')}</div>
+          <div class="f">${c.tags.map(t=>`<span class="tag ${t[1]}">${t[0]}</span>`).join('')}</div>
+        </div>
+      </div>`).join('')}
+    </div>`,
+  opts: [
+    ['A','顶栏只留 L0','刷新/主题/设置/搜索 全是"换个视图还在"的东西。新建任务、批量条、备份模式、插件联动都从这里搬走了'],
+    ['B','新建任务降到 L1','它只对任务视图成立。文件视图里那个位置会变成「导入文件」，模板库变成「导入 PSD」——同一个坑位，动作随视图换'],
+    ['C','批量条降到 L2','选中才浮出、贴在底部，不挤压内容、不占据顶栏。取消按钮在它自己身上，不用去顶栏找'],
+    ['D','卡片补 L3 操作','悬浮右上角出 ⋯（打开文件夹 / 移动 / 删除），不用点进弹窗才能干活'],
+    ['E','搜索拆成两个','顶栏＝全局（Ctrl K 跨任务/文件/模板/工单）；工具条＝筛当前视图。原来一个框两种语义']
+  ]
+};
+
+S.tickets = {
+  sider: () => `
+    <div class="scroll">
+      <div class="side-sec">
+        <div class="side-h">工单类型</div>
+        <div class="tree">
+          <div class="row sel"><span class="nm">全部</span><span class="n">12</span></div>
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">电子</span><span class="n">7</span></div>
+          <div class="row"><span class="dot" style="background:#e2711d"></span><span class="nm">印刷</span><span class="n">5</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">业务归属</div>
+        <div class="tree">
+          <div class="row"><span class="nm">海南升学集训营</span><span class="n">9</span></div>
+          <div class="row"><span class="nm">精英升学先锋营</span><span class="n">3</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">需要处理</div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#d99433"></span><span class="nm">待指派</span><span class="n">2</span></div>
+          <div class="row"><span class="dot" style="background:#d95a54"></span><span class="nm">编号重复</span><span class="n">1</span></div>
+          <div class="row"><span class="dot" style="background:#6b7078"></span><span class="nm">历史单</span><span class="n">3</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="sider-foot">
+      <div class="wscard" data-layer="L0" data-note="企微授权状态：账号级，工单视图只是消费者">
+        <div class="k">企业微信</div>
+        <div class="p" style="font-family:var(--font)"><span class="dot" style="background:var(--ok);margin-right:5px"></span>已连接 · 张学欢</div>
+        <div class="acts"><button>重新授权</button><button onclick="go('settings')">设置</button></div>
+      </div>
+    </div>`,
+  toolbar: () => `
+    <div class="title">工单队列 <span class="num">共 12 条</span><span class="pill">2 条待指派</span></div>
+    <div class="tools" data-layer="L1" data-note="L1：导出/同步是工单视图的动作，不是全局">
+      <div class="searchwrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="search" placeholder="编号 / 物料名" style="width:170px;padding-left:28px"/></div>
+      <button class="btn sm">排序 · 交稿日期</button>
+      <button class="btn sm">列</button>
+      <button class="btn sm icon" title="密度"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <span class="tsep"></span>
+      <button class="btn sm">导出报表</button>
+      <button class="btn primary" data-layer="L1" data-note="写远端＝需要确认的动作，所以它不当唯一主按钮"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><path d="M20.5 3.5V9H15"/></svg> 同步工单</button>
+    </div>`,
+  content: () => `
+    <div class="filters" data-layer="L1" data-note="L1：这里是视图筛选（我的/全部/未指派…），与右上角操作分开">
+      <div class="pills">
+        <button>我的 <span class="c">6</span></button>
+        <button class="on">全部 <span class="c">12</span></button>
+        <button>未指派 <span class="c">2</span></button>
+        <button>历史单 <span class="c">3</span></button>
+        <button>已改派</button>
+        <button>待确认</button>
+        <button>异常 <span class="c">1</span></button>
+      </div>
+      <span class="spacer"></span>
+      <span class="hint">显示 1–10 / 12</span>
+    </div>
+    <div class="legend">
+      <span>状态</span>
+      <span class="tag info">审批中</span><span class="tag ok">已通过</span><span class="tag mute">已驳回</span>
+      <span class="tag warn">待指派</span><span class="tag danger">异常</span>
+    </div>
+    <div class="tablewrap">
+      <table class="tk">
+        <thead><tr>
+          <th style="width:74px">类型</th>
+          <th class="num" style="width:126px">工单编号</th>
+          <th style="width:210px">物料名称</th>
+          <th style="width:84px">状态</th>
+          <th style="width:88px">申请人</th>
+          <th style="width:146px">业务归属</th>
+          <th style="width:96px">设计师</th>
+          <th class="num" style="width:100px">交稿日期</th>
+          <th>关联任务</th>
+          <th class="rowact"></th>
+        </tr></thead>
+        <tbody id="tkbody"></tbody>
+      </table>
+    </div>`
+};
+
+S.files = {
+  sider: () => `
+    <div class="scroll">
+      <div class="side-sec">
+        <div class="side-h">筛选标签 <button>编辑</button></div>
+        <div class="tree">
+          <div class="row sel"><span class="nm">全部文件</span><span class="n">19</span></div>
+          <div class="row"><span class="dot" style="background:#e2711d"></span><span class="nm">物料类别</span><span class="n">11</span></div>
+          <div class="row"><span class="dot" style="background:#8b5cf6"></span><span class="nm">使用场景</span><span class="n">7</span></div>
+          <div class="row"><span class="dot" style="background:#14a3a3"></span><span class="nm">物料分级</span><span class="n">4</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">状态</div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#34a06a"></span><span class="nm">成品</span><span class="n">8</span></div>
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">素材</span><span class="n">6</span></div>
+          <div class="row"><span class="dot" style="background:#6b7078"></span><span class="nm">工程文件</span><span class="n">5</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">项目</div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">海南升学集训营</span><span class="n">12</span></div>
+          <div class="row"><span class="dot" style="background:#34a06a"></span><span class="nm">精英升学先锋营</span><span class="n">7</span></div>
+        </div>
+      </div>
+    </div>`,
+  toolbar: () => `
+    <div class="title">文件视图 <span class="num">19 个文件 · 1.8 MB</span></div>
+    <div class="tools" data-layer="L1" data-note="L1：主操作随视图变 —— 文件视图的主操作是「导入文件」">
+      <label class="hint" style="display:flex;align-items:center;gap:6px"><span class="chk on">✓</span>只看当前稿</label>
+      <div class="searchwrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="search" placeholder="文件名" style="width:150px;padding-left:28px"/></div>
+      <button class="btn sm">排序 · 名称</button>
+      <button class="btn sm">列</button>
+      <span class="tsep"></span>
+      <button class="btn primary">＋ 导入文件</button>
+    </div>`,
+  content: () => `
+    <div data-layer="L3" data-note="L3：标签的 × 与行尾 ⋯ 只在悬浮时出现">
+      ${[
+        ['MP4','宣传片-秋季形象片.mp4','V1','海南升学集训营 / 2026秋季 / V1 / 宣传片-秋季形象片.mp4',[['KV-电子展示','info'],['A-基准','mute']],['成品','ok'],0],
+        ['PNG','临时导出的预览图.png','','海南招生海报-2026秋季 / 临时导出的预览图.png',[['临时','mute']],['未归属','warn'],4],
+        ['PSD','主视觉文件.psd','V1','海南升学集训营 / 2026秋季 / V1 / 主视觉文件.psd',[['物料','info'],['对外派发','ok']],['工程','mute'],3],
+        ['JPG','素材-暗色渐变.jpg','V1','精英升学先锋营 / A4 / 素材-暗色渐变.jpg',[['物料','info'],['B-等级4','mute']],['素材','info'],1],
+        ['PSD','折叠源文件.psd','V1','海南升学集训营 / 2026秋季 / V1 / 折叠源文件.psd',[['物料','info'],['C-待办2','mute']],['工程','mute'],5],
+        ['PNG','公众号配图-待整理.png','','公众号配图-待整理.png',[['D-待办2','mute']],['未归属','warn'],2]
+      ].map(r=>`
+      <div class="frow">
+        <span class="chk"></span>
+        <span class="ftype"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5"/></svg></span>
+        <span class="ft">
+          <span class="n"><span class="t">${r[1]}</span>${r[2]?`<span class="tag mute">${r[2]}</span>`:''}</span>
+          <span class="p">${r[3]}</span>
+          <span class="tags">${r[4].map(t=>`<span class="tag ${t[1]}">${t[0]}<span class="x">✕</span></span>`).join('')}</span>
+        </span>
+        <span class="tag ${r[5][1]}">${r[5][0]}</span>
+        <button class="more"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+      </div>`).join('')}
+    </div>`,
+  opts: [
+    ['F','类型图标统一线性','原来 MP4/PNG 是彩色方块字，与全站线性图标两套语言'],
+    ['G','行内分两层','主行＝名称+版本+状态；次行＝路径摘要+标签。路径不再长到换行把行高撑乱'],
+    ['H','× 只在悬浮出现','一屏 20 个常驻 ✕ 是纯噪声'],
+    ['I','状态与分类分开','右侧是状态 Tag，左侧是分类 Tag —— 原来都是彩色胶囊，分不清哪个是哪个']
+  ]
+};
+
+S.tpl = {
+  sider: () => `
+    <div class="scroll">
+      <div class="side-sec">
+        <div class="side-h">分组</div>
+        <div class="tree">
+          <div class="row sel"><span class="nm">全部模板</span><span class="n">4</span></div>
+          <div class="row"><span class="nm">未分组</span><span class="n">1</span></div>
+          <div class="row"><span class="indent">▾</span><span class="nm">展架</span><span class="n">1</span></div>
+          <div class="row"><span class="indent">▾</span><span class="nm">海报</span><span class="n">1</span></div>
+          <div class="row" style="padding-left:26px"><span class="nm">2026春季</span><span class="n">1</span></div>
+          <div class="row" style="padding-left:26px"><span class="nm">海报</span><span class="n">1</span></div>
+        </div>
+      </div>
+      <div class="side-sec">
+        <div class="side-h">检查</div>
+        <div class="tree">
+          <div class="row"><span class="dot" style="background:#d99433"></span><span class="nm">无素材组</span><span class="n" style="color:var(--warn)">1</span></div>
+        </div>
+      </div>
+    </div>`,
+  toolbar: () => `
+    <div class="title">PSD 模板库 <span class="num">4 个分组 · 4 份模板</span></div>
+    <div class="tools" data-layer="L1" data-note="L1：维护动作收进「⋯」，只把导入 PSD 摆出来当主操作">
+      <div class="searchwrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="search" placeholder="名称" style="width:140px;padding-left:28px"/></div>
+      <button class="btn sm icon" title="卡片 / 列表"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"/></svg></button>
+      <button class="btn sm" title="扫描磁盘 / 重建卡片 / 新建分组"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg> 维护</button>
+      <span class="tsep"></span>
+      <button class="btn primary">＋ 导入 PSD</button>
+    </div>`,
+  content: () => `
+    <div class="alertbox" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;border-radius:8px;font-size:13px;background:rgba(217,148,51,.11);color:var(--warn);border:1px solid rgba(217,148,51,.3)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v5M12 16.5v.5"/><path d="M10.3 3.9 2.6 17.3A1.6 1.6 0 0 0 4 19.7h16a1.6 1.6 0 0 0 1.4-2.4L13.7 3.9a1.6 1.6 0 0 0-2.8 0Z"/></svg>
+      <span><b>1 个文件没有收录</b> · 超过 20 MB，请瘦身后再导入</span>
+      <button style="margin-left:auto;color:inherit;text-decoration:underline;font-size:12px">查看</button>
+    </div>
+    <div class="tplgrid" data-layer="L3" data-note="L3：模板卡悬浮出 ⋯（重命名 / 移动分组 / 删除）">
+      ${[
+        ['无多步专色','warn','根下散模板','38.1cm × 38.1cm','—','CMYK','根下散模板.psd','1000×1080 · 72ppi'],
+        ['4 步专色','info','招生海报A3','42cm × 29.7cm','3mm','CMYK','招生海报A3.psd','3579×5031 · 300ppi'],
+        ['6 步专色','info','集团版易拉宝','30cm × 70cm','5mm','CMYK','集团版易拉宝.psd','1772×4134 · 150ppi'],
+        ['4 步专色','info','主视觉-易拉宝','80cm × 180cm','5mm','CMYK','主视觉-易拉宝.psd','1772×4134 · 150ppi']
+      ].map(t=>`
+      <div class="tplcard">
+        <div class="info">
+          <div class="bl"><span class="lg"></span><span class="nm">VELLUM</span><span class="tag ${t[1]}">${t[0]}</span></div>
+          <div class="cat">${t[2]}</div>
+          <div class="kv">
+            <span class="k">尺寸</span><span class="v"><b>${t[3]}</b></span>
+            <span class="k">出血</span><span class="v"><b>${t[4]}</b></span>
+            <span class="k">色彩模式</span><span class="v"><b>${t[5]}</b></span>
+          </div>
+        </div>
+        <div class="foot"><div class="fn">${t[6]}</div><div class="meta">${t[7]}</div></div>
+      </div>`).join('')}
+    </div>`,
+  opts: [
+    ['J','维护动作收进下拉','扫描磁盘 / 重建卡片 / 新建分组 三个不是日常动作，与「导入 PSD」平铺一排会稀释主操作'],
+    ['K','告警只出现一次','原来顶部橙条 + 页面中间一个同文案 toast'],
+    ['L','信息卡字号统一','字段名 12 / 值 12 / 强调值加粗；三个字段名对齐到同一条竖线']
+  ]
+};
+
+S.brand = {
+  sider: () => `
+    <div class="scroll">
+      <div class="side-sec">
+        <div class="side-h">通用素材库</div>
+        <div class="tree">
+          <div class="row sel"><span class="nm">全部</span><span class="n">24</span></div>
+          <div class="row"><span class="dot" style="background:#e2711d"></span><span class="nm">品牌 logo</span><span class="n">8</span></div>
+          <div class="row"><span class="dot" style="background:#3b82f6"></span><span class="nm">版式元素</span><span class="n">6</span></div>
+          <div class="row"><span class="dot" style="background:#8b5cf6"></span><span class="nm">背景纹理</span><span class="n">10</span></div>
+        </div>
+      </div>
+    </div>`,
+  toolbar: () => `
+    <div class="title">通用素材库 <span class="num">24 份素材</span></div>
+    <div class="tools" data-layer="L1" data-note="L1：主操作＝导入素材">
+      <div class="searchwrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="search" placeholder="名称 / 标签" style="width:160px;padding-left:28px"/></div>
+      <button class="btn sm">排序</button>
+      <button class="btn sm icon" title="密度"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <span class="tsep"></span>
+      <button class="btn primary">＋ 导入素材</button>
+    </div>`,
+  content: () => `
+    <div class="cards" style="grid-template-columns:repeat(4,minmax(0,1fr))" data-layer="L3" data-note="L3：素材卡悬浮出 ⋯（重命名 / 移动分组 / 删除）">
+      ${[
+        ['logo','品牌logo-竖版','PNG · 1240×2480'],
+        ['law','版式-封面标题','PSD · 2480×3508'],
+        ['texture','纹理-纸纹','JPG · 2000×2000'],
+        ['logo','品牌logo-横版','PNG · 2480×1240'],
+        ['law','版式-页脚','PSD · 2480×3508'],
+        ['texture','纹理-噪点','JPG · 1600×1600'],
+        ['law','版式-内页','PSD · 2480×3508'],
+        ['texture','纹理-渐变','JPG · 2000×2000']
+      ].map((c,i)=>`
+      <div class="card" style="height:158px">
+        <div class="cover" style="height:100px;background:var(--panel2)">${swatch(c[0]==='law'?'layout':c[0], i)}
+          <button class="more" title="更多"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+        </div>
+        <div class="cb" style="padding:8px 10px">
+          <div class="t" style="font-size:12px">${c[1]}</div>
+          <div class="m" style="font-size:10px">${c[2]}</div>
+        </div>
+      </div>`).join('')}
+    </div>`
+};
+
+/* 详情弹窗（覆盖层） */
+S.detail = {
+  overlay: () => `
+  <div class="mask">
+    <div class="modal">
+      <div class="mhead">
+        <h2>海南招生海报-2026秋季</h2>
+        <span class="proj">海南升学集训营</span>
+        <span class="meta">类别：海报</span>
+        <span class="spacer"></span>
+        <button class="iconbtn" style="width:26px;height:26px" title="更多"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button>
+        <button class="iconbtn" style="width:26px;height:26px" title="关闭">✕</button>
+      </div>
+      <div class="mbody">
+        <div class="sect" data-layer="L3" data-note="L3：版本切换只对这个任务成立">
+          <h3>版本 <span class="c">（3）</span><span class="act">＋ 新增版本</span></h3>
+          <div class="vcards">
+            <div class="vcard cur"><div class="vt">V2 <span class="cur">当前</span></div><p>客户反馈：主标题放大一档</p><div class="files">3 个文件 · 289 KB</div></div>
+            <div class="vcard"><div class="vt">V1</div><p>初稿 —— 客户先出图打样</p><div class="files">3 个文件 · 199 KB</div></div>
+            <div class="vcard"><div class="vt">未归入版本</div><p>尚未归入任何版本的文件</p><div class="files">1 个文件</div></div>
+          </div>
+        </div>
+        <div class="sect">
+          <h3>成品 <span class="c">（2）</span><span class="act">查看本组</span></h3>
+          <div class="mini">
+            <div class="th">${cover(0)}</div><div class="th">${cover(1)}</div>
+          </div>
+        </div>
+        <div class="sect">
+          <h3>素材 <span class="c">（1）</span><span class="act">查看本组</span></h3>
+          <div class="mini"><div class="th">${cover(4)}</div></div>
+        </div>
+        <div class="sect">
+          <h3>工程文件 <span class="c">（0）</span></h3>
+          <div class="mini"><div class="th empty">暂无文件</div></div>
+        </div>
+      </div>
+      <div class="mfoot" data-layer="L3" data-note="L3：动作条固定在底部，主操作只有一个实心">
+        <button class="btn">编辑信息</button>
+        <button class="btn">打开文件夹</button>
+        <span class="spacer"></span>
+        <button class="btn ghost">关闭</button>
+        <button class="btn primary">打包交付</button>
+      </div>
+    </div>
+  </div>`,
+  opts: [
+    ['M','动作收到弹窗底部','原来 5 个按钮平铺在顶部，主次不分；现在底部固定，主操作唯一'],
+    ['N','「类别」不再空白','原来字段取值为空就留白'],
+    ['O','四组小节同一套样式','标题+计数+右侧动作，缩略图统一 104×68，空组也占位（虚线框），节奏才稳']
+  ]
+};
+
+/* 设置弹窗：回答"全局功能放哪" */
+S.settings = {
+  overlay: () => `
+  <div class="mask">
+    <div class="modal wide">
+      <div class="mhead"><h2>设置</h2><span class="spacer"></span><button class="iconbtn" style="width:26px;height:26px">✕</button></div>
+      <div class="setwrap">
+        <nav class="setnav">
+          <div class="grp">应用</div>
+          <button class="on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.4v2M12 18.6v2M4.6 7.8l1.7 1M17.7 15.2l1.7 1M4.6 16.2l1.7-1M17.7 8.8l1.7-1"/></svg>通用</button>
+          <button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>工作区</button>
+          <div class="grp">集成</div>
+          <button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 10h8M8 14h5"/></svg>企业微信</button>
+          <button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>PS 插件联动</button>
+          <div class="grp">其他</div>
+          <button><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg>关于</button>
+        </nav>
+        <div class="setbody">
+          <div class="setrow">
+            <div class="lab"><div class="t">界面主题</div><div class="d">深色适合看稿，浅色适合投屏</div></div>
+            <div class="ctl">
+              <div class="seg" style="padding:2px"><button style="height:22px;font-size:12px">深色</button><button class="on" style="height:22px;font-size:12px">浅色</button></div>
+              <span class="hint">也可点顶栏的 ☀ / ☾</span>
+            </div>
+          </div>
+          <div class="setrow">
+            <div class="lab"><div class="t">启动时</div><div class="d">打开软件后停在哪</div></div>
+            <div class="ctl"><button class="btn sm">上次的视图</button><button class="btn sm" style="border-color:var(--accent);color:var(--accent2)">任务视图</button></div>
+          </div>
+          <div class="setrow">
+            <div class="lab"><div class="t">列表密度</div><div class="d">影响表格行高与卡片间距</div></div>
+            <div class="ctl"><button class="btn sm" style="border-color:var(--accent);color:var(--accent2)">紧凑 32</button><button class="btn sm">舒适 40</button></div>
+          </div>
+          <div class="setrow">
+            <div class="lab"><div class="t">PS 插件联动</div><div class="d">目录、自动同步、手动同步</div></div>
+            <div class="ctl"><span class="switch on"><i></i></span><span class="tag ok">已连接</span><button class="btn sm">打开配置</button></div>
+          </div>
+          <div class="setrow">
+            <div class="lab"><div class="t">企业微信</div><div class="d">工单同步用的账号级授权</div></div>
+            <div class="ctl"><span class="tag ok">已授权 · 张学欢</span><button class="btn sm">重新授权</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="mfoot"><span class="hint">设置改了立即生效，不需要保存</span><span class="spacer"></span><button class="btn">关闭</button></div>
+    </div>
+  </div>`,
+  opts: [
+    ['P','全局配置统一收口','插件联动 / 企微授权 / 工单同步配置 三项原来散在顶栏、工单视图、首次向导三处 —— 现在只有这一个入口'],
+    ['Q','顶栏只留状态','顶栏的「插件」按钮改成设置里的开关；顶栏若需要提示，只显示一个"未连接"的小点'],
+    ['R','主题也是设置项','顶栏保留快捷按钮（常用），设置里同样能找到（可发现性）']
+  ]
+};
+
+/* ============================================================
+   工单表格数据
+   ============================================================ */
+const TK = [
+  ['电子','202610010009','短视频封面-秋季','审批中','申请人乙','海南升学集训营','测试设计师','2026-10-06','不是我的单'],
+  ['印刷','202610010010','大屏主视觉-多人协作','审批中','申请人甲','海南升学集训营','测试设计师','2026-10-05','不是我的单'],
+  ['印刷','202610010008','清单单','审批中','申请人甲','海南升学集训营','测试设计师','2026-10-05','编号重复'],
+  ['印刷','202610010007','新店-待确认','审批中','申请人甲','海南升学集训营','测试设计师','2026-10-05','待指派'],
+  ['印刷','202610010006','旧单-开学季','审批中','申请人甲','海南升学集训营','测试设计师','2026-10-05','历史单'],
+  ['印刷','202610010005','推文配图-双节','审批中','申请人甲','海南升学集训营','未指派','2026-10-05','不是我的单'],
+  ['印刷','202610010004','详情长图-国庆版','审批中','申请人甲','海南升学集训营','别的同事','2026-10-08','不是我的单'],
+  ['印刷','202610010003','易拉宝-校区门口','已驳回','申请人甲','海南升学集训营','测试设计师','2026-10-05','不是我的单'],
+  ['印刷','202610010002','招生折页-B款','已通过','申请人甲','海南升学集训营','测试设计师','2026-10-05','不是我的单'],
+  ['印刷','202610010001','海南招生海报-工单A','审批中','申请人甲','海南升学集训营','测试设计师','2026-10-05','海南招生海报-工单A']
+];
+const TAGMAP = {'审批中':'info','已通过':'ok','已驳回':'mute','待指派':'warn','异常':'danger'};
+
+function tkRows(){
+  return TK.map(r=>`<tr>
+    <td><span class="chip"><span class="dot" style="background:${r[0]==='电子'?'#3b82f6':'#e2711d'};margin-right:6px"></span>${r[0]}</span></td>
+    <td class="num">${r[1]}</td>
+    <td title="${r[2]}">${r[2]}</td>
+    <td><span class="tag ${TAGMAP[r[3]]}">${r[3]}</span></td>
+    <td class="muted">${r[4]}</td><td>${r[5]}</td>
+    <td class="${r[6]==='未指派'?'muted':''}">${r[6]}</td>
+    <td class="num">${r[7]}</td>
+    <td title="${r[8]}" class="${r[8].includes('任务')?'link':''}">${r[8]}</td>
+    <td class="rowact"><button title="更多"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button></td>
+  </tr>`).join('');
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
+let cur = 'cards';
+function render(){
+  const s = S[cur] || S.cards;
+  document.getElementById('sider').innerHTML = s.sider ? s.sider() : '';
+  document.getElementById('toolbar').innerHTML = s.toolbar ? s.toolbar() : '';
+  const c = document.getElementById('content');
+  const base = s.overlay ? S.cards : s;
+  if (s.overlay) {
+    document.getElementById('sider').innerHTML = base.sider();
+    document.getElementById('toolbar').innerHTML = base.toolbar();
+    c.innerHTML = base.content();
+  } else {
+    c.innerHTML = s.content ? s.content() : '';
+  }
+  c.scrollTop = 0;
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.s===cur));
+  // 弹窗类
+  const old = document.getElementById('overlay'); if(old) old.remove();
+  if(s.overlay){
+    const d = document.createElement('div'); d.id='overlay'; d.innerHTML = s.overlay();
+    document.body.appendChild(d);
+    // 关掉弹窗回到任务视图
+    d.querySelectorAll('.iconbtn').forEach(b=>{ if(b.textContent.trim()==='✕') b.onclick=()=>{ d.remove(); go('cards') } });
+    d.querySelectorAll('.mfoot .btn').forEach(b=>{ if(b.textContent.trim()==='关闭') b.onclick=()=>{ d.remove(); go('cards') } });
+  }
+  if(cur==='tickets'){ document.getElementById('tkbody').innerHTML = tkRows(); }
+  const bar = document.getElementById('bulkbar');
+  if(bar){
+    bar.querySelectorAll('.btn.sm')[0].textContent = (cur==='files'||cur==='tpl') ? '移动到分组' : '打包交付';
+    bar.querySelectorAll('.btn.sm')[1].textContent = (cur==='files'||cur==='tpl') ? '打标签' : '改归属';
+    bar.querySelectorAll('.btn.sm')[2].style.display = (cur==='files'||cur==='tpl') ? 'none' : '';
+    bar.classList.remove('show');
+  }
+  // 抽屉
+  document.getElementById('drawerBody').innerHTML = renderOpts(s.opts||[]);
+  // 状态条筛选名
+  document.getElementById('stFilter').textContent =
+    {cards:'全部任务',tickets:'我的工单',files:'全部文件',tpl:'全部模板',brand:'全部素材',detail:'全部任务',settings:'全部任务'}[cur] || '全部';
+}
+function renderOpts(list){
+  if(!list.length) return '<div class="hint">这一屏没有单独列改动，主要是骨架层面的调整。</div>';
+  return `<div class="dsec">本屏改动（点条目高亮）</div>` + list.map(o=>`
+    <div class="ditem" data-k="${o[0]}">
+      <span class="n">${o[0]}</span>
+      <div><div class="t">${o[1]}</div><div class="d">${o[2]}</div></div>
+    </div>`).join('');
+}
+function go(k){ cur = k; render(); if(k==='settings'||k==='detail') document.getElementById('drawer').classList.add('open'); }
+
+/* 交互 */
+document.querySelectorAll('#nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.s)));
+document.getElementById('themeBtn').addEventListener('click',()=>{
+  const dark = document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme', dark?'light':'dark');
+  document.getElementById('themeTip').textContent = dark ? '深色' : '浅色';
+});
+document.getElementById('layerBtn').addEventListener('click',()=>{
+  document.body.classList.toggle('layers');
+  document.getElementById('layerBtn').classList.toggle('on');
+});
+const drawer = document.getElementById('drawer');
+document.getElementById('optBtn').addEventListener('click',()=>drawer.classList.toggle('open'));
+document.getElementById('drawerClose').addEventListener('click',()=>drawer.classList.remove('open'));
+
+/* 演示：选中 3 项 → 批量条（只在任务/文件视图） */
+document.getElementById('content').addEventListener('click',(e)=>{
+  const chk = e.target.closest('.chk');
+  if(chk){ chk.classList.toggle('on'); syncBulk(); }
+});
+function syncBulk(){
+  const n = document.querySelectorAll('.chk.on').length;
+  const bar = document.getElementById('bulkbar');
+  if(!bar) return;
+  bar.querySelector('b').textContent = n;
+  bar.classList.toggle('show', n>0);
+}
+window.addEventListener('keydown',(e)=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); document.getElementById('gsearch').focus(); }
+  if(e.key==='Escape'){ drawer.classList.remove('open'); const o=document.getElementById('overlay'); if(o){o.remove(); go('cards')} }
+});
+
+/* 演示开关：hash 写成 #cards!bulk!layers 即可初始就带批量条与层级框 */
+function demoBulk(){
+  const chks=[...document.querySelectorAll('.card .cover .chk')].slice(0,3);
+  chks.forEach(c=>c.classList.add('on'));
+  const bar=document.getElementById('bulkbar');
+  if(bar){ bar.querySelector('b').textContent=chks.length; bar.classList.add('show'); }
+}
+const raw=(location.hash||'').replace('#','');
+const parts=raw.split('!');
+const h=parts[0];
+if(S[h]) cur=h;
+render();
+if(parts.includes('bulk')) setTimeout(demoBulk, 120);
+if(parts.includes('layers')){
+  document.body.classList.add('layers');
+  document.getElementById('layerBtn').classList.add('on');
+  const bar=document.getElementById('bulkbar');
+  if(parts.includes('bulk') && bar){ bar.setAttribute('data-layer','L2'); bar.setAttribute('data-note','L2 集合：选中才出现，贴在底部，不挤压内容'); }
+}
+window.addEventListener('hashchange',()=>{const k=(location.hash||'').replace('#','').split('!')[0]; if(S[k]) go(k)});
+</script>
+</body>
+</html>

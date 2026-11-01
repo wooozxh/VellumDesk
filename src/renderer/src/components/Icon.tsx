@@ -55,6 +55,9 @@ export type IconName =
   // 第 70 批（docs/55）：深浅主题切换（按钮里画的是"点它会变成的那种模式"）
   | 'sun'
   | 'moon'
+  // 第 74 批（docs/57）：全局设置弹窗导航用
+  | 'info'
+  | 'wecom'
 
 const ICONS: Record<IconName, React.JSX.Element> = {
   /** 放大镜（搜索素材名 / 标签） */
@@ -292,7 +295,21 @@ const ICONS: Record<IconName, React.JSX.Element> = {
     </>
   ),
   /** 月亮（第 70 批 docs/55：浅色模式下"点它变深色"） */
-  moon: <path d="M20.4 14.6A8.7 8.7 0 0 1 9.4 3.6 8.7 8.7 0 1 0 20.4 14.6Z" />
+  moon: <path d="M20.4 14.6A8.7 8.7 0 0 1 9.4 3.6 8.7 8.7 0 1 0 20.4 14.6Z" />,
+  /** 信息（第 74 批 docs/57：设置弹窗「关于」） */
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.4M12 7.7v.5" />
+    </>
+  ),
+  /** 企业微信（第 74 批：设置弹窗导航。画成对话气泡 —— 不照抄企微商标） */
+  wecom: (
+    <>
+      <rect x="3" y="5" width="18" height="13" rx="3.5" />
+      <path d="M7.8 9.6h8.4M7.8 13.4h5.4" />
+    </>
+  )
 }
 
 export function Icon({

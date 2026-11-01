@@ -193,6 +193,8 @@ export const COPY = {
   top: {
     searchPack: '搜索任务…',
     searchFile: '搜索文件…',
+    searchGlobal: '搜索任务与文件…',
+    searchOnlyHere: '顶栏搜索只在任务视图与文件视图生效',
     viewPacks: '任务视图',
     viewFiles: '文件视图',
     rescan: '刷新/扫描',
@@ -235,6 +237,8 @@ export const COPY = {
     moveWs: '搬移位置',
     addWs: '添加工作区',
     addWsTip: '选一个文件夹作为工作区：空的就新建，有素材库的直接接进来',
+    collapse: '收起左栏',
+    expand: '展开左栏',
     resizeTip: '拖动调整左栏宽度，双击恢复默认',
     packDiskPath: '磁盘位置：{root}\\{folder}'
   },
@@ -1332,8 +1336,9 @@ export const COPY = {
     done: '完成',
     /** 完成后（用户拍板：自动跳工单队列并提示点同步） */
     syncHint: '已回到工单队列 —— 想立刻拉数据，点一下「{btn}」。',
-    /** 手动入口 */
-    openWizard: '重新打开配置向导'
+    /** 手动入口（第 78 批：8 字缩到 4 字 —— 工单设置那一行放不下，
+        连同「打开连接引导」两个按钮一起会把行撑出弹窗） */
+    openWizard: '配置向导'
   },
 
   // ==================== 第 62 批：PS 插件联动（docs/45） ====================
@@ -1491,5 +1496,41 @@ export const COPY = {
     rejectedTooDeep: '目录超过 5 层',
     skippedDeep: '{n} 个目录超过 5 层，已跳过',
     failed: '操作失败：{msg}'
+  },
+
+  // ==================== 全局设置（第 74 批 docs/57：L0 配置统一收口）====================
+  set: {
+    title: '设置',
+    groupApp: '应用',
+    groupIntegration: '集成',
+    groupOther: '其他',
+    tabAbout: '关于',
+    themeTitle: '界面主题',
+    themeDesc: '深色适合看稿，浅色适合投屏',
+    themeDark: '深色',
+    themeLight: '浅色',
+    densityTitle: '列表密度',
+    densityDesc: '表格行高与卡片间距',
+    startupTitle: '启动时打开',
+    startupDesc: '打开软件后停在哪一屏',
+    soon: '后续版本',
+    wsTitle: '工作区',
+    wsDesc: '所有素材都存在这个目录里，不上传云端',
+    wsOpen: '打开文件夹',
+    wsChange: '更换位置',
+    wecomDesc: '工单同步用的账号级授权，一次授权长期有效',
+    wecomAuth: '打开连接引导',
+    wecomStateHint: '授权状态在引导里看',
+    wecomReauth: '重新授权',
+    pluginDesc: 'PS 里「新建稿」用的模板目录与自动同步开关',
+    pluginOn: '已开启',
+    pluginOff: '未开启',
+    pluginOpen: '打开配置',
+    pluginStateHint: '开关与目录在配置里改',
+    aboutVersion: '版本',
+    aboutVersionDesc: '报问题时带上这个号',
+    aboutManual: '使用手册',
+    aboutManualDesc: '手册随安装包提供（docs/manual），也可在发布页下载单文件版',
+    autoApply: '设置改了立即生效，不需要保存'
   }
 } as const

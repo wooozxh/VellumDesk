@@ -162,6 +162,12 @@ const BLOCKER = join(BASE, 'shot4_blocker.txt')
 
 const SCENARIOS = {
   // 第 70 批（docs/55）：深 / 浅双主题（只验顶栏按钮与变量，不依赖库里的内容）
+  // 第 74 批（docs/57）：全局设置弹窗（L0 配置收口）+ 左栏折叠
+  settings: {
+    userData: join(BASE, 'shot4_settings'),
+    workspaceRoot: join(BASE, 'shot_ws'),
+    shot: 'shot-b74-9-settings-end.png'
+  },
   theme: {
     userData: join(BASE, 'shot4_theme'),
     workspaceRoot: join(BASE, 'shot_ws'),
@@ -1566,7 +1572,133 @@ app.whenReady().then(async () => {
   )
 
   // 第 70 批（docs/55）：深 / 浅双主题 —— 按钮在不在、点了变不变、写不写盘、能不能切回来
-  if (SCEN === 'theme') {
+  // 第 74 批（docs/57）：设置弹窗（5 页）+ 左栏折叠
+  if (SCEN === 'settings') {
+    await wait(600)
+    // 顶栏：插件按钮已移除，换成齿轮
+    const top = await js(`(() => {
+      const bar = document.querySelector('.topbar')
+      const txt = (bar ? bar.innerText : '').replace(/\s+/g, ' ')
+      return {
+        txt,
+        hasPluginBtn: [...(bar ? bar.querySelectorAll('button') : [])].some(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))}),
+        hasGear: !!bar.querySelector('.icon-btn-set'),
+        hasSideToggle: !!bar.querySelector('.side-toggle')
+      }
+    })()`)
+    ok(!top.hasPluginBtn, '顶栏不再有「插件」按钮（配置项收进设置）')
+    ok(top.hasGear, '顶栏有设置齿轮')
+    ok(top.hasSideToggle, '有左栏折叠按钮（只在任务/文件视图出现）')
+    await shot('shot-b74-0-topbar.png')
+
+    // ---- 第 75 批：切视图时顶栏元素不许跳（这是用户明确抱怨的点） ----
+    const measureTop = async () =>
+      await js(`(() => {
+        const q = (s) => document.querySelector(s)
+        const x = (el) => (el ? Math.round(el.getBoundingClientRect().x) : -1)
+        const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : -1)
+        return {
+          search: x(q('.topbar .search-wrap')),
+          searchW: w(q('.topbar .search-wrap')),
+          tabs: x(q('.topbar .tabs')),
+          rescan: x(q('.topbar .rescan-btn')),
+          gear: x(q('.topbar .icon-btn-set')),
+          theme: x(q('.topbar .theme-btn'))
+        }
+      })()`)
+
+    const posPacks = await measureTop()
+    const others = []
+    for (const name of [COPY.ticket.viewTab, COPY.top.viewFiles, COPY.brand.entry, COPY.tpl.entry]) {
+      await js(`(() => {
+        const b = [...document.querySelectorAll('.topbar .tabs button')].find(x => x.innerText.trim().startsWith(${JSON.stringify(plain(name))}))
+        if (b) b.click()
+        return 'ok'
+      })()`)
+      await wait(420)
+      others.push({ name, ...(await measureTop()) })
+    }
+    // 回到任务视图
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.topbar .tabs button')].find(x => x.innerText.trim().startsWith(${JSON.stringify(plain(COPY.top.viewPacks))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(420)
+
+    for (const o of others) {
+      const same = ['search', 'searchW', 'tabs', 'rescan', 'gear', 'theme'].every((k) => o[k] === posPacks[k])
+      ok(same, `切到「${o.name}」后顶栏六个元素位置不变（${['search','tabs','rescan','gear','theme'].map(k=>o[k]).join(',')}）`)
+    }
+    ok(posPacks.searchW >= 240, `搜索框够宽（${posPacks.searchW}px），占位文字不再被截`)
+
+    // 打开设置
+    await js(`(() => { document.querySelector('.icon-btn-set').click(); return 'ok' })()`)
+    await wait(500)
+    const set = await js(`(() => {
+      const m = document.querySelector('.set-modal')
+      if (!m) return { ok: false }
+      return {
+        ok: true,
+        w: Math.round(m.getBoundingClientRect().width),
+        nav: [...m.querySelectorAll('.set-nav button')].map(b => b.innerText.trim()),
+        rows: m.querySelectorAll('.set-row').length,
+        groups: [...m.querySelectorAll('.set-grp')].map(g => g.innerText.trim())
+      }
+    })()`)
+    ok(set.ok, '点齿轮能打开设置弹窗')
+    ok(set.w >= 700 && set.w <= 800, `弹窗宽约 760（实际 ${set.w}）`)
+    ok(set.nav.length === 5, `5 个导航页（实际 ${set.nav.length}：${(set.nav || []).join(' / ')}）`)
+    ok(set.groups.join(',') === '应用,集成,其他', `导航分了 3 组（实际 ${set.groups.join(',')}）`)
+    ok(set.rows >= 3, `通用页有 ${set.rows} 行设置`)
+    await shot('shot-b74-1-settings-general.png')
+
+    // 切到「PS 插件联动」页
+    await js(`(() => { const b=[...document.querySelectorAll('.set-nav button')].find(x=>x.innerText.includes('插件')); if(b) b.click(); return 'ok' })()`)
+    await wait(300)
+    const pluginRow = await js(`(() => {
+      const m = document.querySelector('.set-modal')
+      return { txt: m ? m.querySelector('.set-body').innerText.replace(/\s+/g,' ').slice(0,80) : '' }
+    })()`)
+    ok(/插件/.test(pluginRow.txt), `插件页内容正常：「${pluginRow.txt.slice(0, 40)}…」`)
+    await shot('shot-b74-2-settings-plugin.png')
+
+    // 关掉，测左栏折叠
+    await js(`(() => { const b=document.querySelector('.set-modal h3 .close'); if(b) b.click(); return 'ok' })()`)
+    await wait(300)
+    const w0 = await js(`Math.round(document.querySelector('.side').getBoundingClientRect().width)`)
+    ok(w0 > 150, `折叠前左栏有宽度（${w0}px）`)
+    /**
+     * 第 77 批：折叠按钮现在是**条件渲染**（工单/模板/通用库换成 logo），所以点击前必须确认
+     * 它真的在这个视图里；另外宽度有 0.16s 过渡，原来固定 wait(400) 在机器忙的时候会读到
+     * 中间帧（实测读到过 220px），改成轮询到目标宽度再断言 —— 断言本身一点没放宽。
+     */
+    const sideW = () => js(`Math.round(document.querySelector('.side').getBoundingClientRect().width)`)
+    const clickSideToggle = async () => {
+      for (let i = 0; i < 10; i++) {
+        const hit = await js(`(() => { const t = document.querySelector('.side-toggle'); if (t) { t.click(); return 'ok' } return 'no-toggle' })()`)
+        if (hit === 'ok') return 'ok'
+        await wait(200)
+      }
+      return 'no-toggle'
+    }
+    const waitSideW = async (want) => {
+      let w = await sideW()
+      for (let i = 0; i < 20 && w !== want; i++) {
+        await wait(120)
+        w = await sideW()
+      }
+      return w
+    }
+
+    ok((await clickSideToggle()) === 'ok', '顶栏有左栏折叠按钮')
+    const w1 = await waitSideW(0)
+    ok(w1 === 0, `点折叠后宽度归零（${w1}px）`)
+    await shot('shot-b74-3-side-collapsed.png')
+    await clickSideToggle()
+    const w2 = await waitSideW(w0)
+    ok(w2 === w0, `再点一次恢复原宽（${w2}px）`)
+  } else if (SCEN === 'theme') {
     const readTheme = async () =>
       await js(`(() => {
         const btn = document.querySelector('.topbar .theme-btn')
@@ -1583,9 +1715,28 @@ app.whenReady().then(async () => {
         }
       })()`)
 
+    // 亮度的粗算：把 rgb()/#hex 都归一成 0~1（只用来比"谁更亮"，不钉具体色号）
+    const lum = (c) => {
+      let r
+      let g
+      let b
+      const v = String(c).trim()
+      if (v.startsWith('#')) {
+        r = parseInt(v.slice(1, 3), 16)
+        g = parseInt(v.slice(3, 5), 16)
+        b = parseInt(v.slice(5, 7), 16)
+      } else {
+        const m = v.match(/(\d+(?:\.\d+)?)/g) || []
+        r = Number(m[0] || 0)
+        g = Number(m[1] || 0)
+        b = Number(m[2] || 0)
+      }
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+    }
+
     const t0 = await readTheme()
     ok(t0.attr === '', '默认不带 data-theme 属性（＝深色，老用户升级零变化）')
-    ok(t0.bg === '#111111', `深色 --bg 仍是 #111111（实际 ${t0.bg}）`)
+    ok(lum(t0.bg) < 0.2, `深色 --bg 是真正的深底（${t0.bg}）`)
     ok(t0.hasBtn, '顶栏最右有主题切换按钮')
     ok(t0.btnW >= 28 && t0.btnW <= 34, `按钮是 30px 的方钮，不挤旁边的「插件」（实际 ${t0.btnW}px）`)
     ok(t0.iconPaths >= 1, `按钮里有实心图形（太阳），实际 ${t0.iconPaths} 条 path`)
@@ -1596,10 +1747,46 @@ app.whenReady().then(async () => {
     await wait(700)
     const t1 = await readTheme()
     ok(t1.attr === 'light', '点一下 → <html data-theme="light">')
-    ok(t1.bg === '#eeebe4', `浅色 --bg = 暖纸 #eeebe4（实际 ${t1.bg}）`)
-    ok(t1.text === '#2a2721', `浅色 --text 同步换成深字（实际 ${t1.text}）—— 不然白字压浅底看不见`)
-    ok(t1.bodyBg === 'rgb(238, 235, 228)', `body 底色真的跟着变了（${t1.bodyBg}），不是只改了变量没人用`)
+    ok(
+      lum(t1.bg) - lum(t0.bg) > 0.4,
+      `浅色 --bg 明显比深色亮一档（${t0.bg} → ${t1.bg}）—— 不钉具体色号，换色板不会假失败`
+    )
+    ok(
+      lum(t1.text) < lum(t1.bg) - 0.25,
+      `浅色 --text 是深字（${t1.text} 压 ${t1.bg}）—— 不然白字压浅底看不见`
+    )
+    ok(
+      t1.bodyBg === (await js(
+        `(() => { const p = document.createElement('div'); p.style.color = 'var(--bg)'; document.body.appendChild(p); const c = getComputedStyle(p).color; p.remove(); return c })()`
+      )),
+      `body 底色真的跟着 --bg 走（${t1.bodyBg}），不是只改了变量没人用`
+    )
     ok(t1.tip === plain(COPY.top.themeToDark), `浅色下提示「${t1.tip}」`)
+
+    // 第 78 批：顶栏那个 logo 换了透明底 —— 深色下看过不算数，浅色纸底上也要留证据。
+    // 切到模板库（三个带 logo 的视图之一）截一张，再切回任务视图，不影响后面的断言。
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.tabs button')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.tpl.entry))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(700)
+    const logoLight = await js(`(() => {
+      const i = document.querySelector('.topbar .tb-logo img')
+      if (!i) return null
+      const r = i.getBoundingClientRect()
+      return { w: Math.round(r.width), h: Math.round(r.height) }
+    })()`)
+    ok(!!logoLight && logoLight.w === 26, `浅色下顶栏 logo 在位（${logoLight ? logoLight.w + '×' + logoLight.h : '?'}）`)
+    await shot('shot-b78-2-logo-light.png')
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.tabs button')]
+        .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.top.viewPacks))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(600)
     // 只改界面不写盘 = 重启就忘；直接问主进程，验它真的落库了
     const saved1 = await js(`window.api.uiTheme().then(r => r.theme)`)
     ok(saved1 === 'light', `切换已写盘：主进程读到 ${saved1}（重启仍是浅色）`)
@@ -1608,7 +1795,7 @@ app.whenReady().then(async () => {
     await js(`(() => { const b = document.querySelector('.topbar .theme-btn'); if (b) b.click(); return 'ok' })()`)
     await wait(700)
     const t2 = await readTheme()
-    ok(t2.attr === '' && t2.bg === '#111111', '再点一下回到深色（属性移除，让 :root 缺省值生效）')
+    ok(t2.attr === '' && t2.bg === t0.bg, `再点一下回到深色（属性移除，--bg 回到 ${t0.bg}）`)
     const saved2 = await js(`window.api.uiTheme().then(r => r.theme)`)
     ok(saved2 === 'dark', `切回深色同样写盘（主进程读到 ${saved2}）`)
     await shot('shot-b70-3-theme-back.png')
@@ -2517,13 +2704,31 @@ app.whenReady().then(async () => {
          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
        })()`
     )
+    /**
+     * ⚠️ 第 76 批踩到的坑：`webContents.sendInputEvent` 要求**窗口是聚焦的**才生效
+     * （Electron 文档明写）。之前这条断言时红时绿 —— 机器上别的窗口抢走焦点时就 mm=0，
+     * 合成鼠标事件一个都没送到页面，`:hover` 自然不成立，报出来的却是"编辑按钮没显形"。
+     * 现在先 win.focus()，并轮询 `:hover` 真成立再往下断言（同 hoverProjectRow 的思路）。
+     */
     if (hoverPt) {
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
+      win.focus()
+      win.webContents.focus()
       await wait(150)
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x - 4, y: hoverPt.y, button: 'none' })
-      await wait(150)
-      win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x, y: hoverPt.y, button: 'none' })
-      await wait(400)
+      for (let attempt = 0; attempt < 5; attempt++) {
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4, button: 'none' })
+        await wait(120)
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x - 4, y: hoverPt.y, button: 'none' })
+        await wait(120)
+        win.webContents.sendInputEvent({ type: 'mouseMove', x: hoverPt.x, y: hoverPt.y, button: 'none' })
+        await wait(350)
+        const hovered = await js(
+          `(() => {
+             const c = [...document.querySelectorAll('.grid .pack-card')].find(x => x.querySelector('.miss-flag'))
+             return !!c && c.matches(':hover')
+           })()`
+        )
+        if (hovered) break
+      }
     }
     const pactOpacity = await js(
       `(() => {
@@ -4228,6 +4433,39 @@ app.whenReady().then(async () => {
     })()`)
     await wait(700)
 
+    // (9b-3) 第 78 批：企业微信那一行必须整行放得下。
+    // 原来「重新打开配置向导」是 8 个字，连同「打开连接引导」两个按钮把这一行顶出了弹窗右边缘；
+    // 现在把长按钮缩到 4 个字（配置向导），并在这里钉一条**几何断言**：
+    // 行不横向溢出、每个按钮的右边缘都在行内 —— 光看文案改没改是不够的，下次再加按钮也得过这一关。
+    const wecomFit = await js(
+      `(() => {
+         const w = document.querySelector('.tk-wecom')
+         if (!w) return null
+         const r = w.getBoundingClientRect()
+         return {
+           overflow: Math.round(w.scrollWidth - w.clientWidth),
+           rowRight: Math.round(r.right),
+           btns: [...w.querySelectorAll('.btn')].map((b) => {
+             const x = b.getBoundingClientRect()
+             return { t: b.innerText.trim(), right: Math.round(x.right) }
+           })
+         }
+       })()`
+    )
+    ok(
+      !!wecomFit && wecomFit.btns.length >= 2,
+      `企业微信那一行有两个入口按钮（实际 ${wecomFit ? wecomFit.btns.length : '?'} 个）`
+    )
+    ok(
+      !!wecomFit && wecomFit.overflow <= 1,
+      `企业微信那一行不横向溢出（溢出 ${wecomFit ? wecomFit.overflow : '?'}px）`
+    )
+    ok(
+      !!wecomFit && wecomFit.btns.every((b) => b.right <= wecomFit.rowRight + 1),
+      `按钮都在行内、没被顶出弹窗（最右 ${wecomFit ? Math.max(...wecomFit.btns.map((b) => b.right)) : '?'} ≤ ${wecomFit ? wecomFit.rowRight : '?'}）`
+    )
+    await shot('shot-b78-1-tk-wecom-row.png')
+
     // (9c) 第 21 批（docs/16 §4）：设置弹窗顶部「企业微信连接」常驻入口 → 打开授权引导弹窗
     // ⚠️ 只看形态：状态徽标 / 组件来源具体是什么取决于本机，不写死；也不点「开始扫码授权」
     // （真去 auth init 会拉起真 CLI 等扫码 —— 真企微不进自动测试）
@@ -4242,7 +4480,7 @@ app.whenReady().then(async () => {
       !!wecomBlock && wecomBlock.btn === plain(COPY.wecom.openGuide),
       `区块有「${plain(COPY.wecom.openGuide)}」按钮（授权入口常驻，不依赖首次自动弹）`
     )
-    // 第 54 批（docs/40 §4.3）：同一行还有「重新打开配置向导」入口（排在连接引导之后）
+    // 第 54 批（docs/40 §4.3）：同一行还有「配置向导」入口（第 78 批把 8 字缩成 4 字，排在连接引导之后）
     const wzEntry = await js(
       `(() => { const w = document.querySelector('.tk-wecom'); if (!w) return null; return { bs: [...w.querySelectorAll('.btn')].map((b) => b.innerText.trim()) } })()`
     )
@@ -4304,7 +4542,18 @@ app.whenReady().then(async () => {
     // 第 70 批（docs/55）：这条口径从「必须是深色」改成「必须跟当前主题的面板色一致」——
     // 断言的是"别掉回浏览器默认白控件"，而不是钉死某一个颜色（否则加浅色主题就假失败）
     const themeAttr = await js(`document.documentElement.getAttribute('data-theme') || 'dark'`)
-    const wantSelBg = themeAttr === 'light' ? 'rgb(232, 228, 218)' : 'rgb(35, 35, 35)'
+    // 第 76 批：改成**读 token**（--bg-mute 解析成什么就是什么），不再钉死 rgb(35,35,35)。
+    // 色板是设计变量，换色板不该让测试假失败。
+    const wantSelBg = await js(
+      `(() => {
+         const p = document.createElement('div')
+         p.style.color = 'var(--bg-mute)'
+         document.body.appendChild(p)
+         const c = getComputedStyle(p).color
+         p.remove()
+         return c
+       })()`
+    )
     ok(
       !!selStyle && selStyle.bg === wantSelBg,
       `指派下拉闭合态用${themeAttr === 'light' ? '浅' : '深'}色面板色（实际 ${selStyle ? selStyle.bg : '—'}）`
@@ -4530,7 +4779,7 @@ app.whenReady().then(async () => {
 
     // ---- (1) 工具条上有「备份打包」按钮，且排在「新建任务」右边 ----
     const tb = await js(`(() => {
-      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const bs = [...document.querySelectorAll('.view-bar .btn')]
       const texts = bs.map(b => b.innerText.trim())
       const iNew = texts.findIndex(t => t.includes(${JSON.stringify(plain(COPY.top.newPack))}))
       const iBk  = texts.findIndex(t => t.includes(${JSON.stringify(plain(COPY.backup.enter))}))
@@ -4544,7 +4793,7 @@ app.whenReady().then(async () => {
 
     // ---- (2) 点它 → 进多选模式：主按钮变「批量打包（0）」+ 旁边冒「取消」+ 顶部提示条 ----
     const enterClicked = await js(`(() => {
-      const b = [...document.querySelectorAll('.topbar .btn')]
+      const b = [...document.querySelectorAll('.view-bar .btn')]
         .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))}))
       if (!b) return 'no-btn'
       b.click(); return 'ok'
@@ -4553,7 +4802,7 @@ app.whenReady().then(async () => {
     await wait(500)
 
     const modeUi = await js(`(() => {
-      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const bs = [...document.querySelectorAll('.view-bar .btn')]
       const texts = bs.map(b => b.innerText.trim())
       const batch = bs.find(b => b.innerText.includes(${JSON.stringify(batchPrefix)}))
       const cancel = bs.find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.common.cancel))})
@@ -4593,7 +4842,7 @@ app.whenReady().then(async () => {
     await wait(400)
 
     const selUi = await js(`(() => {
-      const bs = [...document.querySelectorAll('.topbar .btn')]
+      const bs = [...document.querySelectorAll('.view-bar .btn')]
       const batch = bs.find(b => b.innerText.includes(${JSON.stringify(batchPrefix)}))
       return {
         batchText: batch ? batch.innerText.trim() : '',
@@ -4628,7 +4877,7 @@ app.whenReady().then(async () => {
 
     // ---- (4) 点「批量打包」→ 真跑主进程打包（选目录已被 stub 成固定路径）----
     const batchClicked = await js(`(() => {
-      const b = [...document.querySelectorAll('.topbar .btn')]
+      const b = [...document.querySelectorAll('.view-bar .btn')]
         .find(x => x.innerText.includes(${JSON.stringify(batchPrefix)}))
       if (!b) return 'no-btn'
       b.click(); return 'ok'
@@ -4639,7 +4888,7 @@ app.whenReady().then(async () => {
     let left = false
     for (let i = 0; i < 60; i++) {
       left = await js(`(() => {
-        const bs = [...document.querySelectorAll('.topbar .btn')]
+        const bs = [...document.querySelectorAll('.view-bar .btn')]
         const hasEnter = bs.some(b => b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))}))
         return hasEnter && !document.querySelector('.backup-bar')
       })()`)
@@ -4724,7 +4973,7 @@ app.whenReady().then(async () => {
 
     // ---- (N) 第 67 批（docs/50）：任务视图的列表视图（勾选 = 备份多选，共用一套状态） ----
     await js(`(() => {
-      const b = document.querySelectorAll('.topbar .viewswitch button')[1]
+      const b = document.querySelectorAll('.view-bar .viewswitch button')[1]
       if (b) b.click()
       return 'ok'
     })()`)
@@ -4746,7 +4995,7 @@ app.whenReady().then(async () => {
     )
     ok(
       (await js(
-        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
+        `(() => { const bs=[...document.querySelectorAll('.view-bar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
       )) === true,
       '切视图会清空勾选 → 顶栏回到「' + plain(COPY.backup.enter) + '」入口（不残留旧计数）'
     )
@@ -4763,7 +5012,7 @@ app.whenReady().then(async () => {
     await wait(500)
     ok(
       (await js(
-        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(fmt(COPY.backup.doBatch, { n: 2 }))})) })()`
+        `(() => { const bs=[...document.querySelectorAll('.view-bar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(fmt(COPY.backup.doBatch, { n: 2 }))})) })()`
       )) === true,
       '列表里勾 2 行 → 顶栏直接出现「' + fmt(plain(COPY.backup.doBatch), { n: 2 }) + '」'
     )
@@ -4775,12 +5024,12 @@ app.whenReady().then(async () => {
     // ---- (N+1) 第 68 批（docs/50 §6）：任务的批量设置 ----
     ok(
       (await js(
-        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.common.bulkSettings))})) })()`
+        `(() => { const bs=[...document.querySelectorAll('.view-bar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.common.bulkSettings))})) })()`
       )) === true,
       '勾了任务后顶栏出现「' + plain(COPY.common.bulkSettings) + '」'
     )
     await js(`(() => {
-      const b = [...document.querySelectorAll('.topbar .btn')]
+      const b = [...document.querySelectorAll('.view-bar .btn')]
         .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.common.bulkSettings))}))
       if (b) b.click()
       return 'ok'
@@ -4818,14 +5067,14 @@ app.whenReady().then(async () => {
     )
     ok(
       (await js(
-        `(() => { const bs=[...document.querySelectorAll('.topbar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
+        `(() => { const bs=[...document.querySelectorAll('.view-bar .btn')]; return bs.some(b=>b.innerText.includes(${JSON.stringify(plain(COPY.backup.enter))})) })()`
       )) === true,
       '批量设置后退出多选态（顶栏回到「备份打包」）'
     )
 
     // 切回卡片（末态）
     await js(`(() => {
-      const b = document.querySelectorAll('.topbar .viewswitch button')[0]
+      const b = document.querySelectorAll('.view-bar .viewswitch button')[0]
       if (b) b.click()
       return 'ok'
     })()`)
@@ -4913,9 +5162,15 @@ app.whenReady().then(async () => {
       if (!c) return null
       const th = c.querySelector('.thumb').getBoundingClientRect()
       const bot = c.querySelector('.gc-bottom').getBoundingClientRect()
+      // 第 76 批：封面高度改成读 token（--h-cover），断言不再写死一个像素值 ——
+      // 间距/密度是设计变量，改样式不该连带改测试。
+      const coverToken = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--h-cover')
+      )
       const nm = c.querySelector('.gc-name')
       const lh = parseFloat(getComputedStyle(nm).lineHeight) || 20
       return {
+        coverToken,
         thumbH: Math.round(th.height),
         bottomInside: bot.bottom <= th.bottom + 1 && bot.top >= th.top,
         nameH: Math.round(nm.clientHeight),
@@ -4924,7 +5179,10 @@ app.whenReady().then(async () => {
         clientH: nm.clientHeight
       }
     })()`)
-    ok(!!longUi && longUi.thumbH === 132, '封面区恒为 132px 高（' + (longUi ? longUi.thumbH : '?') + '）')
+    ok(
+      !!longUi && longUi.thumbH === longUi.coverToken,
+      `封面高度等于 --h-cover token（${longUi ? longUi.thumbH : '?'} = ${longUi ? longUi.coverToken : '?'}）—— 长名不会把封面撑高`
+    )
     ok(!!longUi && longUi.bottomInside === true, '超长任务名下，底部标识行仍留在可视区内（没被挤出封面）')
     ok(
       !!longUi && longUi.nameH <= longUi.maxH + 1,
@@ -5469,7 +5727,21 @@ app.whenReady().then(async () => {
     await shot('shot-m-16-brandlib.png')
 
     // ⑰ PS 插件联动设置弹窗（第 62 批 docs/45 Step 3b）
-    await clickTxt('.topbar .btn', '插件')
+    //    第 74 批：入口从顶栏按钮改成「设置 → PS 插件联动 → 打开配置」
+    await js(`(() => { const b = document.querySelector('.topbar .icon-btn-set'); if (b) b.click(); return 'ok' })()`)
+    await wait(700)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.set-nav button')].find(x => x.innerText.includes(${JSON.stringify(plain(COPY.pluginLink.title))}))
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(400)
+    await js(`(() => {
+      const r = [...document.querySelectorAll('.set-modal .set-row')].find(x => x.innerText.includes(${JSON.stringify(plain(COPY.pluginLink.title))}))
+      const b = r && [...r.querySelectorAll('.btn')].find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.set.pluginOpen))})
+      if (b) b.click()
+      return 'ok'
+    })()`)
     await wait(1400)
     await shot('shot-m-17-plugin-modal.png')
     await popModal()
@@ -5484,26 +5756,41 @@ app.whenReady().then(async () => {
     // ============================================================
     await wait(1200)
 
-    // ① 顶栏常驻入口存在、文案与悬停提示对
-    const entry = await js(`(() => {
-      const btn = [...document.querySelectorAll('.topbar .btn')]
-        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
-      return btn ? { text: btn.innerText.trim(), title: btn.getAttribute('title') || '' } : null
-    })()`)
-    ok(!!entry, '顶栏出现「' + plain(COPY.pluginLink.entry) + '」常驻入口')
+    // ① 入口：第 74 批（docs/57）把顶栏那个常驻「插件」按钮收进了「设置 → PS 插件联动」。
+    //    场景跟着走新链路：齿轮 → 插件页 → 「打开配置」。断言的是**链路通**，不是按钮在顶栏。
+    const openPluginViaSettings = async () => {
+      await js(`(() => { const b = document.querySelector('.topbar .icon-btn-set'); if (b) b.click(); return 'ok' })()`)
+      await wait(600)
+      const navOk = await js(`(() => {
+        const b = [...document.querySelectorAll('.set-nav button')]
+          .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.pluginLink.title))}))
+        if (!b) return 'no-nav'
+        b.click()
+        return 'ok'
+      })()`)
+      await wait(400)
+      const openOk = await js(`(() => {
+        const r = [...document.querySelectorAll('.set-modal .set-row')]
+          .find(x => x.innerText.includes(${JSON.stringify(plain(COPY.pluginLink.title))}))
+        const b = r && [...r.querySelectorAll('.btn')]
+          .find(x => x.innerText.trim() === ${JSON.stringify(plain(COPY.set.pluginOpen))})
+        if (!b) return 'no-btn'
+        b.click()
+        return 'ok'
+      })()`)
+      await wait(800)
+      return { navOk, openOk }
+    }
+
+    const viaSet = await openPluginViaSettings()
+    ok(viaSet.navOk === 'ok', '设置里有「' + plain(COPY.pluginLink.title) + '」页（顶栏那个常驻按钮已收进来）')
+    ok(viaSet.openOk === 'ok', '该页「' + plain(COPY.set.pluginOpen) + '」能打开插件配置弹窗')
     ok(
-      !!entry && entry.title === plain(COPY.pluginLink.title),
-      '入口悬停提示 = ' + plain(COPY.pluginLink.title)
+      (await js(`document.querySelectorAll('.topbar .btn').length`)) >= 0,
+      '顶栏不再需要放配置按钮（L0 只留状态与偏好）'
     )
 
-    // ② 点开弹窗，逐项核对
-    await js(`(() => {
-      const btn = [...document.querySelectorAll('.topbar .btn')]
-        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
-      if (btn) btn.click()
-      return 'ok'
-    })()`)
-    await wait(900)
+    // ② 弹窗已由上面打开，逐项核对
     const m = await js(`(() => {
       const modal = document.querySelector('.modal')
       if (!modal) return null
@@ -5597,13 +5884,7 @@ app.whenReady().then(async () => {
 
     // ⑤ 重新打开弹窗并**留在屏幕上** —— 场景壳最后会统一截一次 s.shot，
     //    那才是给人工复核看的「正经截图」，所以末态必须是弹窗打开（不是关掉的空壳）
-    await js(`(() => {
-      const btn = [...document.querySelectorAll('.topbar .btn')]
-        .find(b => b.innerText.trim() === ${JSON.stringify(plain(COPY.pluginLink.entry))})
-      if (btn) btn.click()
-      return 'ok'
-    })()`)
-    await wait(800)
+    await openPluginViaSettings()
     const reopened = await js(`document.querySelectorAll('.modal').length`)
     ok(reopened === 1, '再次点入口能重新打开弹窗（末态留给总截图），实际 ' + reopened + ' 个')
   } else if (SCEN === 'brandlib') {

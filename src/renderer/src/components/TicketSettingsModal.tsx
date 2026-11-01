@@ -257,24 +257,33 @@ export function TicketSettingsModal({
           {cli && (
             <div className="tk-wecom">
               <Icon name="clip" size={14} />
-              <span className="t">{COPY.wecom.title}</span>
-              <span className={`wc-pill${cli.auth === 'authorized' ? ' ok' : ''}`}>
-                {wecomStatusText(cli.auth as WecomAuthState)}
-              </span>
-              <span className="s" title={cli.path}>
-                {wecomSourceText(cli.source)}
-                {cli.version ? ` · v${cli.version}` : ''}
-              </span>
+              {/* 第 78 批：这一行原来是「标题 + 状态 + 来源 + 两个按钮」硬挤在一行，
+                  460px 的弹窗里来源只剩 1 个字（「环」）。改成左栏占两行：
+                  第一行标题 + 状态，第二行来源 —— 两个按钮始终完整，来源也不再被截成一个字。 */}
+              <div className="wc-main">
+                <div className="wc-line">
+                  <span className="t">{COPY.wecom.title}</span>
+                  <span className={`wc-pill${cli.auth === 'authorized' ? ' ok' : ''}`}>
+                    {wecomStatusText(cli.auth as WecomAuthState)}
+                  </span>
+                </div>
+                <span className="s" title={cli.path}>
+                  {wecomSourceText(cli.source)}
+                  {cli.version ? ` · v${cli.version}` : ''}
+                </span>
+              </div>
               <span className="spacer" />
-              <button className="btn small" onClick={() => setShowWecom(true)}>
-                {COPY.wecom.openGuide}
-              </button>
-              {/* 第 54 批（docs/40 §4.3）：重新打开首次配置引导（常驻入口，不依赖首次自动弹） */}
-              {onOpenWizard && (
-                <button className="btn small" onClick={onOpenWizard}>
-                  {COPY.wz.openWizard}
+              <div className="wc-acts">
+                <button className="btn small" onClick={() => setShowWecom(true)}>
+                  {COPY.wecom.openGuide}
                 </button>
-              )}
+                {/* 第 54 批（docs/40 §4.3）：重新打开首次配置引导（常驻入口，不依赖首次自动弹） */}
+                {onOpenWizard && (
+                  <button className="btn small" onClick={onOpenWizard}>
+                    {COPY.wz.openWizard}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
