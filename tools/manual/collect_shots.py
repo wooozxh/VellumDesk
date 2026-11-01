@@ -49,6 +49,7 @@ MAP = [
     ("39-任务卡片版本徽标.png", "shot-b9-1-pack-card-version.png"),
     ("40-已忽略的丢失.png", "shot-b47-2-ignored-list.png"),
     # 第 62 批（docs/45 / 46）：PS 插件联动 + 通用素材库（随 manual 场景一并拍出）
+    ("41-快捷方式按钮.png", "shot-m-06-packdetail.png"),
     ("42-通用库视图.png", "shot-m-16-brandlib.png"),
     ("43-插件联动设置.png", "shot-m-17-plugin-modal.png"),
     # 第 67 批（docs/50）：卡片 / 列表双视图 + PSD 模板库
@@ -58,13 +59,37 @@ MAP = [
     ("47-任务-列表视图.png", "shot-b67-3-pack-list.png"),
     ("48-移动到分组.png", "shot-b67-4-brand-move.png"),
     ("49-批量条.png", "shot-b68-1-brand-bulk-bar.png"),
+    # 第 79 批：设置收口成 5 页，手册 5.7 用这两张
+    ("51-设置-通用.png", "shot-b74-1-settings-general.png"),
+    ("52-设置-插件联动.png", "shot-b74-2-settings-plugin.png"),
 ]
+
+# 有的图在手册里只占半栏（fig2 并排），整窗截图缩下去弹窗只有 250px 宽、字看不清 ——
+# 这里给出「只留弹窗」的裁切框（原图像素，截图是 2x DPI）。键是目标文件名。
+# 弹窗底边实测到 y=1058（底栏「关闭」那一行贴底），左右各带一点边框
+CROP = {
+    "51-设置-通用.png": (509, 363, 2024, 1058),
+    "52-设置-插件联动.png": (509, 363, 2024, 1058),
+}
 
 ok, miss = 0, []
 for dst, src in MAP:
     sp = os.path.join(SRC, src)
     if os.path.isfile(sp):
-        shutil.copyfile(sp, os.path.join(DST, dst))
+        out = os.path.join(DST, dst)
+        shutil.copyfile(sp, out)
+        if dst in CROP:
+            from PIL import Image
+            l, t, r, b = CROP[dst]
+            im = Image.open(out)
+            im.crop((l, t, r + 1, b + 1)).save(out, optimize=True)
+        # 截图是 2x DPI（2534 宽）。手册里最宽也就 860 px，原样内联进单文件版要 19 MB；
+        # 统一压到 1280 宽 —— 手册里最大显示 860 宽，还剩 1.5 倍像素密度，肉眼无损。
+        from PIL import Image as _Img
+        im2 = _Img.open(out)
+        if im2.width > 1280:
+            im2 = im2.resize((1280, round(im2.height * 1280 / im2.width)), _Img.LANCZOS)
+            im2.save(out, optimize=True)
         ok += 1
     else:
         miss.append(src)

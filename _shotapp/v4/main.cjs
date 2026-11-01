@@ -18,6 +18,15 @@ app.commandLine.appendSwitch('in-process-gpu')
 const { writeFileSync, mkdirSync, rmSync, existsSync } = require('fs')
 const { join } = require('path')
 
+/**
+ * 状态栏右下角会显示版本号，手册截图里直接用得上。
+ * 场景壳不是打包运行（入口在 _shotapp/v4/，那儿没有 package.json），Electron 的
+ * `app.getVersion()` 会兜底返回 `1.0.0` —— 拍出来的手册截图就写着 v1.0.0，和封面上的
+ * 1.13.0 对不上。这里把它接回仓库根的 package.json，发版后自动跟着变，不用再手改。
+ */
+app.getVersion = () => require(join(__dirname, '..', '..', 'package.json')).version
+
+
 // 界面文案统一走字典（由 `npx esbuild src/shared/copy.ts --outfile=_shotapp/v4/copy.cjs` 生成）：
 // 断言引用 COPY.xxx 而不是硬编码中文，改文案时这里自动跟着变，不会测试失败。
 const { COPY, fmt } = require('./copy.cjs')

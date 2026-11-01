@@ -460,7 +460,7 @@
       <p>工单队列右上角 <span class="btnchip">⚙</span> 打开。这一屏是工单功能的「总控台」，第一次配置就在这里。</p>
       <figure>
         <img src="images/20-工单同步设置.png" alt="工单同步设置" />
-        <figcaption>图 2-4　工单同步设置 —— 企业微信连接状态行 / 智能表格链接 / 启用子表（勾选 + 印刷·电子类型）/ 本机使用者 / 允许指派开关</figcaption>
+        <figcaption>图 2-4　工单同步设置 —— 企业微信连接（左边标题 + 状态、来源，右边两个入口）/ 智能表格链接 / 启用子表（勾选 + 印刷·电子类型）/ 允许指派开关 / 自动同步 / 危险操作</figcaption>
       </figure>
 
       <h3>从上往下一行行看</h3>
@@ -765,7 +765,7 @@
 
     <section id="s3-3">
       <h2><span class="n">3.3</span>新建任务</h2>
-      <p>顶栏右上角 <span class="btnchip">＋ 新建任务</span>。</p>
+      <p>任务视图<b>内容区右上角</b>的 <span class="btnchip">＋ 新建任务</span>（顶栏那个已经挪下来了，和「备份打包」「卡片 / 列表切换」排在一起）。</p>
       <figure>
         <img src="images/13-新建任务.png" alt="新建任务" />
         <figcaption>图 3-3　新建任务 —— 填名称、选所属项目、点选三个维度（类别 / 使用场景 / 分级）</figcaption>
@@ -979,7 +979,7 @@
           <tr><td>批量重新定位</td><td><b>只在有文件丢失时才出现</b>，见 <a href="#s4-7">4.7</a></td></tr>
         </tbody>
       </table>
-      <div class="call info"><span class="h">顶栏搜索框在这一格搜的是文件名</span>在任务视图搜的是任务名；工单队列下不显示搜索框。输入即搜（有 0.22 秒防抖）。</div>
+      <div class="call info"><span class="h">顶栏搜索框在这一格搜的是文件名</span>在任务视图搜的是任务名；工单队列 / 通用库 / 模板下搜索框<b>还在、但灰着</b>（那几个视图各自带筛选）。输入即搜（有 0.22 秒防抖）。</div>
     </section>
 
     <section id="s4-2">
@@ -1330,6 +1330,11 @@
         </tbody>
       </table>
 
+      <div class="fig2">
+        <figure><img src="images/51-设置-通用.png" alt="设置-通用页" /><figcaption>图 5-13　「通用」页 —— 左边导航分应用 / 集成 / 其他三组，右边每行一项；改完立即生效，底部只有「关闭」</figcaption></figure>
+        <figure><img src="images/52-设置-插件联动.png" alt="设置-插件联动页" /><figcaption>图 5-14　「PS 插件联动」页 —— 这里只放说明和一个「打开配置」，真正的开关在弹出来的配置窗里</figcaption></figure>
+      </div>
+
       <div class="call info"><span class="h">为什么搬进来</span>插件联动、企业微信授权、工单同步配置这三件事<b>配一次、一年不再点</b>，却原来各占顶栏、工单视图、首次向导一个入口。现在统一收到齿轮里，顶栏只留「换到哪一屏」的按钮。</div>
 
       <h3>两个最常用的</h3>
@@ -1343,7 +1348,7 @@
     <div class="chapterhead" id="ch6">
       <div class="kick">PART FOUR</div>
       <h2 class="ct">第四部分 · 素材库与 PS 插件</h2>
-      <p>这一部分讲<b>两个「不属于任何任务」的库</b>：顶栏第 4 格 <span class="btnchip">通用库</span> 装常备素材，第 5 格 <span class="btnchip">模板</span> 装现成的 PSD 底稿。它们右边那个 <span class="btnchip">插件</span> 按钮，负责把这些东西交给 Photoshop 里的 Vellum 工具箱。<b>不装 PS 插件也能用这两个库</b> —— 装了才知道它多省事。</p>
+      <p>这一部分讲<b>两个「不属于任何任务」的库</b>：顶栏第 4 格 <span class="btnchip">通用库</span> 装常备素材，第 5 格 <span class="btnchip">模板</span> 装现成的 PSD 底稿。顶栏齿轮里的「<b>PS 插件联动</b>」负责把这些东西交给 Photoshop 里的 Vellum 工具箱。<b>不装 PS 插件也能用这两个库</b> —— 装了才知道它多省事。</p>
     </div>
 
     <section id="s6-1">
@@ -1390,7 +1395,7 @@
 
     <section id="s6-4">
       <h2><span class="n">6.4</span>同步给 PS 插件</h2>
-      <p>点顶栏的 <span class="btnchip">插件</span> 打开设置。它是<b>任务库和通用库一起同步</b>的 —— 装了 PS 插件之后，Photoshop 里会同时出现「任务库」和「通用库」两格。</p>
+      <p>顶栏 <b>齿轮 → PS 插件联动 → 打开配置</b>（顶栏原来那个「插件」按钮已经收进设置）。它是<b>任务库和通用库一起同步</b>的 —— 装了 PS 插件之后，Photoshop 里会同时出现「任务库」和「通用库」两格。</p>
       <figure>
         <img src="images/43-插件联动设置.png" alt="PS 插件联动设置" />
         <figcaption>图 6-2　插件联动设置 —— 总开关、插件数据目录、自动发现的目录、手动同步按钮<br />（图上正是<b>还没装插件</b>的样子：会提示「未找到插件目录」）</figcaption>
@@ -1611,7 +1616,7 @@ note:主推款，上方留白给标题</code></pre>
         <thead><tr><th style="width:170px">弹窗</th><th style="width:290px">打开方式</th><th>主要按钮</th></tr></thead>
         <tbody>
           <tr><td>首次配置引导</td><td>装完第一次打开自动弹；以后从「工单队列 → ⚙ → 配置向导」</td><td>开始配置 / 上一步 / 跳过 / 下一步 / 完成 / 我以后再说</td></tr>
-          <tr><td>新建任务</td><td>顶栏「＋ 新建任务」</td><td>创建 / 取消</td></tr>
+          <tr><td>新建任务</td><td>任务视图内容区右上「＋ 新建任务」（顶栏已撤）</td><td>创建 / 取消</td></tr>
           <tr><td>编辑任务信息</td><td>任务卡片 ✎ 或任务详情「编辑任务信息」</td><td>保存 / 取消</td></tr>
           <tr><td>任务详情</td><td>点任务卡片</td><td>编辑任务信息 / 打开文件夹 / 快捷方式 / 打包交付 / 完成任务 / 新建版本 / 绑定文件夹 / 设为当前 / 解绑 / 确定移动</td></tr>
           <tr><td>打包交付</td><td>任务详情「打包交付」</td><td>选择文件夹 / 开始打包 / 打开压缩包 / 打开文件夹 / 取消</td></tr>
