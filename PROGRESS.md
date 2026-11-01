@@ -3053,3 +3053,30 @@ Radix（focus-visible 环 / 命中区）、GOV.UK（危险动作隔离 + 文案�
 **待办**：手册里 52 张截图仍是上一版界面（`manual` 场景缺 `D://_accept_ws//_manual_assets` 布景，
 `gen_assets.py` 要 Pillow）。文字已全部对齐，下批统一重拍。
 
+### 补：手册截图全部重拍（2026-11-01 10:4x）
+
+**用户追加要求**：截图更新掉，release 改正式。
+
+**重拍链路**（README 里那套，这次跑通了）：
+1. `python tools/manual/gen_assets.py` 生成 13 张演示素材（Pillow 13 本机有）
+2. 演示视频单独出（脚本不管）：`resources/ffmpeg/ffmpeg.exe -y -loop 1 -i _video_frame.png -t 4 -r 25 -vf scale=1280:720 -c:v mpeg4 -q:v 5 宣传片-秋季形象片.mp4`
+3. `run-verify4.cjs manual` 拍 18 张（`shot-m-*.png`），再跑 19 个界面场景刷新 `shot-b*.png`
+4. `python tools/manual/collect_shots.py` 归集 → `docs/manual/images/`
+5. `python tools/manual/make_single.py` 出单文件版；`node check.cjs` 体检
+
+**这次改的四处工具代码**：
+- **`app.getVersion` 接回仓库 package.json**：场景壳入口在 `_shotapp/v4/`（那儿没有 package.json），
+  Electron 兜底返回 `1.0.0` —— 手册状态栏截图就一直写着 v1.0.0，跟封面 1.13.0 打架。
+  现在 `app.getVersion = () => require('../../package.json').version`，发版后自动跟着走。
+- **两张「设置」图裁成只留弹窗**：整窗截图缩到半栏（430 px）后弹窗只有 250 px 宽、字看不清。
+  `CROP` 表按像素给裁切框（实测弹窗 509..2024 × 363..1058）。
+- **归集时统一压到 1280 宽**：原图 2534 宽（2x DPI），全量内联进单文件版要 **19.2 MB**；
+  1280 后 14.3 MB，手册最大显示 860 宽仍是 1.5x，肉眼无损。
+- 顺手补了 `41-快捷方式按钮` 的映射（原来不在 MAP 里，一直停 10-09 的旧图）。
+
+**手册正文跟着改的 6 处**：3.3 新建任务（已下移到工具条）、4.1 搜索框（改成"灰着"）、
+6.4 插件入口（齿轮 → PS 插件联动）、第四部分导语、2.5 图 2-4 说明、5.7 新增两张设置图（图 5-13 / 5-14）。
+
+**发版侧**：release 的手册附件用 `--clobber` 换成新版（14.3 MB）；
+`gh release edit --prerelease=false --latest` 转正式；更新说明里「截图还是旧的」那条删掉。
+
