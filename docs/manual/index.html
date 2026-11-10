@@ -46,13 +46,13 @@
     <!-- ============ 封面 ============ -->
     <header class="cover">
       <img class="logo" src="images/logo.png" alt="Vellum Desk" />
-      <span class="tag">USER MANUAL · v1.13.0</span>
+      <span class="tag">USER MANUAL · v1.14.0</span>
       <h1>Vellum工作台 用户使用手册</h1>
       <p class="lede">本地素材管理桌面软件。把设计物料、任务稿、企微工单这三件事，收进一个「看得见磁盘真相」的工作台里 —— 所有素材都在你本机硬盘上，不上传任何云端。</p>
       <div class="kv">
-        <div><b>1.13.0</b>软件版本</div>
+        <div><b>1.14.0</b>软件版本</div>
         <div><b>Windows 10 / 11 · 64 位</b>适用系统</div>
-        <div><b>2026-10-30</b>手册更新</div>
+        <div><b>2026-11-10</b>手册更新</div>
         <div><b>40+ 张</b>界面截图</div>
         <div><b>内部使用</b>分发范围</div>
       </div>
@@ -132,7 +132,8 @@
         <a href="#s5-4"><b>5.4</b>工作区管理与多库</a>
         <a href="#s5-5"><b>5.5</b>状态栏与左栏宽度</a>
         <a href="#s5-6"><b>5.6</b>首次配置引导（初装向导）</a>
-        <a href="#s5-7"><b>5.7</b>设置（齿轮）：主题 / 工作区 / 授权 / 插件</a>
+        <a href="#s5-7"><b>5.7</b>设置（齿轮）：主题 / 密度 / 启动 / 授权 / 插件</a>
+        <a href="#s5-8"><b>5.8</b>关窗、托盘与新工单通知</a>
 
         <div class="grp">第四部分 · 素材库与 PS 插件</div>
         <a href="#s6-1"><b>6.1</b>通用素材库：它解决什么</a>
@@ -550,6 +551,12 @@
         ① 至少保留一位设计师 —— 接口没法把成员列清空，要清空请去表格里手动清；<br>
         ② 历史单 / 待确认单 / 已删除行的单<b>不能指派</b>；<br>
         ③ 候选设计师为空时，先在表格里填一次设计师，软件会记住这些人。
+      </div>
+
+      <div class="call info"><span class="h">另一种派单：在审批意见里 @ 你</span>
+        提交时「设计师」列<b>空着</b>的单，审核人在审批意见里 @ 谁，谁的电脑上就会自动建任务（不用再点指派）。<br>
+        · 只认「<b>@ + 姓名</b>」：光是意见里出现名字不算 —— 抄送、办理这些节点都会写名字；<br>
+        · <b>设计师列已经填了人时，@ 不生效</b>：那是转交或叮嘱，不是派单，软件不抢。
       </div>
     </section>
 
@@ -1322,26 +1329,81 @@
       <table>
         <thead><tr><th style="width:130px">页</th><th>管什么</th><th style="width:230px">里面有什么</th></tr></thead>
         <tbody>
-          <tr><td>通用</td><td>界面主题（深色 / 浅色）；「列表密度」「启动时打开」目前是占位，写着「后续版本」</td><td>深色 / 浅色 两颗按钮，当前那个是实心蓝</td></tr>
+          <tr><td>通用</td><td>界面主题（深色 / 浅色）、列表密度（标准 / 紧凑）、启动时打开（停在那一屏）</td><td>主题两颗按钮（当前那个实心蓝）；密度两颗按钮；启动是一个下拉，6 个选项</td></tr>
           <tr><td>工作区</td><td>这台电脑上的素材目录 —— 所有素材都存在这里，不上传云端</td><td>完整路径 + <span class="btnchip">打开文件夹</span> <span class="btnchip">更换位置</span></td></tr>
           <tr><td>企业微信连接</td><td>工单同步用的账号级授权，一次授权长期有效</td><td><span class="btnchip">打开连接引导</span>（授权状态在引导里看）</td></tr>
           <tr><td>PS 插件联动</td><td>PS 里「新建稿」用的模板目录与自动同步开关</td><td><span class="btnchip">打开配置</span>（开关与目录在配置里改）</td></tr>
-          <tr><td>关于</td><td>版本号与使用手册</td><td>版本号（报问题时带上这个号）、手册位置</td></tr>
+          <tr><td>关于</td><td>版本号与使用手册</td><td>版本号（报问题时带上这个号）、<span class="btnchip">打开手册</span>（用系统浏览器打开随安装包一起装好的手册）</td></tr>
         </tbody>
       </table>
 
       <div class="fig2">
-        <figure><img src="images/51-设置-通用.png" alt="设置-通用页" /><figcaption>图 5-13　「通用」页 —— 左边导航分应用 / 集成 / 其他三组，右边每行一项；改完立即生效，底部只有「关闭」</figcaption></figure>
+        <figure><img src="images/51-设置-通用.png" alt="设置-通用页" /><figcaption>图 5-13　「通用」页 —— 主题、列表密度、启动时打开三行都在这里；改完立即生效，底部只有「关闭」</figcaption></figure>
         <figure><img src="images/52-设置-插件联动.png" alt="设置-插件联动页" /><figcaption>图 5-14　「PS 插件联动」页 —— 这里只放说明和一个「打开配置」，真正的开关在弹出来的配置窗里</figcaption></figure>
       </div>
 
       <div class="call info"><span class="h">为什么搬进来</span>插件联动、企业微信授权、工单同步配置这三件事<b>配一次、一年不再点</b>，却原来各占顶栏、工单视图、首次向导一个入口。现在统一收到齿轮里，顶栏只留「换到哪一屏」的按钮。</div>
 
-      <h3>两个最常用的</h3>
+      <h3>通用页那三行</h3>
+      <table>
+        <thead><tr><th style="width:130px">项</th><th>怎么用</th></tr></thead>
+        <tbody>
+          <tr><td>界面主题</td><td>深色 / 浅色，点完立即生效并记住；顶栏最右那颗太阳 / 月亮钮是同一件事</td></tr>
+          <tr><td>列表密度</td><td><b>标准</b>（行高 34）就是现在这样；<b>紧凑</b>（行高 30、卡片间距收一档）一屏能多看三四行。<b>只压纵向</b>，字号和列宽一个都不动</td></tr>
+          <tr><td>启动时打开</td><td>下拉 6 个选项：<b>上次那一屏</b>（默认）/ 工单队列 / 任务 / 文件 / 通用素材库 / 模板库。选「上次」就跟着你最后一次停留的视图走</td></tr>
+        </tbody>
+      </table>
+
+      <figure>
+        <img src="images/53-设置-关于.png" alt="设置-关于页" />
+        <figcaption>图 5-15　「关于」页 —— 版本号 + <span class="btnchip">打开手册</span>：手册随安装包装进软件目录，不用再找人要文件</figcaption>
+      </figure>
+
+      <h3>三个最常用的</h3>
       <ul>
         <li><b>换主题</b>：直接点顶栏最右的太阳 / 月亮钮就行，和「设置 → 通用」里那两颗按钮是同一件事。</li>
+        <li><b>换密度</b>：工单多、一屏看不完时选「紧凑」；截图、录屏、给别人演示时选「标准」更好看。改完立即生效，不用重启。</li>
         <li><b>换工作区</b>：「工作区 → 更换位置」= 换一整库素材。原库不会被删也不会被改，随时能换回来，细节见 <a href="#s5-4">5.4</a>。</li>
       </ul>
+    </section>
+
+    <section id="s5-8">
+      <h2><span class="n">5.8</span>关窗、托盘与新工单通知</h2>
+      <p>点窗口右上角的 <b>X</b>，软件<b>不会退出</b>，而是收进右下角托盘继续在后台跑 —— 这样自动同步和你被派单的提醒，不会因为"顺手关了窗口"就停掉。第一次收进托盘会弹一条提示，告诉你去哪儿找它。</p>
+
+      <h3>托盘图标上点右键</h3>
+      <table>
+        <thead><tr><th style="width:150px">菜单项</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td>打开主界面</td><td>把窗口叫回来（左键单击托盘图标也一样；窗口在前台时单击则是收起）</td></tr>
+          <tr><td>刷新数据</td><td>等同于顶栏的刷新按钮</td></tr>
+          <tr><td>同步工单</td><td>立刻跑一轮工单同步，跑完弹一条结果通知（成功会说新建了几个任务）</td></tr>
+          <tr><td>设置</td><td>把窗口叫出来并直接打开设置弹窗</td></tr>
+          <tr><td>退出</td><td><b>真正退出软件</b>，自动同步也随之停止</td></tr>
+        </tbody>
+      </table>
+
+      <div class="call warn"><span class="h">要彻底退出，走托盘菜单的「退出」</span>点 X 只是收起来。开会、换电脑、想彻底关掉后台同步时，别只点 X。</div>
+
+      <h3>被派单会弹系统通知</h3>
+      <p>自动同步跑到<b>新派给你</b>的单（「设计师」列里有你；或者设计师列空着、审批意见里 @ 了你），软件会建任务，同时在右下角弹一条系统通知：</p>
+      <ul>
+        <li>标题写数量：<code>收到 1 个新工单</code> / <code>收到 3 个新工单</code></li>
+        <li>正文是任务名，最多说两个，再多显示「等 N 个」</li>
+        <li><b>点通知直接打开软件</b></li>
+      </ul>
+
+      <table>
+        <thead><tr><th style="width:230px">情况</th><th>会不会弹</th></tr></thead>
+        <tbody>
+          <tr><td>自动同步拉到新单</td><td>弹（窗口在前台时不弹 —— 列表已经自己刷过了，不打扰）</td></tr>
+          <tr><td>手动点「同步工单」</td><td>不弹（界面里有提示条）</td></tr>
+          <tr><td>托盘菜单点「同步工单」</td><td>弹，但弹的是同步结果（含新建任务数）</td></tr>
+          <tr><td>拉到的是别人的单</td><td>不弹</td></tr>
+        </tbody>
+      </table>
+
+      <div class="call info"><span class="h">看不到通知？</span>先去 Windows「设置 → 系统 → 通知」里确认本软件没被关掉；开了「专注助手 / 勿扰」也会把它压下去。通知只是一个提醒，工单和任务本身都在软件里，不会丢。</div>
     </section>
 
     <!-- ============ 第四部分 ============ -->
@@ -1844,9 +1906,9 @@ note:主推款，上方留白给标题</code></pre>
       <table>
         <thead><tr><th style="width:170px">位置</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td><code>1.13.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
+          <tr><td><code>1.14.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
           <tr><td>状态栏右下角</td><td>软件里唯一的版本号显示位置 —— 报问题时顺手截这里</td></tr>
-          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.13.0</b>）</td></tr>
+          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.14.0</b>）</td></tr>
         </tbody>
       </table>
 
@@ -1854,7 +1916,7 @@ note:主推款，上方留白给标题</code></pre>
       <div class="call warn"><span class="h">升级前顺手备份一次</span>把整个工作区文件夹复制一份到移动硬盘。虽然升级不动素材，但这是零成本的保险。</div>
 
       <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px">
-        本手册对应软件版本 <b>1.13.0</b>　|　最后更新 2026-11-01　|　内部使用，请勿外传
+        本手册对应软件版本 <b>1.14.0</b>　|　最后更新 2026-11-10　|　内部使用，请勿外传
       </div>
     </section>
 
@@ -1868,7 +1930,7 @@ note:主推款，上方留白给标题</code></pre>
 <button class="totop" id="totop" title="回到顶部">↑</button>
 
 <footer style="max-width:1240px;margin:0 auto;padding:0 24px 60px">
-  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.13.0　|　2026-11-01</span></div>
+  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.14.0　|　2026-11-10</span></div>
   <span>下载与更新见页面右上角 <b style="font-family:var(--mono)">GitHub</b> 图标，或翻到 <a href="#s7-7">7.7 下载与更新</a></span>
 </footer>
 
