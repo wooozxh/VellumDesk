@@ -1,5 +1,5 @@
 import { COPY } from '../shared/copy'
-import { app, shell, BrowserWindow, dialog } from 'electron'
+import { app, shell, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -33,15 +33,94 @@ function locateFfmpegDir(): string {
   return ''
 }
 
+/**
+ * 第 81 批：系统托盘驻留。
+ *
+ * 语义（用户拍板）：**点 X 只是把窗口收进托盘，不退出软件**；真正退出走托盘菜单的「退出」。
+ * 为什么这样做：工单自动同步是个后台活（默认 10 分钟一轮），关窗就退等于把同步也关了 ——
+ * 设计师一天里反复开关软件，任务反而更难及时建出来。
+ *
+ * 安全阀：`quitting` 为 true 时才允许窗口真的关掉。任何走 `app.quit()` 的路径
+ * （托盘菜单、系统关机、任务栏关闭）都必须先把它置 true，否则会被 `close` 拦回来 ——
+ * 那就是"点退出没反应"的经典死结。
+ */
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
+/** 气泡提示只弹一次（每进程一次，不落盘 —— 重启后再关一次也值得提醒） */
+let trayHintShown = false
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+/** 托盘只建一次；图标拿不到就**不建**（保持"关窗即退出"的老行为，绝不出现关不掉的窗口） */
+function createTray(): void {
+  if (tray) return
+  let image = nativeImage.createFromPath(icon)
+  if (image.isEmpty()) {
+    console.warn('[tray] 托盘图标读不到，跳过托盘（关窗仍是退出）')
+    return
+  }
+  // Windows 托盘按 16×16 显示，直接塞 512 会被系统缩得发糊
+  image = image.resize({ width: 16, height: 16 })
+  try {
+    tray = new Tray(image)
+  } catch (e) {
+    console.error('[tray] 托盘创建失败（关窗仍是退出）：', e)
+    tray = null
+    return
+  }
+  tray.setToolTip(COPY.tray.tooltip)
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: COPY.tray.open, click: () => showMainWindow() },
+      { type: 'separator' },
+      {
+        label: COPY.tray.refresh,
+        click: () => mainWindow?.webContents.send('tray:action', 'refresh')
+      },
+      { type: 'separator' },
+      {
+        label: COPY.tray.quit,
+        click: () => {
+          quitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+  // 单击切换：窗口在前台就收起，在托盘就唤出（Windows 上左键单击的常规行为）
+  tray.on('click', () => {
+    if (mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized()) mainWindow.hide()
+    else showMainWindow()
+  })
+}
+
 function createWindow(): void {
   /**
    * 第 70 批（docs/55）：主题要在**首屏之前**就定下来，否则浅色用户每次启动会先闪一帧深灰。
    * 两道保险：① 窗口底色按主题给（Chromium 空闲底色）；② 主题经 URL 查询串带给渲染层，
    * 由 `index.html` 里的内联脚本在 React 挂载前打到 `<html data-theme>` 上。
+   *
+   * 第 81 批：密度和启动视图跟着同一条 query 串走 —— 三者都是「首帧就得对」的，
+   * 分开走 IPC 会晚一步（用户能看到界面先按标准密度铺开、再跳成紧凑）。
    */
-  const theme = readUiPrefs(userDataDir).theme
+  const prefs = readUiPrefs(userDataDir)
+  const theme = prefs.theme
+  const bootQuery = {
+    theme,
+    density: prefs.density,
+    start: prefs.startView
+  }
 
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1000,
@@ -56,28 +135,58 @@ function createWindow(): void {
       sandbox: false
     }
   })
+  // 下面用到的是"这个窗口"，不直接用模块级的 mainWindow —— 重建窗口时旧引用会被换掉，
+  // 事件回调里抓局部变量更不容易出错（模块级那份只给托盘/activate 用）
+  const win = mainWindow
+
+  /**
+   * 第 81 批：点 X = 收进托盘。
+   * 只有 `quitting` 为 true（托盘菜单「退出」/系统关机）才放行真正的关闭。
+   * 托盘没建成功时不拦 —— 否则窗口就在眼前却怎么都关不掉。
+   */
+  win.on('close', (e) => {
+    if (quitting || !tray) return
+    e.preventDefault()
+    win.hide()
+    // 第一次收起时给一句提示（只提示一次，之后用户就知道了）。
+    // 系统通知被关了也不影响 —— displayBalloon 抛错/静默都只是少一句话。
+    if (!trayHintShown) {
+      trayHintShown = true
+      try {
+        tray.displayBalloon({ title: COPY.app.name, content: COPY.tray.hint })
+      } catch {
+        // 忽略：通知渠道不可用不该影响收起
+      }
+    }
+  })
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
 
   // 窗口标题的唯一来源是字典（COPY.app.name）：页面 <title> 会在加载后覆盖窗口标题，
   // 一旦 index.html 里那个标题漂了（脚手架默认值是「Electron」），任务栏上就是另一个名字。
   // 这里把覆盖拦下来，改名字只改字典一处。
-  mainWindow.on('page-title-updated', (event) => {
+  win.on('page-title-updated', (event) => {
     event.preventDefault()
-    mainWindow.setTitle(COPY.app.name)
+    win.setTitle(COPY.app.name)
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    // 托盘常驻后，"重建窗口"（activate / 托盘点开）不该再抢焦点闪一下，
+    // 但首次启动必须显示 —— show() 对已隐藏窗口是幂等的
+    win.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?theme=${theme}`)
+    const q = new URLSearchParams(bootQuery).toString()
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?${q}`)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { theme } })
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query: bootQuery })
   }
 }
 
@@ -183,15 +292,20 @@ app.whenReady().then(() => {
   registerIpc({ firstRunThisSession })
 
   createWindow()
+  // 第 81 批：托盘必须在窗口建好之后 —— close 拦截依赖 `tray` 是否存在
+  createTray()
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // 托盘常驻后窗口通常是"隐藏"而不是"没有" —— 这里统一走 showMainWindow 判断
+    showMainWindow()
   })
 })
 
 let linkFlushDone = false
 
 app.on('before-quit', (e) => {
+  // 第 81 批：任何退出路径都要先放行 close 拦截，否则会卡在"退不掉"
+  quitting = true
   // 第 63 批（docs/47）：退出前把还没写盘的镜像变更冲刷掉（防抖计时器里可能还挂着一次）。
   if (linkFlushDone || !hasPendingMirror()) return
   linkFlushDone = true
@@ -206,6 +320,9 @@ app.on('will-quit', () => {
   stopLinkService()
   // 第 69 批（docs/53）：销毁离屏渲染窗口 —— 隐藏窗口会拖住进程不让退出
   destroyTplCardRenderer()
+  // 第 81 批：托盘图标不销毁会在 Windows 通知区留一个不能点的幽灵图标
+  tray?.destroy()
+  tray = null
 })
 
 app.on('window-all-closed', () => {

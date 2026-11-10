@@ -107,7 +107,7 @@ import {
 } from './src/main/linkService'
 import { setLinkConfig } from './src/main/linkConfig'
 // 第 70 批（docs/55）：深/浅主题偏好（落 userData，不进工作区库）
-import { readUiPrefs, writeTheme } from './src/main/uiPrefs'
+import { readUiPrefs, writeTheme, writeDensity, writeStartView } from './src/main/uiPrefs'
 // 第 54 批（docs/39）：任务快捷方式 —— 纯逻辑 + 注入 writer（真写 .lnk 只在 Electron 里做）
 import {
   sanitizeShortcutName,
@@ -3752,8 +3752,11 @@ async function main(): Promise<void> {
     // 真实场景：申请单提交时没选设计师，审核人在「同意」的意见里 @ 设计师，
     // 这行会落进「审批流程」文本列（`已同意 | 审核人 @张子涵 已同意 11/09 08:56;`）。
     // 设计师列整列空 → 认这条 @ 为派单；列里已有别人 → 那是转交/叮嘱，不抢单。
-    const flowRec = (no: string, flow: string, designers: unknown = []): TicketRawRecord =>
-      fRec(no, { 设计师: designers, 审批流程: [{ text: flow }] })
+    const flowRec = (no: string, flow: string | string[], designers: unknown = []): TicketRawRecord =>
+      fRec(no, {
+        设计师: designers,
+        审批流程: (Array.isArray(flow) ? flow : [flow]).map((t) => ({ text: t }))
+      })
     const atSync = applySync({
       payloads: [
         fPayload([
@@ -3770,7 +3773,14 @@ async function main(): Promise<void> {
           // ⑤ 只有姓名、没有 @（抄送/办理节点都长这样）→ 不算派单
           flowRec('F0024', '已抄送 | 本机测试员 已抄送 11/09 09:20;'),
           // ⑥ 名字在意见里出现、但前面没 @ → 也不算派单
-          flowRec('F0025', '已同意 | 审核人 让本机测试员 出个竖版 已同意 11/09 09:30;')
+          flowRec('F0025', '已同意 | 审核人 让本机测试员 出个竖版 已同意 11/09 09:30;'),
+          // ⑦ 审批流程是**多段富文本**（真表一张单 6 段，一格一段），@ 在第 3 段 ——
+          //    takeText 只取第一段的老实现会漏掉（第 80 批 takeAllText 就是为这个写的）
+          flowRec('F0026', [
+            '已提交 | 本机测试员 已提交 11/09 08:00;',
+            '已抄送 | 别的同事 已抄送 11/09 08:10;',
+            '已同意 | 审核人 @本机测试员 来个横版 已同意 11/09 09:40;'
+          ])
         ])
       ],
       structureChanged: false,
@@ -3789,7 +3799,8 @@ async function main(): Promise<void> {
     ok(packOf('F0023') !== null, '@姓名后直接粘正文（`@本机测试员工单已指派`）→ 仍认作派单')
     ok(packOf('F0024') === null, '【边界】只有姓名没有 @（抄送节点）→ 不建任务')
     ok(packOf('F0025') === null, '【边界】名字出现在意见里但前面没 @ → 不建任务')
-    ok(atSync.tasksCreated === 2, `@ 兜底本轮只建 2 个任务（实际 ${atSync.tasksCreated}）`)
+    ok(packOf('F0026') !== null, '【核心】多段审批流程，@ 落在第 3 段也认得（takeAllText 拼全了）')
+    ok(atSync.tasksCreated === 3, `@ 兜底本轮只建 3 个任务（实际 ${atSync.tasksCreated}）`)
 
     closeDb()
     hardRm(fRoot)
@@ -8951,7 +8962,50 @@ async function main(): Promise<void> {
     hardRm(uDir)
   }
 
-// ============ 汇总 ============
+  log('\n[81] 第 81 批：列表密度 / 启动视图偏好（同一个 ui-prefs.json，各写各的键）')
+  {
+    const uDir = join('D:////_accept_ws', `uipref81_${RUN_ID}`)
+    hardRm(uDir)
+    mkdirSync(uDir, { recursive: true })
+
+    const d0 = readUiPrefs(uDir)
+    ok(d0.density === 'standard', '没有偏好文件时默认标准密度（升级第一眼与老版本一致）')
+    ok(d0.startView === 'last', '没有偏好文件时默认「上次那一屏」（与升级前行为一致）')
+
+    ok(writeDensity(uDir, 'compact') === 'compact', '写 compact：返回实际生效的值')
+    ok(readUiPrefs(uDir).density === 'compact', '写进去再读回来是 compact')
+    ok(writeStartView(uDir, 'files') === 'files', '写 startView=files')
+    ok(readUiPrefs(uDir).startView === 'files', '写进去再读回来是 files')
+
+    // 三个偏好共用一个文件 —— 各写各的，谁都不能把别人抹掉
+    writeTheme(uDir, 'light')
+    const j = JSON.parse(readFileSync(join(uDir, 'ui-prefs.json'), 'utf-8')) as Record<string, unknown>
+    ok(
+      j.theme === 'light' && j.density === 'compact' && j.startView === 'files',
+      '【核心】写主题不抹掉密度和启动视图（三个键共存）'
+    )
+
+    // 非法值一律回落缺省，不许把界面弄成"紧凑到看不见"或"启动到一个不存在的屏"
+    writeDensity(uDir, 'huge' as never)
+    ok(readUiPrefs(uDir).density === 'standard', '写非法密度回落 standard，不抛错')
+    writeStartView(uDir, 'nowhere' as never)
+    ok(readUiPrefs(uDir).startView === 'last', '写非法启动视图回落 last，不抛错')
+
+    // 手改文件成非法值（含老版本只写了 theme 的形态）
+    writeFileSync(join(uDir, 'ui-prefs.json'), '{"theme":"light"}', 'utf-8')
+    const legacy = readUiPrefs(uDir)
+    ok(
+      legacy.theme === 'light' && legacy.density === 'standard' && legacy.startView === 'last',
+      '老版本只写了 theme 的文件：缺的键走缺省，不用用户重新设置'
+    )
+    writeFileSync(join(uDir, 'ui-prefs.json'), '{"density":"wide","startView":42}', 'utf-8')
+    const bad = readUiPrefs(uDir)
+    ok(bad.density === 'standard' && bad.startView === 'last', '两个键同时非法：各回各的缺省，互不牵连')
+
+    hardRm(uDir)
+  }
+
+  // ============ 汇总 ============
   log('\n' + '='.repeat(62))
   log(failed === 0 ? `全部通过 ✅  共 ${lines.filter((l) => l.includes('[OK]') || l.includes('[FAIL]')).length} 项断言` : `有 ${failed} 项失败 ❌`)
   log('='.repeat(62))

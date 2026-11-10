@@ -93,6 +93,12 @@
   --h-status: 26px; /* 状态条 */
   --h-cover: 104px; /* 任务卡封面（16:9 缩略图；场景断言读这个 token，不写死数字） */
 
+  /* ---- 第 81 批：列表密度的可调项（标准档 = 下面这两个值，与升级前一致）----
+     只有这两处会随密度变：表格行的上下内边距、卡片网格的间距。
+     行高本身复用 --h-row / --h-row-head，紧凑档在文件末尾的属性覆盖块里改。 */
+  --pad-row-y: 6px; /* 表格行上下内边距 */
+  --gap-card: var(--sp-3); /* 卡片网格间距 */
+
   /* ---- 阴影：只两层（Material elevation）---- */
   --sh-1: 0 1px 2px rgba(0, 0, 0, 0.4); /* 卡片 / 浮起的小件 */
   --sh-2: 0 10px 30px rgba(0, 0, 0, 0.55); /* 弹窗 / 菜单 / Toast */
@@ -108,6 +114,19 @@
      位置由下面的 background-position 统一控制（右移内收 12px）。
      颜色写死在 SVG 里（背景图拿不到 currentColor），取 --text-2 #9ba1aa。 */
   --sel-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1.2 1.4 5 5.2l3.8-3.8' stroke='%239ba1aa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ============================================================
+   第 81 批：列表密度（紧凑档）
+   —— 只在 `<html data-density="compact">` 时生效；不写属性 = 标准档（老用户零变化）。
+   紧凑档只压缩**纵向**：行高 34→30、表头 32→28、行内边距 6→4、卡片间距收一档。
+   字号/列宽一律不动 —— 密度调的是"一屏能看几行"，不是"字变小"。
+   ============================================================ */
+:root[data-density='compact'] {
+  --h-row: 30px;
+  --h-row-head: 28px;
+  --pad-row-y: 4px;
+  --gap-card: var(--sp-2);
 }
 
 /* ============================================================
@@ -803,7 +822,8 @@ body:has(.side-resizer.dragging) {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
-  gap: var(--sp-3);
+  /* 第 81 批：间距走变量，紧凑档收一档（--sp-2） */
+  gap: var(--gap-card);
 }
 
 /**
@@ -3126,7 +3146,8 @@ svg {
   gap: 8px;
   align-items: center;
   min-height: var(--h-row);
-  padding: 6px 10px;
+  /* 第 81 批：6px → 变量（紧凑档 4px）；只改上下，左右保持 10px */
+  padding: var(--pad-row-y) 10px;
   border-bottom: 1px solid var(--line-soft);
   font-size: var(--fs-13);
   color: var(--text);
@@ -5276,6 +5297,11 @@ svg {
   padding: 4px 8px;
   border-radius: 4px;
   word-break: break-all;
+  max-width: 100%;
+}
+/* 第 81 批：设置里的下拉（启动视图）—— 不给宽度会被 flex 撑满整行 */
+.set-row .ctl select.set-select {
+  width: 180px;
   max-width: 100%;
 }
 .set-soon {

@@ -1225,6 +1225,26 @@ export interface Api {
    */
   uiTheme: () => Promise<{ theme: 'dark' | 'light' }>
   uiSetTheme: (theme: 'dark' | 'light') => Promise<{ theme: 'dark' | 'light' }>
+
+  /**
+   * 第 81 批：列表密度（标准 / 紧凑）与启动视图。
+   * 与主题同住 `userData/ui-prefs.json` —— 都是"这台机器上这个人的习惯"，
+   * 换工作区不该丢；首屏由主进程经 query 串带进渲染层（见 `theme.ts`）。
+   */
+  uiDensity: () => Promise<{ density: 'standard' | 'compact' }>
+  uiSetDensity: (density: 'standard' | 'compact') => Promise<{ density: 'standard' | 'compact' }>
+  uiStartView: () => Promise<{
+    startView: 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl'
+  }>
+  uiSetStartView: (
+    startView: 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl'
+  ) => Promise<{ startView: 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl' }>
+
+  /**
+   * 第 81 批：系统托盘动作推送（主进程菜单 → 渲染层）。返回退订函数。
+   * 关窗语义在 `src/main/index.ts`：点 X 收进托盘，真正退出走托盘菜单。
+   */
+  onTrayAction: (cb: (action: 'refresh') => void) => () => void
 }
 
 /** 第 62 批（docs/45）：PS 插件联动状态 */

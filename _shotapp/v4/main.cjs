@@ -1660,6 +1660,62 @@ app.whenReady().then(async () => {
     ok(set.nav.length === 5, `5 个导航页（实际 ${set.nav.length}：${(set.nav || []).join(' / ')}）`)
     ok(set.groups.join(',') === '应用,集成,其他', `导航分了 3 组（实际 ${set.groups.join(',')}）`)
     ok(set.rows >= 3, `通用页有 ${set.rows} 行设置`)
+
+    // ---- 第 81 批：列表密度 / 启动视图（把两个「后续版本」占位换成真控件）----
+    const prefRow = (title) =>
+      `[...document.querySelectorAll('.set-modal .set-row')].find(r => (r.querySelector('.t')?.innerText || '').includes(${JSON.stringify(title)}))`
+    const prefCtl = await js(`(() => {
+      const d = ${prefRow('列表密度')}
+      const s = ${prefRow('启动时打开')}
+      return {
+        densityBtns: d ? [...d.querySelectorAll('.ctl .btn')].map(b => b.innerText.trim()) : [],
+        startOpts: s ? [...s.querySelectorAll('.ctl select option')].map(o => o.textContent.trim()) : [],
+        startVal: s && s.querySelector('.ctl select') ? s.querySelector('.ctl select').value : '',
+        soonLeft: document.querySelectorAll('.set-modal .set-soon').length
+      }
+    })()`)
+    ok(prefCtl.densityBtns.length === 2, `密度有 2 个档位按钮（实际 ${prefCtl.densityBtns.length}：${prefCtl.densityBtns.join('/')}）`)
+    ok(prefCtl.startOpts.length === 6, `启动视图 6 个选项（实际 ${prefCtl.startOpts.length}）`)
+    ok(prefCtl.startVal === 'last', `默认选中「上次那一屏」（实际 ${prefCtl.startVal}）`)
+    ok(prefCtl.soonLeft === 0, `不再有「后续版本」占位（实际 ${prefCtl.soonLeft} 处）`)
+
+    // 点「紧凑」：html 属性 + 行高 token 都要跟着变（读 token 比，不写死 px）
+    const rowStd = await js(
+      `getComputedStyle(document.documentElement).getPropertyValue('--h-row').trim()`
+    )
+    await js(`(() => {
+      const d = ${prefRow('列表密度')}
+      const b = [...d.querySelectorAll('.btn')].find(x => x.innerText.trim() === ${JSON.stringify(COPY.set.densityCompact)})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(250)
+    const compactState = await js(`({
+      attr: document.documentElement.getAttribute('data-density'),
+      row: getComputedStyle(document.documentElement).getPropertyValue('--h-row').trim()
+    })`)
+    ok(compactState.attr === 'compact', '点「紧凑」→ html 挂上 data-density=compact')
+    ok(
+      compactState.row !== rowStd,
+      `紧凑档行高与标准档不同（${rowStd} → ${compactState.row}）`
+    )
+    await shot('shot-b81-1-settings-compact.png')
+
+    // 切回「标准」：属性移除（CSS 只有一份覆盖块，靠 :root 缺省值）
+    await js(`(() => {
+      const d = ${prefRow('列表密度')}
+      const b = [...d.querySelectorAll('.btn')].find(x => x.innerText.trim() === ${JSON.stringify(COPY.set.densityStandard)})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(250)
+    const backAttr = await js(`document.documentElement.getAttribute('data-density')`)
+    const backRow = await js(
+      `getComputedStyle(document.documentElement).getPropertyValue('--h-row').trim()`
+    )
+    ok(backAttr === null, '切回「标准」→ 移除 data-density 属性')
+    ok(backRow === rowStd, `切回标准后行高复原（${backRow}）`)
+
     await shot('shot-b74-1-settings-general.png')
 
     // 切到「PS 插件联动」页

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { COPY } from '../../../shared/copy'
-import type { Theme } from '../theme'
+import type { Theme, Density, BootStart as StartView } from '../theme'
 import { Icon } from './Icon'
 
 /**
@@ -20,6 +20,12 @@ import { Icon } from './Icon'
 export interface SettingsModalProps {
   theme: Theme
   onThemeChange: (t: Theme) => void
+  /** 第 81 批：列表密度（标准 / 紧凑） */
+  density: Density
+  onDensityChange: (d: Density) => void
+  /** 第 81 批：启动时停在哪一屏（'last' = 上次那屏） */
+  startView: StartView
+  onStartViewChange: (v: StartView) => void
   workspaceRoot: string
   onOpenWorkspace: () => void
   onChangeWorkspace: () => void
@@ -31,9 +37,23 @@ export interface SettingsModalProps {
 
 type Tab = 'general' | 'workspace' | 'wecom' | 'plugin' | 'about'
 
+/** 启动视图的选项（顺序按用户使用频率排：工单最多，模板库最少） */
+const START_VIEW_OPTIONS: Array<{ value: StartView; label: string }> = [
+  { value: 'last', label: '上次那一屏' },
+  { value: 'tickets', label: '工单队列' },
+  { value: 'packs', label: '任务' },
+  { value: 'files', label: '文件' },
+  { value: 'brand', label: '通用素材库' },
+  { value: 'tpl', label: '模板库' }
+]
+
 export function SettingsModal({
   theme,
   onThemeChange,
+  density,
+  onDensityChange,
+  startView,
+  onStartViewChange,
   workspaceRoot,
   onOpenWorkspace,
   onChangeWorkspace,
@@ -108,7 +128,18 @@ export function SettingsModal({
                     <div className="d">{COPY.set.densityDesc}</div>
                   </div>
                   <div className="ctl">
-                    <span className="set-soon">{COPY.set.soon}</span>
+                    <button
+                      className={`btn${density === 'standard' ? ' primary' : ''}`}
+                      onClick={() => onDensityChange('standard')}
+                    >
+                      {COPY.set.densityStandard}
+                    </button>
+                    <button
+                      className={`btn${density === 'compact' ? ' primary' : ''}`}
+                      onClick={() => onDensityChange('compact')}
+                    >
+                      {COPY.set.densityCompact}
+                    </button>
                   </div>
                 </div>
                 <div className="set-row">
@@ -117,7 +148,17 @@ export function SettingsModal({
                     <div className="d">{COPY.set.startupDesc}</div>
                   </div>
                   <div className="ctl">
-                    <span className="set-soon">{COPY.set.soon}</span>
+                    <select
+                      className="tk-input set-select"
+                      value={startView}
+                      onChange={(e) => onStartViewChange(e.target.value as StartView)}
+                    >
+                      {START_VIEW_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </>

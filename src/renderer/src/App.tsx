@@ -22,7 +22,14 @@ import type {
 
 import { Icon } from './components/Icon'
 import { SettingsModal } from './components/SettingsModal'
-import { applyTheme, type Theme } from './theme'
+import {
+  applyTheme,
+  applyDensity,
+  readBootStart,
+  type Theme,
+  type Density,
+  type BootStart as StartView
+} from './theme'
 /** 第 77 批：顶栏图标位（工单 / 模板 / 通用库三个视图用），由 build/icon-source.png 缩出 */
 import appIcon from './assets/app-icon.png'
 import { PackCard, UnassignedCard } from './components/PackCard'
@@ -57,6 +64,17 @@ import { BrandLibraryView } from './components/BrandLibraryView'
 
 type ViewMode = 'packs' | 'files' | 'tickets' | 'brand' | 'tpl'
 
+/**
+ * 第 81 批：「启动时打开 = 上次那屏」要记住上次停在哪。
+ * 存 localStorage 而不是主进程的 ui-prefs.json —— 它跟着界面状态走，
+ * 切视图时同步写，走 IPC 反而多一次往返且没意义（渲染层自己读得到）。
+ */
+const LAST_VIEW_KEY = 'vellum:last-view'
+
+function isViewMode(v: unknown): v is ViewMode {
+  return v === 'packs' || v === 'files' || v === 'tickets' || v === 'brand' || v === 'tpl'
+}
+
 interface ToastMsg {
   id: number
   text: string
@@ -89,7 +107,16 @@ export default function App(): React.JSX.Element {
   const [layoutNotice, setLayoutNotice] = useState<{ at: string; packs: number } | null>(null)
   // 第 22 批：默认视图改为「工单队列」（原来落在任务视图）。工单视图只读本地库、
   // 不自动连企微同步（要手动点同步），所以开机不会被网络拖慢；连不上只给空态 + 顶部横幅。
-  const [view, setView] = useState<ViewMode>('tickets')
+  //
+  // 第 81 批：默认视图改成「听设置的」—— 设置里可以钉死某一屏，也可以选「上次那屏」。
+  // 'last' 的落点存在 localStorage（渲染层的事，不占主进程一条 IPC）；从没存过 = 工单队列，
+  // 与第 22 批的行为完全一致。
+  const [view, setView] = useState<ViewMode>(() => {
+    const boot = readBootStart()
+    if (boot !== 'last') return boot
+    const last = localStorage.getItem(LAST_VIEW_KEY)
+    return isViewMode(last) ? last : 'tickets'
+  })
   const [keyword, setKeyword] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('全部')
   const [sideWidth, setSideWidth] = useState<number>(() => {
@@ -118,6 +145,41 @@ export default function App(): React.JSX.Element {
   }
 
   const toggleTheme = (): void => changeTheme(theme === 'light' ? 'dark' : 'light')
+
+  /**
+   * 第 81 批：列表密度。初值与主题同一个路数 —— 直接读 `<html data-density>`，
+   * 首帧前 `bootAppearance()` 已经按主进程给的查询串设好了。
+   */
+  const [density, setDensity] = useState<Density>(() =>
+    document.documentElement.getAttribute('data-density') === 'compact' ? 'compact' : 'standard'
+  )
+
+  const changeDensity = (next: Density): void => {
+    if (next === density) return
+    setDensity(next)
+    applyDensity(next)
+    void window.api.uiSetDensity(next).catch(() => undefined)
+  }
+
+  /**
+   * 第 81 批：「启动时打开」。'last' = 跟随上次那屏（切视图时写 localStorage），
+   * 选具体某一屏就钉死，不再跟随。
+   */
+  const [startView, setStartView] = useState<StartView>(() => readBootStart())
+
+  const changeStartView = (next: StartView): void => {
+    setStartView(next)
+    void window.api.uiSetStartView(next).catch(() => undefined)
+  }
+
+  /** 记住"上次停在哪一屏"——只在 startView 是 'last' 时才有意义，但每次都写（改设置后立即生效） */
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_VIEW_KEY, view)
+    } catch {
+      // 隐私模式 / 存储被禁用：下次启动退回「工单队列」，不影响本次使用
+    }
+  }, [view])
 
   /** 第 74 批（docs/57）：全局设置弹窗（插件 / 企微 / 工单同步这些配置项从顶栏收口到这里） */
   const [showSettings, setShowSettings] = useState(false)
@@ -813,6 +875,26 @@ export default function App(): React.JSX.Element {
       setScanProgress(null)
     }
   }
+
+  /**
+   * 第 81 批：托盘「刷新数据」。
+   * 主进程只发一个动作字符串过来，真正的刷新走**和顶栏刷新按钮同一条路**（doRefresh）——
+   * 托盘不能有第二套刷新逻辑，否则两边迟早不一致。
+   * ref 持有最新引用：doRefresh 每次渲染都是新函数，订阅只挂一次，
+   * 用旧闭包会读到过期的 state（比如工作区已经切了还以为没切）。
+   */
+  const doRefreshRef = useRef(doRefresh)
+  // 用 effect 同步最新引用（不能直接 `ref.current = ...` —— React Compiler 把
+  // 渲染期间写 ref 判成 error：渲染函数必须纯粹，写 ref 只能发生在提交之后）
+  useEffect(() => {
+    doRefreshRef.current = doRefresh
+  })
+  useEffect(() => {
+    const off = window.api.onTrayAction((action) => {
+      if (action === 'refresh') void doRefreshRef.current()
+    })
+    return off
+  }, [])
 
   // ---------------- A-01 建包 ----------------
 
@@ -2345,6 +2427,10 @@ export default function App(): React.JSX.Element {
         <SettingsModal
           theme={theme}
           onThemeChange={changeTheme}
+          density={density}
+          onDensityChange={changeDensity}
+          startView={startView}
+          onStartViewChange={changeStartView}
           workspaceRoot={info?.workspaceRoot ?? ''}
           onOpenWorkspace={() => void window.api.openFolder(info?.workspaceRoot ?? '')}
           onChangeWorkspace={() => void doPickRoot()}

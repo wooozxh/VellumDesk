@@ -34,6 +34,19 @@ export const COPY = {
     versionTip: '软件版本号（出处：package.json 的 version）'
   },
 
+  /**
+   * 第 81 批：系统托盘（关窗不退出，缩到右下角）。
+   * 菜单项只有三条 —— 加更多条目反而要维护更多"从托盘绕过去"的旁路逻辑。
+   */
+  tray: {
+    tooltip: 'Vellum工作台（双击打开）',
+    open: '打开主界面',
+    refresh: '刷新数据',
+    quit: '退出',
+    /** 第一次点 X 缩到托盘时弹的气泡 —— 不提示的话用户会以为软件关了，转头又双击开一个 */
+    hint: '已收进右下角托盘，软件还在后台跑。右键图标可以退出。'
+  },
+
   // ==================== 通用按钮 / 状态词 ====================
   common: {
     cancel: '取消',
@@ -1511,6 +1524,8 @@ export const COPY = {
     themeLight: '浅色',
     densityTitle: '列表密度',
     densityDesc: '表格行高与卡片间距',
+    densityStandard: '标准',
+    densityCompact: '紧凑',
     startupTitle: '启动时打开',
     startupDesc: '打开软件后停在哪一屏',
     soon: '后续版本',

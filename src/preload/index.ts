@@ -246,7 +246,24 @@ const api = {
 
   // 第 70 批（docs/55）：界面主题（深 / 浅）—— 读一次用于校准，切换时写盘
   uiTheme: () => ipcRenderer.invoke('ui:theme'),
-  uiSetTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme)
+  uiSetTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
+  // 第 81 批：列表密度（standard / compact）与启动视图
+  uiDensity: () => ipcRenderer.invoke('ui:density'),
+  uiSetDensity: (density: 'standard' | 'compact') => ipcRenderer.invoke('ui:setDensity', density),
+  uiStartView: () => ipcRenderer.invoke('ui:startView'),
+  uiSetStartView: (startView: 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl') =>
+    ipcRenderer.invoke('ui:setStartView', startView),
+
+  /**
+   * 第 81 批：系统托盘的动作推送（主进程菜单点击 → 渲染层执行）。
+   * 目前只有 'refresh'：托盘不该自己实现一套刷新，统一下发给界面走 doRefresh。
+   * 返回退订函数（与 onTicketSynced 同一约定）。
+   */
+  onTrayAction: (cb: (action: 'refresh') => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, action: 'refresh'): void => cb(action)
+    ipcRenderer.on('tray:action', handler)
+    return () => ipcRenderer.off('tray:action', handler)
+  }
 }
 
 if (process.contextIsolated) {

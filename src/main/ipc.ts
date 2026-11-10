@@ -57,7 +57,7 @@ import {
   type BindVersionInput
 } from './workspace'
 // 第 70 批（docs/55）：界面外观偏好（深/浅主题），落在 userData 而非工作区库
-import { readUiPrefs, writeTheme, type Theme } from './uiPrefs'
+import { readUiPrefs, writeTheme, writeDensity, writeStartView, type Theme } from './uiPrefs'
 import {
   ensureThumbsForAssets,
   ensureImageMetaForAssets,
@@ -322,6 +322,11 @@ export function registerIpc(opts?: {
     // 第 70 批（docs/55）：主题只是界面外观，跟素材内容无关 —— 绝不能因此排一次镜像同步
     'ui:theme',
     'ui:setTheme',
+    // 第 81 批：密度 / 启动视图同理，纯外观偏好
+    'ui:density',
+    'ui:setDensity',
+    'ui:startView',
+    'ui:setStartView',
     'setup:wizardDone'
   ])
   /** 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容） */
@@ -349,6 +354,18 @@ export function registerIpc(opts?: {
   handleIpc('ui:theme', () => ({ theme: readUiPrefs(appData).theme }))
   handleIpc('ui:setTheme', (_e, theme: unknown) => ({
     theme: writeTheme(appData, theme as Theme)
+  }))
+  // 第 81 批：列表密度 / 启动视图 —— 与主题同一个文件（ui-prefs.json），各写各的键
+  handleIpc('ui:density', () => ({ density: readUiPrefs(appData).density }))
+  handleIpc('ui:setDensity', (_e, density: unknown) => ({
+    density: writeDensity(appData, density as 'standard' | 'compact')
+  }))
+  handleIpc('ui:startView', () => ({ startView: readUiPrefs(appData).startView }))
+  handleIpc('ui:setStartView', (_e, startView: unknown) => ({
+    startView: writeStartView(
+      appData,
+      startView as 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl'
+    )
   }))
 
   // ---------- 工作区 ----------
