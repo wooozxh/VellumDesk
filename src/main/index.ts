@@ -1,10 +1,11 @@
 import { COPY, fmt } from '../shared/copy'
-import { app, shell, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, dialog, Tray, Menu, nativeImage, Notification } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc, runTicketSyncFromTray } from './ipc'
+import { newTasksNotice } from './ticketNotice'
 import { startLinkService, stopLinkService, flushMirrorNow, hasPendingMirror } from './linkService'
 import { destroyTplCardRenderer } from './tplCardImage'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
@@ -73,11 +74,49 @@ function logCrash(kind: string, detail: string): void {
 }
 
 /**
+ * 应用图标（托盘 16px、通知 64px）：原图只读一次盘，之后按尺寸缩。
+ * 读不到就返回空图 —— 调用方各自有兜底（托盘不建，通知不带图标照发）。
+ */
+let appIconCache: Electron.NativeImage | null = null
+function appIcon(size: number): Electron.NativeImage {
+  if (!appIconCache) appIconCache = nativeImage.createFromPath(icon)
+  return appIconCache.resize({ width: size, height: size })
+}
+
+/**
+ * 系统通知的**唯一出口**（第 82 批）。
+ *
+ * 踩过的坑：原来三处都直接用 `tray.displayBalloon`，在 Win11 上**一个都不会显示**。
+ * 真机抓帧验过 —— 同一条文案，displayBalloon 连续 8 帧零变化；换成
+ * `new Notification` 立刻弹出（标题正文都对）。Win10 之后 balloon 已经是遗留接口，
+ * 系统在多数配置下直接丢掉。所以主用 toast，balloon 只作兜底。
+ *
+ * 点击通知 → 把窗口叫到前台（通知的价值就是"点一下到位"）。
+ */
+function showNotice(title: string, body: string): void {
+  if (Notification.isSupported()) {
+    try {
+      const n = new Notification({ title, body, icon: appIcon(64) })
+      n.on('click', () => showMainWindow())
+      n.show()
+      return
+    } catch {
+      // 落到 balloon（老系统 / 通知中心不可用）
+    }
+  }
+  try {
+    tray?.displayBalloon({ title, content: body })
+  } catch {
+    // 两套都不行就只能算了：界面里还有列表，不能因为通知失败影响同步
+  }
+}
+
+/**
  * 托盘「同步工单」（第 81 批）。
  *
  * 走的是和定时器同一条 runner（`runTicketSyncFromTray`）：跑同步 → 记账 → 广播，
- * 工单视图收到广播自己刷列表。托盘这边只负责把结果用气泡说出来 ——
- * 用户可能正看着别的窗口，没有气泡就等于"点了没反应"。
+ * 工单视图收到广播自己刷列表。托盘这边只负责把结果说出来 ——
+ * 用户可能正看着别的窗口，没有反馈就等于"点了没反应"。
  */
 async function doTraySync(): Promise<void> {
   tray?.setToolTip(COPY.tray.syncRunning)
@@ -88,15 +127,36 @@ async function doTraySync(): Promise<void> {
       : r.ok
         ? fmt(COPY.tray.syncDone, { n: r.tasksCreated })
         : fmt(COPY.tray.syncFail, { msg: r.error ?? '未知错误' })
-    tray?.displayBalloon({ title: COPY.app.name, content: text })
+    showNotice(COPY.app.name, text)
   } catch (e) {
-    tray?.displayBalloon({
-      title: COPY.app.name,
-      content: fmt(COPY.tray.syncFail, { msg: (e as Error).message })
-    })
+    showNotice(COPY.app.name, fmt(COPY.tray.syncFail, { msg: (e as Error).message }))
   } finally {
     tray?.setToolTip(COPY.tray.tooltip)
   }
+}
+
+/**
+ * 第 82 批：自动同步拉到**新派给本机**的单 → 托盘气泡。
+ *
+ * 什么时候弹：
+ *  · 只有自动同步这条路会调进来（手动同步界面自己有 toast，托盘同步有自己的结果气泡）
+ *  · 只在这一轮真的建出了任务时（`tasksCreated > 0`，上游是 applySync 的 newTasks）
+ *  · 窗口已经在前台时不弹 —— 用户正看着列表，再提醒一次是打扰
+ *
+ * 剩下的情况（用户切到别的窗口、收进托盘、锁屏回来）都该弹：那时候没有提示，
+ * 用户只能靠自己想起来点开软件看，派单就真的会漏。
+ */
+function notifyNewTickets(tasks: Array<{ ticket_no: string; name: string }>): void {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) {
+    console.log('[notify] 窗口在前台，新工单只刷列表不弹气泡')
+    return
+  }
+  // 文案（说几个、说哪些名字）在 ticketNotice.ts 里，那里能跑断言
+  const notice = newTasksNotice(tasks)
+  if (!notice) return
+  showNotice(notice.title, notice.content)
+  // 通知一闪就没了，事后想确认「到底提没提醒」只能靠这行日志
+  console.log(`[notify] 新工单 ${tasks.length} 个：${tasks.map((t) => t.name).join('、')}`)
 }
 
 function showMainWindow(): void {
@@ -112,13 +172,12 @@ function showMainWindow(): void {
 /** 托盘只建一次；图标拿不到就**不建**（保持"关窗即退出"的老行为，绝不出现关不掉的窗口） */
 function createTray(): void {
   if (tray) return
-  let image = nativeImage.createFromPath(icon)
+  // Windows 托盘按 16×16 显示，直接塞 512 会被系统缩得发糊
+  const image = appIcon(16)
   if (image.isEmpty()) {
     console.warn('[tray] 托盘图标读不到，跳过托盘（关窗仍是退出）')
     return
   }
-  // Windows 托盘按 16×16 显示，直接塞 512 会被系统缩得发糊
-  image = image.resize({ width: 16, height: 16 })
   try {
     tray = new Tray(image)
   } catch (e) {
@@ -161,6 +220,8 @@ function createTray(): void {
     if (mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized()) mainWindow.hide()
     else showMainWindow()
   })
+  // 第 82 批：点气泡 = 把窗口叫出来。通知的意义就是「点一下就到」，否则还得自己找图标
+  tray.on('balloon-click', () => showMainWindow())
 }
 
 function createWindow(): void {
@@ -209,14 +270,10 @@ function createWindow(): void {
     e.preventDefault()
     win.hide()
     // 第一次收起时给一句提示（只提示一次，之后用户就知道了）。
-    // 系统通知被关了也不影响 —— displayBalloon 抛错/静默都只是少一句话。
+    // 第 82 批：走 showNotice（toast），displayBalloon 在 Win11 上是不显示的。
     if (!trayHintShown) {
       trayHintShown = true
-      try {
-        tray.displayBalloon({ title: COPY.app.name, content: COPY.tray.hint })
-      } catch {
-        // 忽略：通知渠道不可用不该影响收起
-      }
+      showNotice(COPY.app.name, COPY.tray.hint)
     }
   })
   win.on('closed', () => {
@@ -369,7 +426,7 @@ app.whenReady().then(() => {
   })
 
   // 第 54 批（docs/40）：把"启动时有没有现成的库"传下去 —— 首次配置引导的触发判据
-  registerIpc({ firstRunThisSession })
+  registerIpc({ firstRunThisSession, onNewTasks: notifyNewTickets })
 
   createWindow()
   // 第 81 批：托盘必须在窗口建好之后 —— close 拦截依赖 `tray` 是否存在

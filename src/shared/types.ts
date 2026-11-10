@@ -648,6 +648,8 @@ export interface TicketSyncResult {
   dupWarned: number
   /** 第 17 批：本轮同步新入库的未指派单数（提示条 + toast） */
   newUnassigned: number
+  /** 第 82 批：本轮为本机新建的任务（托盘通知用；界面 toast 暂不读） */
+  newTasks?: Array<{ ticket_no: string; name: string }>
   warnings: string[]
 }
 

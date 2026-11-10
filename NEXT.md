@@ -313,6 +313,8 @@ M6 还剩的其他小项：
 | 出包配置只在 package.json 生效 | **别建 electron-builder.yml**（会被完全忽略，见 DECISIONS 2026-09-25） |
 | 截图壳工作区 | `_shotapp/v4` 四个场景全部指向 `D:/_accept_ws/shot*`，**绝不与用户真实工作区 `D:/素材工作区` 共用** |
 | 沙箱跑 GUI | 本机 shell 里 `ELECTRON_RUN_AS_NODE=1` 是**常设**的（WorkBuddy 的 node shim）。必须 **`env -u ELECTRON_RUN_AS_NODE`** 彻底删掉 —— `VAR=` 置空**无效**（Chromium 用 `getenv` 判非 null，空串也算存在），症状是 `TypeError: Cannot read properties of undefined (reading 'isPackaged')`，因为 Electron 以纯 Node 模式在跑、`electron.app` 根本不存在。Electron 还需 `--no-sandbox` + `app.disableHardwareAcceleration()` |
+| **`tray.displayBalloon` 在 Win11 上不显示** | 2026-11-10 真机抓帧实测：同一条文案，`displayBalloon` 连续 8 帧零变化（系统根本不画），换 `new Notification().show()` 立刻弹出。**通知一律走 `new Notification`**（`src/main/index.ts` 的 `showNotice`），balloon 只留作兜底 |
+| 通知/托盘这种"看不见的链路"怎么验 | ① 假 CLI：`resources/wecom-cli/wecom-cli.exe` **临时改名**（不然 bundled 优先于 `WECOM_CLI_JS`），再用 `WECOM_CLI_JS` + `WECOM_CLI_NODE` 指向假脚本；数据用真实表导出的快照 + 追加一条假单 ② 工作区配置指到临时目录（先备份 `userData/workspace.json`）③ `ShowWindow(hwnd, 6)` 最小化（窗口在前台时新工单不弹通知，这是设计）④ 每秒截一帧，对比 md5 找"有东西那几秒"。**验完三样都要还原**：exe 名字、workspace.json、临时工作区 |
 | typecheck / 验收 / 截图壳命令 | `npm run typecheck` → 重打 bundle → `node out/test/accept.cjs` → `node _shotapp/run-verify4.cjs banner\|version\|wslist\|threelevel\|lifecycle` |
 | 探测别人的库别用 readonly 连接 | WAL 模式只读打开需要能创建 `-shm`，否则「刚复制过来、还没生成 -shm」的库直接打不开被误判成坏的（第 5 批踩过） |
 | **单元断言测不出 IPC 层副作用** | 第 7 批实测：accept 直接调 `unbindProject` 全过，但真窗口里每个 IPC 前都跑 `initWorkspace → syncProjectFolders`，把已解绑项目的空壳文件夹建了回来、堵死还原。**凡是动了 initWorkspace / 扫描 / 全局查询的改动，必须配一条界面场景断言** |

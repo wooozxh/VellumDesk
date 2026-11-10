@@ -3252,3 +3252,66 @@ Radix（focus-visible 环 / 命中区）、GOV.UK（危险动作隔离 + 文案�
 **一个验证副作用要提**：上一节验证「启动时打开」时把 ui-prefs 设成 `startView:files` 跑过一次，
 那一次应用把 `localStorage['vellum:last-view']` 写成了 `files`；ui-prefs 已还原，但 localStorage 没清，
 所以现在「上次那一屏」会落在文件视图。用户在设置里选一次具体视图（或「上次」+ 手动切回工单）即可。
+
+---
+
+## 第 82 批（2026-11-10）：新工单托盘通知 + 通知通道换成 toast
+
+**需求原话**："当软件刷新到新的属于本机工单时能否在托盘区域弹出通知，通知我？"
+
+### 一、判定「新的属于本机的工单」
+
+不用另写判定：`applySync` 第 ④ 步本来就只在「本机 ∈ 设计师集合」时建任务，
+所以「本轮为本机新建的任务」就是答案。给 `SyncResult` 加 `newTasks`（单号 + 任务名），
+建任务时顺手 push —— 数量必须与 `tasksCreated` 一致（accept 有断言盯着）。
+
+一路带到通知那层：
+
+```
+applySync.newTasks
+  → ipc.ts doTicketSync 返回（TicketSyncOutcome）
+  → 调度器 run() 原样带上（TicketSchedulerJobResult.newTasks?）
+  → afterTicketSync(r, notifyNewTasks=true)
+  → registerIpc 的 onNewTasks 回调（index.ts 注入）
+  → showNotice()
+```
+
+**只有自动同步这条路通知**：手动同步界面自己有 toast；托盘「同步工单」有自己的结果气泡
+（里面已经写了「新建 N 个任务」），再弹一条是重复。
+
+**窗口在前台时不弹**：用户正看着列表，再提醒一次是打扰。剩下的情况（切到别的窗口、
+收进托盘、锁屏回来）都该弹 —— 那时候不提醒，派单就真会漏。
+
+### 二、通知通道换了：`displayBalloon` 在 Win11 根本不显示
+
+这是本批最重要的发现。写完功能后做端到端验证，发现 `tray.displayBalloon` 调了、
+日志也打了，**屏幕上什么都没有**。于是做了个最小探针（同一个 tray，先 balloon 后 toast），
+每秒截一帧对比 md5：
+
+- `displayBalloon`：连续 8 帧零变化 → 系统没画
+- `new Notification().show()`：立刻出现，标题正文图标全对
+
+Win10 之后 balloon 已是遗留接口，多数配置下被直接丢弃。原来三处用它
+（新工单、托盘同步结果、首次收起提示）**等于一直没生效**，一并改成 `showNotice()`
+（toast 优先、balloon 兜底、点击把窗口叫到前台）。
+
+### 三、验证（这次是真端到端）
+
+造一条"新派给本机"的单去触发，而不改生产表：把内置 CLI 临时改名，用
+`WECOM_CLI_JS`+`WECOM_CLI_NODE` 指向假脚本（数据 = 真实表快照 + 追加一条假单），
+工作区配置临时指到拷贝库，然后启动 → 最小化 → 每秒截帧。
+
+结果：
+
+- 库里出现 `202611109999`，任务建出来了（pack_id 33）
+- 日志 `[notify] 新工单 1 个：托盘通知测试海报`
+- 截帧抓到 toast：**收到 1 个新工单 / 托盘通知测试海报**，图标是 Vellum 自己的
+
+验完已还原：内置 exe 名字、`userData/workspace.json`、临时工作区（全删）。
+
+**验收**：typecheck 0 错 / build 三端过 / accept **1470 项**（+10：newTasks 与建任务数一致、
+带得出单号、任务名不为空；通知文案：空数组不弹、1 个说名字、3 个说"等 3 个"、名字空回落单号）
+/ tickets·settings 场景全绿、控制台零报错。
+
+**一处待真机确认**：dev 下 toast 的抬头显示的是 AUMID（`com.vellumdesk` 或 electron 路径），
+打包成安装版后由开始菜单快捷方式提供显示名，应是「Vellum工作台」。

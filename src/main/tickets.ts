@@ -83,6 +83,14 @@ export interface SyncResult {
   dupWarned: number
   /** 第 17 批（docs/19 §3）：本轮同步新入库且未指派、非历史非待确认的单数（提示条用） */
   newUnassigned: number
+  /**
+   * 第 82 批：本轮**为本机**新建的任务（单号 + 任务名）。
+   *
+   * 只放得下名字，不放整条记录 —— 这个值唯一的去处是托盘气泡/日志，
+   * 把 raw 一起带出去纯属给自己找麻烦。数量和 `tasksCreated` 应当一致，
+   * 不一致就是「建了任务但没记进来」，accept 有断言盯着。
+   */
+  newTasks: Array<{ ticket_no: string; name: string }>
   warnings: string[]
 }
 
@@ -624,6 +632,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
     needConfirm: 0,
     dupWarned: 0,
     newUnassigned: 0,
+    newTasks: [],
     warnings: []
   }
 
@@ -874,6 +883,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
       })
       setPack.run(pack.id, row.ticket_no)
       res.tasksCreated++
+      // 第 82 批：记下名字，托盘气泡要拿它说"哪个单来了"
+      res.newTasks.push({ ticket_no: row.ticket_no, name: packName })
     } catch (e) {
       res.warnings.push(
         fmt(COPY.ticket.warnCreateFailed, { no: row.ticket_no, msg: (e as Error).message })

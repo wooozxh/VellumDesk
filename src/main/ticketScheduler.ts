@@ -43,6 +43,13 @@ export interface TicketSchedulerJobResult {
   ran: boolean
   ok: boolean
   error?: string
+  /**
+   * 第 82 批：本轮**为本机**新建的任务（单号 + 任务名）。
+   *
+   * 调度器自己不关心它，只是原样交给 `onDone` —— 通知在那一层做，
+   * 这样"什么时候提醒"和"怎么跑同步"仍然是分开的，调度器不用认识托盘。
+   */
+  newTasks?: Array<{ ticket_no: string; name: string }>
 }
 
 export interface TicketSchedulerOptions {

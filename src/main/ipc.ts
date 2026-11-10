@@ -279,6 +279,14 @@ export function registerIpc(opts?: {
    * 这里再探就已经晚了。不传时（界面验证壳）就地探一次。
    */
   firstRunThisSession?: boolean
+  /**
+   * 第 82 批：自动同步为本机建出新任务时的通知出口。
+   *
+   * 放在这里而不是直接在 ipc 里调 Electron：托盘归 index.ts 管，ipc 不该反过来
+   * 揣着托盘对象（界面验证壳里根本没有托盘，一调就是空指针）。
+   * 不传 = 不通知（accept / 验证壳都走这条）。
+   */
+  onNewTasks?: (tasks: Array<{ ticket_no: string; name: string }>) => void
 }): void {
   const appData = app.getPath('userData')
 
@@ -1258,6 +1266,7 @@ export function registerIpc(opts?: {
       needConfirm: 0,
       dupWarned: 0,
       newUnassigned: 0,
+      newTasks: [] as Array<{ ticket_no: string; name: string }>,
       warnings: [] as string[]
     }
     if (!cfg.docid || !cfg.identity)
@@ -1358,7 +1367,7 @@ export function registerIpc(opts?: {
    * 原来它内联在 `onDone` 里，托盘要复用只能重建整个 options 对象再取 onDone，
    * 两处各写一遍迟早口径跑偏（比如一边忘了广播，界面就不刷新）。
    */
-  const afterTicketSync = (r: TicketSchedulerJobResult): void => {
+  const afterTicketSync = (r: TicketSchedulerJobResult, notifyNewTasks = false): void => {
     const at = new Date().toISOString()
     try {
       writeLastSync(at, r.ok, r.error ?? null)
@@ -1370,6 +1379,15 @@ export function registerIpc(opts?: {
     for (const w of BrowserWindow.getAllWindows()) {
       if (!w.webContents.isDestroyed()) {
         w.webContents.send('ticket:synced', { ok: r.ok, at, error: r.error ?? null })
+      }
+    }
+    // 第 82 批：只认「这一轮真建出了任务」—— 拉了一圈没新单就一声不响。
+    // 托盘自己触发的那一轮不通知（它已经用「同步完成 · 新建 N 个任务」说过一遍了）。
+    if (notifyNewTasks && r.ok && r.newTasks && r.newTasks.length > 0) {
+      try {
+        opts?.onNewTasks?.(r.newTasks)
+      } catch {
+        // 通知挂了不能连累同步
       }
     }
   }
@@ -1392,9 +1410,12 @@ export function registerIpc(opts?: {
     },
     run: async (): Promise<TicketSchedulerJobResult> => {
       const r = await doTicketSync()
-      return { ran: r.ran, ok: r.ok, error: r.error }
+      // 第 82 批：newTasks 要一路带到 onDone，否则通知那层只知道"建了几个"、
+      // 说不出"是哪个单"（托盘气泡里就只剩一个数字）
+      return { ran: r.ran, ok: r.ok, error: r.error, newTasks: r.newTasks }
     },
-    onDone: afterTicketSync
+    // 自动同步这条路才通知：用户多半在看别的东西，不提醒就错过了
+    onDone: (r) => afterTicketSync(r, true)
   })
 
   /**
@@ -1405,7 +1426,8 @@ export function registerIpc(opts?: {
   traySyncRunner = async (): Promise<TraySyncResult> => {
     const r = await doTicketSync()
     // 没跑（工单没配置好）就不记账、不广播 —— 与调度器同一口径
-    if (r.ran) afterTicketSync({ ran: r.ran, ok: r.ok, error: r.error })
+    // 不传 notifyNewTasks：托盘这一轮的结果气泡里已经带了「新建 N 个任务」
+    if (r.ran) afterTicketSync({ ran: r.ran, ok: r.ok, error: r.error, newTasks: r.newTasks })
     return { ran: r.ran, ok: r.ok, tasksCreated: r.tasksCreated, error: r.error }
   }
 

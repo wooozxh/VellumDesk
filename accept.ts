@@ -268,6 +268,8 @@ import {
   type ReportRow
 } from './src/main/report'
 import type { ReportField } from './src/main/reportWecom'
+// 第 82 批：托盘「新工单」通知的文案（纯函数，不会被 electron 拖下水）
+import { newTasksNotice } from './src/main/ticketNotice'
 // 第 21 批：wecom-cli 定位顺序与状态解析（纯逻辑，不碰真企微、不 spawn 任何进程）
 import { isCompletePng, parseAuthStatus, parseCliVersion, resolveCliCommand } from './src/main/wecomCli'
 import {
@@ -3801,6 +3803,20 @@ async function main(): Promise<void> {
     ok(packOf('F0025') === null, '【边界】名字出现在意见里但前面没 @ → 不建任务')
     ok(packOf('F0026') !== null, '【核心】多段审批流程，@ 落在第 3 段也认得（takeAllText 拼全了）')
     ok(atSync.tasksCreated === 3, `@ 兜底本轮只建 3 个任务（实际 ${atSync.tasksCreated}）`)
+    // 第 82 批：托盘通知靠 newTasks 说「哪个单来了」，数量和建任务数必须一致
+    ok(
+      atSync.newTasks.length === atSync.tasksCreated,
+      `newTasks 与建任务数一致（${atSync.newTasks.length} / ${atSync.tasksCreated}）`
+    )
+    ok(
+      atSync.newTasks.some((t) => t.ticket_no === 'F0020') &&
+        atSync.newTasks.some((t) => t.ticket_no === 'F0023'),
+      'newTasks 带得出具体单号（通知里要能说出是哪个单）'
+    )
+    ok(
+      atSync.newTasks.every((t) => t.name.trim().length > 0),
+      'newTasks 每条都有任务名（气泡正文不能是空白）'
+    )
 
     closeDb()
     hardRm(fRoot)
@@ -4526,6 +4542,24 @@ async function main(): Promise<void> {
     startTicketScheduler({ readConfig: () => ({ enabled: false, intervalMin: 30 }), run: fakeJob })
     ok(schedulerState().scheduled === false, '改成关后重排 → 已有定时器被停掉（不是叠加一个）')
     stopTicketScheduler()
+    // 第 82 批：自动同步拉到新派给本机的单 → 托盘通知的文案（纯函数，不碰 electron）
+    ok(newTasksNotice([]) === null, '没建新任务 → 不弹通知（返回 null）')
+    ok(newTasksNotice(undefined) === null, '这一轮没带 newTasks → 不弹通知')
+    const n1 = newTasksNotice([{ ticket_no: 'T001', name: '海报-改' }])
+    ok(n1 !== null && n1.title.includes('1') && n1.content === '海报-改', '一个单 → 标题带数量、正文就是任务名')
+    const n3 = newTasksNotice([
+      { ticket_no: 'T001', name: '封面A' },
+      { ticket_no: 'T002', name: '封面B' },
+      { ticket_no: 'T003', name: '封面C' }
+    ])
+    ok(n3 !== null && n3.title.includes('3'), '三个单 → 标题带数量 3')
+    ok(
+      n3 !== null && n3.content.includes('封面A') && n3.content.includes('等 3 个'),
+      '三个单 → 正文说前两个名字 + 「等 3 个」'
+    )
+    ok(n3 !== null && !n3.content.includes('封面C'), '第三个名字不再列（正文太长会被系统截断）')
+    const nNoName = newTasksNotice([{ ticket_no: 'T009', name: '  ' }])
+    ok(nNoName !== null && nNoName.content === 'T009', '任务名为空 → 回落单号（不弹空正文的气泡）')
     ok(schedulerState().scheduled === false, 'stop 之后彻底不排表（退出 / 测试收尾用）')
     // 复位成默认，别影响后面的断言
     setAutoSyncEnabled(true)
