@@ -3766,7 +3766,11 @@ async function main(): Promise<void> {
             { userId: 'uOTHER', userName: '别人' }
           ]),
           // ④ 姓名后面直接粘正文（真表实测 `@张子涵工单已指派`）→ 仍是派单
-          flowRec('F0023', '已同意 | 审核人 @本机测试员工单已指派 已同意 11/09 09:10;')
+          flowRec('F0023', '已同意 | 审核人 @本机测试员工单已指派 已同意 11/09 09:10;'),
+          // ⑤ 只有姓名、没有 @（抄送/办理节点都长这样）→ 不算派单
+          flowRec('F0024', '已抄送 | 本机测试员 已抄送 11/09 09:20;'),
+          // ⑥ 名字在意见里出现、但前面没 @ → 也不算派单
+          flowRec('F0025', '已同意 | 审核人 让本机测试员 出个竖版 已同意 11/09 09:30;')
         ])
       ],
       structureChanged: false,
@@ -3783,6 +3787,8 @@ async function main(): Promise<void> {
     ok(packOf('F0021') === null, '@ 的是别人 → 不建任务')
     ok(packOf('F0022') === null, '设计师列已有别人 + @本机 → 不抢单（转交不是派单）')
     ok(packOf('F0023') !== null, '@姓名后直接粘正文（`@本机测试员工单已指派`）→ 仍认作派单')
+    ok(packOf('F0024') === null, '【边界】只有姓名没有 @（抄送节点）→ 不建任务')
+    ok(packOf('F0025') === null, '【边界】名字出现在意见里但前面没 @ → 不建任务')
     ok(atSync.tasksCreated === 2, `@ 兜底本轮只建 2 个任务（实际 ${atSync.tasksCreated}）`)
 
     closeDb()
