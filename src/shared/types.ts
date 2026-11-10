@@ -1242,9 +1242,10 @@ export interface Api {
 
   /**
    * 第 81 批：系统托盘动作推送（主进程菜单 → 渲染层）。返回退订函数。
-   * 关窗语义在 `src/main/index.ts`：点 X 收进托盘，真正退出走托盘菜单。
+   * 关窗语义在 `src/main/index.ts`：点 X 收进托盘，真正退出走托盘菜单；
+   * 「同步工单」不经这里（主进程直接跑，结果靠 `ticket:synced` 广播回界面）。
    */
-  onTrayAction: (cb: (action: 'refresh') => void) => () => void
+  onTrayAction: (cb: (action: 'refresh' | 'settings') => void) => () => void
 
   /**
    * 第 81 批：打开使用手册（单文件 HTML）。

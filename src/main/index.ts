@@ -1,10 +1,10 @@
-import { COPY } from '../shared/copy'
+import { COPY, fmt } from '../shared/copy'
 import { app, shell, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, appendFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerIpc } from './ipc'
+import { registerIpc, runTicketSyncFromTray } from './ipc'
 import { startLinkService, stopLinkService, flushMirrorNow, hasPendingMirror } from './linkService'
 import { destroyTplCardRenderer } from './tplCardImage'
 import { getWorkspaceRoot, initWorkspace } from './workspace'
@@ -72,6 +72,33 @@ function logCrash(kind: string, detail: string): void {
   }
 }
 
+/**
+ * 托盘「同步工单」（第 81 批）。
+ *
+ * 走的是和定时器同一条 runner（`runTicketSyncFromTray`）：跑同步 → 记账 → 广播，
+ * 工单视图收到广播自己刷列表。托盘这边只负责把结果用气泡说出来 ——
+ * 用户可能正看着别的窗口，没有气泡就等于"点了没反应"。
+ */
+async function doTraySync(): Promise<void> {
+  tray?.setToolTip(COPY.tray.syncRunning)
+  try {
+    const r = await runTicketSyncFromTray()
+    const text = !r.ran
+      ? COPY.tray.syncNotReady
+      : r.ok
+        ? fmt(COPY.tray.syncDone, { n: r.tasksCreated })
+        : fmt(COPY.tray.syncFail, { msg: r.error ?? '未知错误' })
+    tray?.displayBalloon({ title: COPY.app.name, content: text })
+  } catch (e) {
+    tray?.displayBalloon({
+      title: COPY.app.name,
+      content: fmt(COPY.tray.syncFail, { msg: (e as Error).message })
+    })
+  } finally {
+    tray?.setToolTip(COPY.tray.tooltip)
+  }
+}
+
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow()
@@ -107,6 +134,17 @@ function createTray(): void {
       {
         label: COPY.tray.refresh,
         click: () => mainWindow?.webContents.send('tray:action', 'refresh')
+      },
+      // 第 81 批：同步工单（走主进程那条 runner，不依赖界面在哪个视图）
+      { label: COPY.tray.sync, click: () => void doTraySync() },
+      { type: 'separator' },
+      // 第 81 批：直接把设置弹窗打开（先把窗口唤出来，再让渲染层开弹窗）
+      {
+        label: COPY.tray.settings,
+        click: () => {
+          showMainWindow()
+          mainWindow?.webContents.send('tray:action', 'settings')
+        }
       },
       { type: 'separator' },
       {

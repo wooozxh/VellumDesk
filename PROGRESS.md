@@ -3226,3 +3226,29 @@ Radix（focus-visible 环 / 命中区）、GOV.UK（危险动作隔离 + 文案�
 
 **验收**：typecheck 0 错 / build 过 / accept 1460 项全过 / settings 场景新增 2 条
 （「关于页有打开手册按钮」「不再显示 docs/manual」）全绿。
+
+#### 七、托盘菜单补两项（用户要求）
+
+用户要求托盘右键加「同步工单」和「设置」。
+
+**菜单最终形态**：打开主界面 / --- / 刷新数据 · 同步工单 / --- / 设置 / --- / 退出。
+
+**同步工单怎么接**（这里改过一次设计）：
+
+- 第 81 批最初**不做**这一项，理由是同步闭环在 `TicketsView` 内部（toast + 刷列表 + 上次同步时间）。
+- 用户要了，于是把闭环里的公共部分抽出来复用，而不是另写一套：
+  - 新增 `afterTicketSync(r)`：记账（`writeLastSync`）+ 广播 `ticket:synced`。
+    原来这段内联在 `ticketSchedulerOptions().onDone` 里，托盘要复用只能重建整个 options 对象再取 `onDone` —— 两处各写一遍迟早口径跑偏。
+  - 新增模块级 `traySyncRunner` + 导出 `runTicketSyncFromTray()`，在 `registerIpc` 里挂上 `doTicketSync`。
+  - 托盘点一下 → 跑同步 → 记一笔 → 广播 → `TicketsView` 已订阅 `ticket:synced`，自己刷列表和「上次同步」。**界面零改动**。
+- 结果反馈走 `displayBalloon` 气泡（用户可能正看着别的窗口，没气泡就等于"点了没反应"）：
+  完成（带新建任务数）/ 还没配置 / 失败原因。
+
+**设置**：托盘先把窗口唤到前台（`showMainWindow()`），再 `send('tray:action','settings')`；
+渲染层收到 `setShowSettings(true)`。`onTrayAction` 的动作类型从 `'refresh'` 扩成 `'refresh' | 'settings'`。
+
+**验收**：typecheck 0 错 / build 三端过 / accept 1460 项全过 / 真机启动无 tray 警告、窗口正常渲染。
+
+**一个验证副作用要提**：上一节验证「启动时打开」时把 ui-prefs 设成 `startView:files` 跑过一次，
+那一次应用把 `localStorage['vellum:last-view']` 写成了 `files`；ui-prefs 已还原，但 localStorage 没清，
+所以现在「上次那一屏」会落在文件视图。用户在设置里选一次具体视图（或「上次」+ 手动切回工单）即可。

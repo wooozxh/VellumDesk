@@ -247,6 +247,31 @@ type TicketSyncOutcome = SyncResult & {
  * 约定：一律 ipcMain.handle + contextBridge（方案 6.1），不用 ipcRenderer.send。
  */
 
+/**
+ * 第 81 批：托盘「同步工单」的入口。
+ *
+ * 为什么不在主进程另写一套同步：跑一轮同步不只是"拉表"——还要记账（上次同步时间）
+ * 并广播 `ticket:synced`，工单视图收到才会刷列表。这套逻辑已经完整长在
+ * `ticketSchedulerOptions()` 里，托盘只要把自己的调用接到同一个 runner 上，
+ * 界面那边零改动就能跟着更新。
+ *
+ * `registerIpc` 没跑（比如界面验证壳）时 runner 为空 —— 返回「还没就绪」而不是抛错。
+ */
+export interface TraySyncResult {
+  /** false = 这一轮其实没跑（工单没配置好），不写「上次同步」 */
+  ran: boolean
+  ok: boolean
+  tasksCreated: number
+  error?: string
+}
+
+let traySyncRunner: (() => Promise<TraySyncResult>) | null = null
+
+export async function runTicketSyncFromTray(): Promise<TraySyncResult> {
+  if (!traySyncRunner) return { ran: false, ok: false, tasksCreated: 0, error: '尚未就绪' }
+  return traySyncRunner()
+}
+
 export function registerIpc(opts?: {
   /**
    * 第 54 批（docs/40 §4.1）：本次启动时工作区里**没有现成的库**（要在启动过程中现场新建）。
@@ -1327,6 +1352,29 @@ export function registerIpc(opts?: {
   })
 
   /**
+   * 同步跑完的收尾：记账（上次同步时间/结果）+ 广播给所有窗口。
+   *
+   * 第 81 批抽出来 —— 定时器和托盘「同步工单」都要走这一段。
+   * 原来它内联在 `onDone` 里，托盘要复用只能重建整个 options 对象再取 onDone，
+   * 两处各写一遍迟早口径跑偏（比如一边忘了广播，界面就不刷新）。
+   */
+  const afterTicketSync = (r: TicketSchedulerJobResult): void => {
+    const at = new Date().toISOString()
+    try {
+      writeLastSync(at, r.ok, r.error ?? null)
+    } catch {
+      // 记不上账不影响这一轮同步本身
+    }
+    // 推给所有窗口：工单视图收到就刷列表 + 更新「上次同步 HH:MM」。
+    // 定时器不是由某次 IPC 触发的（没有 e.sender 可用），所以用广播。
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.webContents.isDestroyed()) {
+        w.webContents.send('ticket:synced', { ok: r.ok, at, error: r.error ?? null })
+      }
+    }
+  }
+
+  /**
    * 调度器的注入项（启动 / 改设置都用这一份，避免两处各写一遍跑偏）。
    * 三层职责在这里会合：读配置（meta）→ 跑同步（doTicketSync）→ 记账 + 推送界面。
    */
@@ -1346,22 +1394,20 @@ export function registerIpc(opts?: {
       const r = await doTicketSync()
       return { ran: r.ran, ok: r.ok, error: r.error }
     },
-    onDone: (r) => {
-      const at = new Date().toISOString()
-      try {
-        writeLastSync(at, r.ok, r.error ?? null)
-      } catch {
-        // 记不上账不影响这一轮同步本身
-      }
-      // 推给所有窗口：工单视图收到就刷列表 + 更新「上次同步 HH:MM」。
-      // 定时器不是由某次 IPC 触发的（没有 e.sender 可用），所以用广播。
-      for (const w of BrowserWindow.getAllWindows()) {
-        if (!w.webContents.isDestroyed()) {
-          w.webContents.send('ticket:synced', { ok: r.ok, at, error: r.error ?? null })
-        }
-      }
-    }
+    onDone: afterTicketSync
   })
+
+  /**
+   * 第 81 批：把托盘的「同步工单」接到同一条 runner 上。
+   * 跑同步 → 记账 → 广播 `ticket:synced`，与定时器那条路完全一致（只是触发源不同），
+   * 工单视图收到广播会自己刷列表和「上次同步」，托盘这边不用管界面。
+   */
+  traySyncRunner = async (): Promise<TraySyncResult> => {
+    const r = await doTicketSync()
+    // 没跑（工单没配置好）就不记账、不广播 —— 与调度器同一口径
+    if (r.ran) afterTicketSync({ ran: r.ran, ok: r.ok, error: r.error })
+    return { ran: r.ran, ok: r.ok, tasksCreated: r.tasksCreated, error: r.error }
+  }
 
   // 第 26 批（docs/31）：起自动同步调度器（默认开、30 分钟、启动后 15 秒首拉；关着就只注册不排表）
   startTicketScheduler(ticketSchedulerOptions())

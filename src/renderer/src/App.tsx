@@ -892,6 +892,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const off = window.api.onTrayAction((action) => {
       if (action === 'refresh') void doRefreshRef.current()
+      // 第 81 批：托盘点「设置」—— 主进程已把窗口唤到前台，这里只管开弹窗
+      else if (action === 'settings') setShowSettings(true)
     })
     return off
   }, [])

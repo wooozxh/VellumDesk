@@ -256,11 +256,11 @@ const api = {
 
   /**
    * 第 81 批：系统托盘的动作推送（主进程菜单点击 → 渲染层执行）。
-   * 目前只有 'refresh'：托盘不该自己实现一套刷新，统一下发给界面走 doRefresh。
+   * 目前两个：'refresh'（刷新数据，走界面同一条 doRefresh）、'settings'（打开设置弹窗）。
    * 返回退订函数（与 onTicketSynced 同一约定）。
    */
-  onTrayAction: (cb: (action: 'refresh') => void): (() => void) => {
-    const handler = (_e: IpcRendererEvent, action: 'refresh'): void => cb(action)
+  onTrayAction: (cb: (action: 'refresh' | 'settings') => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, action: 'refresh' | 'settings'): void => cb(action)
     ipcRenderer.on('tray:action', handler)
     return () => ipcRenderer.off('tray:action', handler)
   },
