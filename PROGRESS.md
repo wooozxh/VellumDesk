@@ -3124,3 +3124,72 @@ Radix（focus-visible 环 / 命中区）、GOV.UK（危险动作隔离 + 文案�
 （202611040019 / 202611040020），这俩填的是**机器人账号**，而且审批流程里也没 @ 任何人。
 所以这次兜底只对**将来**「提交时没填设计师、审核时 @ 派单」的单生效。
 机器人脏数据建议直接在表格里改成真人姓名（2 条，手工改比写容错逻辑划算）。
+
+### 第 81 批：列表密度 / 启动时打开 / 托盘驻留（2026-11-10）
+
+**用户点名**：先做「设置里两个写着"后续版本"的占位」和「系统托盘驻留」，发版的事下周一再说。
+
+#### 一、列表密度（设置 → 通用）
+
+原来两个 `COPY.set.soon` 占位之一。实现分三层：
+
+1. **token 化**：表格行高复用 `--h-row` / `--h-row-head`，另提两个新 token
+   —— `--pad-row-y`（行内上下内边距，原写死 6px）、`--gap-card`（卡片网格间距，原 `var(--sp-3)`）。
+   `.tk-row` 的 padding 和 `.grid` 的 gap 都改读变量，不再写死。
+2. **覆盖块**：`:root[data-density='compact'] { --h-row:30px; --h-row-head:28px; --pad-row-y:4px; --gap-card:var(--sp-2) }`。
+   标准档不写属性，走 `:root` 缺省 —— 与主题同一个路数，CSS 只有一份覆盖块。
+3. **首帧**：主进程经 query 串带 `density=`，`bootAppearance()` 在 `render()` 之前打到 `<html data-density>`，
+   否则用户能看到界面先按标准密度铺开、再跳成紧凑。
+
+只压纵向（行高/表头/内边距/卡片间距），**字号和列宽一律不动** —— 密度调的是"一屏能看几行"，不是"字变小"。
+
+#### 二、启动时打开（设置 → 通用）
+
+`ui-prefs.json` 原来只有 `theme` 一个键，这版扩成三个（theme / density / startView）。三个要点：
+
+- `readUiPrefs` 每个键**单独校验**：坏一个不影响其它；老版本只写了 `theme` 的文件照样能读，缺的走缺省。
+- 写盘从"整个文件覆盖"改成 `patchPref()` **先读回来再合并** —— 三个键共用一个文件，各写各的不许互相抹掉。
+- `startView` 的取值为 `last | tickets | packs | files | brand | tpl`。选 `last` 时由渲染层读
+  `localStorage['vellum:last-view']`（切视图时同步写）；从没存过 = 工单队列，与第 22 批行为完全一致。
+
+#### 三、系统托盘驻留
+
+**语义（按用户需求定的）**：点 X 只是收进托盘，**不退出软件**；真正退出走托盘右键菜单的「退出」。
+
+- `Tray` 在 `whenReady` 里、`createWindow()` 之后建；菜单三项：打开主界面 / 刷新数据 / 退出。
+- **安全阀 `quitting`**：`close` 事件里 `if (quitting || !tray) return`，其余情况 `preventDefault()` + `hide()`。
+  任何走 `app.quit()` 的路径（托盘菜单、系统关机）都必须先置 `quitting = true`，否则会被 `close` 拦回来
+  —— 那就是"点退出没反应"的经典死结。`before-quit` 里统一置 true（含 flushMirror 之后重新 quit 的那条路）。
+- **托盘没建成功就不拦**（`!tray` 直接放行）：宁可退回"关窗即退出"，也不给用户一个关不掉的窗口。
+- 第一次收起弹一次气泡（`displayBalloon`）：「已收进右下角托盘，软件还在后台跑」。不提示的话用户以为关了，
+  转头又双击开一个。气泡抛错/被系统关掉都只当少一句话，不影响收起。
+- `will-quit` 里 `tray.destroy()` —— 不销毁会在通知区留一个点不动的幽灵图标。
+
+**为什么不做「同步工单」菜单项**（NEXT 旧清单里有这条）：同步的完整闭环在 `TicketsView` 内部
+（toast、列表刷新、上次同步状态一起更新），从托盘触发要么另写一套旁路（迟早和界面对不上），
+要么把逻辑整个上提到 App；而自动同步本来就默认开着、10 分钟一轮。权衡后托盘只留「刷新数据」，
+它走的是和顶栏刷新按钮**同一条** `doRefresh`（用 ref 持有最新引用，订阅只挂一次）。
+
+**真机验证**（场景壳跑的是替身主进程，验不到托盘）：
+`env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS ./node_modules/electron/dist/electron.exe .`
+起真实主进程 → 用 `Get-Process .CloseMainWindow()` 模拟点 X →
+窗口消失（`still_visible_windows=0`）而进程仍在（3 个 electron 进程活着）＝ 收起生效、没被 `window-all-closed` 带退。
+
+#### 四、验收
+
+- `typecheck` 0 错；`npm run build` 三端过
+- `accept.cjs` **1460 项全过**（原 1448 + 新增 12 项）：三键共存互不覆盖、老文件缺键走缺省、
+  非法值回落（不抛错）、两个键同时非法各回各的缺省；另补一条**多段审批流程** @ 在第 3 段也认（`takeAllText` 覆盖）
+- **真机首屏验证**（改 `userData/ui-prefs.json` 为 `{density:compact, startView:files}`）→ 启动截图：
+  顶栏高亮在「文件视图」、文件列表行高明显变密 —— query 串 → `bootAppearance()` → App 初值这条链路通。
+  验完已把偏好文件还原成用户原来的样子（只有 `theme:dark`）。
+- 界面场景：`settings`（新增 9 条：两档按钮 / 6 个启动选项 / 默认 last / 无"后续版本"占位 /
+  点紧凑 → `data-density=compact` 且行高 34→30 / 切回标准复原）、`tickets`、`lifecycle`、`theme` 全绿，控制台零报错
+
+#### 五、踩的坑（记进环境坑速查）
+
+**本机 shell 里 `ELECTRON_RUN_AS_NODE=1` 是设着的**（WorkBuddy 的 node shim 干的）。直接
+`npm start` / `electron.exe .` 会崩在 `@electron-toolkit/utils`：
+`TypeError: Cannot read properties of undefined (reading 'isPackaged')` —— 因为 Electron 以纯 Node 模式在跑，
+`electron.app` 根本不存在。
+**`VAR=` 置空没用**（Chromium 用 `getenv` 判非 null，空串也算存在），必须 `env -u VAR` 彻底删掉。

@@ -275,7 +275,7 @@ Electron + React + TypeScript + SQLite 的本地素材管理桌面软件）。
 
 - **三项已讨论过的新需求（2026-10-08 出过 mock 与成本评估，尚未拍板）**：
   ① **物料分级**（新标签维度 S/A/B/C，可增删改，绑定任务 + 筛选面板同步）—— 与「使用场景」同构的第三次复用，约 1 个会话，建议先做；
-  ② **系统托盘驻留**（关窗缩托盘 + 右键「刷新任务 / 同步工单 / 退出」）—— 复用第 26 批 `doTicketSync()`，约 1 个会话；需拍板关闭语义；
+  ~~② **系统托盘驻留**~~ —— **第 81 批已完成（2026-11-10）**：关窗收托盘、菜单「打开主界面 / 刷新数据 / 退出」、首次收起弹气泡。**不做「同步工单」菜单项**（闭环在 TicketsView 里，另写一套旁路迟早对不上；自动同步本来就 10 分钟一轮）。
   ③ **建任务时文件入库**（建任务面板加「添加文件」→ 清单 → 逐文件归组 + 改名）—— 约 2 个会话，最重；需拍板复制而非移动。
 
 - **1.3.0 / 1.4.0 装机反馈收尾**：同事装完报的问题（无签名会撞 SmartScreen 蓝条 → 「更多信息 → 仍要运行」；本轮拍板**不做代码签名**，证书路线存 `docs/17` §B）
@@ -312,7 +312,7 @@ M6 还剩的其他小项：
 | ⛔ **打包跑起来别中途 kill** | electron-builder 的下载锁落在 `%TEMP%\eb-dl-*.lock.lock`，进程被 kill **不会释放**；`proper-lockfile` 的 stale 阈值（10 分钟）没到，后续打包会**先白等 8 分钟**再报 `Lock file is already being held`。正解：确认没有 electron-builder 进程存活后，删掉 `%TEMP%\eb-*` 再重跑 |
 | 出包配置只在 package.json 生效 | **别建 electron-builder.yml**（会被完全忽略，见 DECISIONS 2026-09-25） |
 | 截图壳工作区 | `_shotapp/v4` 四个场景全部指向 `D:/_accept_ws/shot*`，**绝不与用户真实工作区 `D:/素材工作区` 共用** |
-| 沙箱跑 GUI | 必须 unset `ELECTRON_RUN_AS_NODE`；Electron 需 `--no-sandbox` + `app.disableHardwareAcceleration()` |
+| 沙箱跑 GUI | 本机 shell 里 `ELECTRON_RUN_AS_NODE=1` 是**常设**的（WorkBuddy 的 node shim）。必须 **`env -u ELECTRON_RUN_AS_NODE`** 彻底删掉 —— `VAR=` 置空**无效**（Chromium 用 `getenv` 判非 null，空串也算存在），症状是 `TypeError: Cannot read properties of undefined (reading 'isPackaged')`，因为 Electron 以纯 Node 模式在跑、`electron.app` 根本不存在。Electron 还需 `--no-sandbox` + `app.disableHardwareAcceleration()` |
 | typecheck / 验收 / 截图壳命令 | `npm run typecheck` → 重打 bundle → `node out/test/accept.cjs` → `node _shotapp/run-verify4.cjs banner\|version\|wslist\|threelevel\|lifecycle` |
 | 探测别人的库别用 readonly 连接 | WAL 模式只读打开需要能创建 `-shm`，否则「刚复制过来、还没生成 -shm」的库直接打不开被误判成坏的（第 5 批踩过） |
 | **单元断言测不出 IPC 层副作用** | 第 7 批实测：accept 直接调 `unbindProject` 全过，但真窗口里每个 IPC 前都跑 `initWorkspace → syncProjectFolders`，把已解绑项目的空壳文件夹建了回来、堵死还原。**凡是动了 initWorkspace / 扫描 / 全局查询的改动，必须配一条界面场景断言** |
