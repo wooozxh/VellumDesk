@@ -294,7 +294,13 @@ const COL = {
   matCat: '物料类别',
   useScene: '物料使用场景',
   // 第 19 批（docs/22 §4）：工单队列的「缩略图」image 列（设计师完成任务时写回，导出报表复用）
-  thumb: '缩略图'
+  thumb: '缩略图',
+  /**
+   * 第 80 批：「审批流程」文本列 —— 企微审批同步过来的一整段流水
+   * （形如 `已同意 | 郭鑫 @张子涵 已同意 11/09 08:56;`，多段）。
+   * 只读，**不参与入库**：仅用于「设计师列空着时，认审批意见里的 @ 本机为派单」的兜底判定。
+   */
+  flow: '审批流程'
 } as const
 
 /** 企微智能表格的单元格值 → 纯文本（值是 [{text:…}] 数组；日期可能是毫秒数） */
@@ -312,6 +318,63 @@ function takeText(v: unknown): string | null {
   }
   if (typeof v === 'string') return v === '' ? null : v
   return null
+}
+
+/**
+ * 多段富文本单元格 → 全量拼接的纯文本（第 80 批）。
+ *
+ * `takeText` 只取第一段 —— 对「审批流程」这种一格 N 段（一个节点一段）的列会丢内容：
+ * 实测一张单 6 段（提交/办理/同意/抄送×3），只取第一段就只剩「已同意」那一行，
+ * 后面的 @ 全看不见。这里逐段拼起来，保留段内原有的 `;\n` 分隔。
+ */
+function takeAllText(v: unknown): string {
+  if (Array.isArray(v)) {
+    return v
+      .map((seg) => {
+        if (seg && typeof seg === 'object') {
+          const o = seg as Record<string, unknown>
+          return typeof o.text === 'string' ? o.text : ''
+        }
+        return typeof seg === 'string' ? seg : ''
+      })
+      .join('')
+  }
+  return typeof v === 'string' ? v : ''
+}
+
+/**
+ * 审批流程文本里是否 @ 了「某个人」（第 80 批：@ 即派单的兜底判定）。
+ *
+ * 为什么用 `includes('@' + name)` 而不是通用正则：
+ * 这列是纯文本，**姓名和正文之间没有任何分隔符**，实测能出现
+ * `@张子涵工单已指派`、`@张子涵精英培优 logo 排布…` —— 通用正则会切出
+ * `张子涵工单已指派` 这种鬼名字。认「本机姓名是不是紧跟在 @ 后面」，
+ * 恰好绕开了边界问题：名字是前缀就命中，后面接什么正文都无所谓。
+ *
+ * 唯一的误判是「本机姓名是别人姓名的前缀」（本机叫张三、别人叫张三丰）。
+ * 设计部目前 4 个人（张子涵/赵欣宇/孟心茹/郭鑫），无前缀关系；真碰上重名，
+ * @ 这条兜底本来也不该背这个责任 —— 主路径走 userId 是对的。
+ */
+export function flowMentionsName(flowText: string, name: string): boolean {
+  const n = (name || '').trim()
+  if (!flowText || !n) return false
+  return flowText.includes('@' + n)
+}
+
+/**
+ * 从入库的 raw_json 里补取「审批流程」文本（第 80 批）。
+ * 「待确认放行」那条路手里没有现成 payload，只有 tickets.raw_json，只能回解。
+ * 解析失败一律当空 —— @ 兜底是加分项，不该因为一条坏 JSON 把同步搞挂。
+ */
+function flowTextOfRaw(raw: string | null): string {
+  if (!raw) return ''
+  try {
+    const values = JSON.parse(raw) as Record<string, unknown> | null
+    if (!values) return ''
+    return takeAllText(values[COL.flow])
+  } catch {
+    return ''
+  }
 }
 
 /** 超链接单元格 → 真实网址。只收 http/https 开头的值：
@@ -445,6 +508,11 @@ function extractRow(rec: TicketRawRecord): {
   ticket_no: string
   /** 第 18 批（docs/20 §5）：设计师列全量（多选成员列）；单值列降级为 designers[0] 冗余 */
   designers: Array<{ userid: string; name: string | null }>
+  /**
+   * 第 80 批：「审批流程」整段文本（未入库，只喂给建任务判定）。
+   * 设计师列空着时，用它判断审批意见里是否 @ 了本机。
+   */
+  flowText: string
   fields: Record<string, string | number | null>
 } {
   const v = rec.values ?? {}
@@ -458,6 +526,7 @@ function extractRow(rec: TicketRawRecord): {
   return {
     ticket_no: takeText(v[COL.no]) ?? '',
     designers,
+    flowText: takeAllText(v[COL.flow]),
     fields: {
       title: takeText(v[COL.title]),
       approval_state: takeText(v[COL.state]),
@@ -565,6 +634,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
     ticket_type: TicketType
     /** 第 18 批：设计师列全量（多值） */
     designers: Array<{ userid: string; name: string | null }>
+    /** 第 80 批：审批流程整段文本（@ 派单兜底判定用，不入库） */
+    flowText: string
     fields: Record<string, string | number | null>
     raw: string
   }
@@ -572,7 +643,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
   const emptyNoIds: string[] = []
   for (const p of input.payloads) {
     for (const rec of p.records) {
-      const { ticket_no, fields, designers } = extractRow(rec)
+      const { ticket_no, fields, designers, flowText } = extractRow(rec)
       if (!ticket_no) {
         emptyNoIds.push(rec.record_id)
         continue
@@ -584,6 +655,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
         sheet_title: p.title,
         ticket_type: p.type,
         designers,
+        flowText,
         fields,
         raw: JSON.stringify(rec.values ?? {})
       })
@@ -730,7 +802,16 @@ export function applySync(input: ApplySyncInput): SyncResult {
     // 没建任务的单：先过门槛（§2.2② 建任务条件链改「本机 ∈ 设计师集合」）
     if (t.is_history) continue
     if (t.need_confirm) continue
-    if (!designersOf(row.ticket_no).some((d) => d.userid === input.identity.userid)) continue
+    // ---- 派单判定（第 80 批加了 @ 兜底）----
+    // 主路径：本机 userid ∈ 设计师成员列（结构化 userId，重名不怕）
+    // 兜底：设计师列**整列空着**（提交时没选人），且审批意见里 @ 了本机姓名
+    // 兜底只在「整列空」时生效 —— 设计师列已经填了别人、审核人又 @ 本机（转交/叮嘱），
+    // 那不是派单，不能抢单。@ 的边界歧义见 flowMentionsName 注释。
+    const rowDesigners = designersOf(row.ticket_no)
+    const mineById = rowDesigners.some((d) => d.userid === input.identity.userid)
+    const mineByAt =
+      !mineById && rowDesigners.length === 0 && flowMentionsName(row.flowText, input.identity.name)
+    if (!mineById && !mineByAt) continue
     if (!t.approval_state || !TASK_STATES.includes(t.approval_state)) continue
 
     // 子表重建 → 本轮新单降级为「待确认」，不自动建任务（§2.2 ④）
@@ -775,7 +856,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
           : ''
       // 第 18 批（docs/20 §6 路 A）：多设计师（≥2 人）时任务名 = 物料名称-本机姓名；
       // 单设计师时 = 物料名称（向后兼容，不悄悄改既有命名）
-      const designers = designersOf(row.ticket_no)
+      const designers = rowDesigners
       const baseName = (row.fields.title as string) ?? row.ticket_no
       const packName =
         designers.length >= 2 ? `${baseName}-${input.identity.name || input.identity.userid}` : baseName
@@ -863,7 +944,9 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
 } {
   const db = getDb()
   const pendings = db
-    .prepare('SELECT ticket_no, approval_state, project_name, title, material_category, use_scene FROM tickets WHERE need_confirm = 1')
+    .prepare(
+      'SELECT ticket_no, approval_state, project_name, title, material_category, use_scene, raw_json FROM tickets WHERE need_confirm = 1'
+    )
     .all() as Array<{
     ticket_no: string
     approval_state: string | null
@@ -871,6 +954,7 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
     title: string | null
     material_category: string | null
     use_scene: string | null
+    raw_json: string | null
   }>
   let confirmed = 0
   let tasksCreated = 0
@@ -882,7 +966,11 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
     clearPending.run(t.ticket_no)
     confirmed++
     const designers = designersOf(t.ticket_no)
-    if (!designers.some((d) => d.userid === identity.userid)) continue
+    const mineById = designers.some((d) => d.userid === identity.userid)
+    // 与 applySync 同一口径：设计师列整列空 → 认审批意见里的 @ 本机（第 80 批）
+    const mineByAt =
+      !mineById && designers.length === 0 && flowMentionsName(flowTextOfRaw(t.raw_json), identity.name)
+    if (!mineById && !mineByAt) continue
     if (!t.approval_state || !TASK_STATES.includes(t.approval_state)) continue
     if (!t.project_name) {
       warnings.push(fmt(COPY.ticket.warnProjectMismatch, { no: t.ticket_no, project: '(空)' }))

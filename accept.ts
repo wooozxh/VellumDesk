@@ -3748,6 +3748,43 @@ async function main(): Promise<void> {
       '【核心】自动建任务把工单的「物料类别」和「物料使用场景」都带上了'
     )
 
+    // ---- (9) 第 80 批：审批意见里 @ 本机 → 建任务（「设计师」列空着时的兜底）----
+    // 真实场景：申请单提交时没选设计师，审核人在「同意」的意见里 @ 设计师，
+    // 这行会落进「审批流程」文本列（`已同意 | 审核人 @张子涵 已同意 11/09 08:56;`）。
+    // 设计师列整列空 → 认这条 @ 为派单；列里已有别人 → 那是转交/叮嘱，不抢单。
+    const flowRec = (no: string, flow: string, designers: unknown = []): TicketRawRecord =>
+      fRec(no, { 设计师: designers, 审批流程: [{ text: flow }] })
+    const atSync = applySync({
+      payloads: [
+        fPayload([
+          // ① 设计师列空 + 意见里 @ 本机 → 建
+          flowRec('F0020', '已同意 | 审核人 @本机测试员 已同意 11/09 09:00;'),
+          // ② 设计师列空 + 意见里 @ 的是别人 → 不建
+          flowRec('F0021', '已同意 | 审核人 @张子涵 已同意 11/09 09:00;'),
+          // ③ 设计师列已填别人 + 意见里 @ 本机（转交/叮嘱）→ 不抢单
+          flowRec('F0022', '已同意 | 审核人 @本机测试员 已同意 11/09 09:00;', [
+            { userId: 'uOTHER', userName: '别人' }
+          ]),
+          // ④ 姓名后面直接粘正文（真表实测 `@张子涵工单已指派`）→ 仍是派单
+          flowRec('F0023', '已同意 | 审核人 @本机测试员工单已指派 已同意 11/09 09:10;')
+        ])
+      ],
+      structureChanged: false,
+      identity: fIdentity,
+      workspaceRoot: fWs
+    })
+    const packOf = (no: string): number | null =>
+      (
+        getDb().prepare('SELECT pack_id FROM tickets WHERE ticket_no = ?').get(no) as {
+          pack_id: number | null
+        }
+      ).pack_id
+    ok(packOf('F0020') !== null, '【核心】设计师列空 + 审批意见 @本机 → 本机建任务')
+    ok(packOf('F0021') === null, '@ 的是别人 → 不建任务')
+    ok(packOf('F0022') === null, '设计师列已有别人 + @本机 → 不抢单（转交不是派单）')
+    ok(packOf('F0023') !== null, '@姓名后直接粘正文（`@本机测试员工单已指派`）→ 仍认作派单')
+    ok(atSync.tasksCreated === 2, `@ 兜底本轮只建 2 个任务（实际 ${atSync.tasksCreated}）`)
+
     closeDb()
     hardRm(fRoot)
   }
