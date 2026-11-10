@@ -327,6 +327,8 @@ export function registerIpc(opts?: {
     'ui:setDensity',
     'ui:startView',
     'ui:setStartView',
+    // 第 81 批：打开手册只是演示/查阅，跟素材内容无关
+    'manual:open',
     'setup:wizardDone'
   ])
   /** 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容） */
@@ -367,6 +369,25 @@ export function registerIpc(opts?: {
       startView as 'last' | 'tickets' | 'packs' | 'files' | 'brand' | 'tpl'
     )
   }))
+
+  /**
+   * 第 81 批：打开使用手册。
+   *
+   * 设置「关于」页原来写「手册随安装包提供（docs/manual）」—— **这句话是假的**：
+   * `build.extraResources` 里只有 ffmpeg 和 wecom-cli，`files` 还把 `docs/**` 排除了，
+   * 安装包里根本没有手册。用户点开只能看到一个开发者路径。现在真打进去并给了按钮。
+   *
+   * 用 `shell.openPath`（本地文件）而不是 `openExternal`（那个要 http/https 或 file://，
+   * 拿绝对路径去调在 Windows 上会兜底打开资源管理器）。
+   */
+  handleIpc('manual:open', async () => {
+    const target = app.isPackaged
+      ? join(process.resourcesPath, 'manual.html')
+      : join(app.getAppPath(), 'docs', 'manual', 'Vellum工作台-使用手册（单文件）.html')
+    if (!existsSync(target)) return { ok: false, error: COPY.set.manualMissing }
+    const err = await shell.openPath(target)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
 
   // ---------- 工作区 ----------
   /**

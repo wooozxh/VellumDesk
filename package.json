@@ -97,6 +97,10 @@
       {
         "from": "resources/wecom-cli",
         "to": "wecom-cli"
+      },
+      {
+        "from": "docs/manual/Vellum工作台-使用手册（单文件）.html",
+        "to": "manual.html"
       }
     ],
     "asarUnpack": [

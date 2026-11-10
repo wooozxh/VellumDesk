@@ -1728,6 +1728,21 @@ app.whenReady().then(async () => {
     ok(/插件/.test(pluginRow.txt), `插件页内容正常：「${pluginRow.txt.slice(0, 40)}…」`)
     await shot('shot-b74-2-settings-plugin.png')
 
+    // 第 81 批：「关于」页的手册入口 —— 原来写「手册随安装包提供（docs/manual）」，
+    // 但安装包 extraResources 里根本没有手册，右侧还重复了一遍开发者路径。现在换成真按钮。
+    await js(`(() => { const b=[...document.querySelectorAll('.set-nav button')].find(x=>x.innerText.includes('关于')); if(b) b.click(); return 'ok' })()`)
+    await wait(250)
+    const aboutInfo = await js(`(() => {
+      const m = document.querySelector('.set-modal')
+      if (!m) return { body: '', hasBtn: false, hasDevPath: false }
+      const body = m.querySelector('.set-body').innerText.replace(/\\s+/g, ' ')
+      const btn = [...m.querySelectorAll('.set-body .btn')].find(b => b.innerText.includes('打开手册'))
+      return { body, hasBtn: !!btn, hasDevPath: /docs\\/manual/.test(body) }
+    })()`)
+    ok(aboutInfo.hasBtn, '关于页有「打开手册」按钮')
+    ok(!aboutInfo.hasDevPath, '关于页不再显示 docs/manual 这种开发者路径')
+    await shot('shot-b81-2-settings-about.png')
+
     // 关掉，测左栏折叠
     await js(`(() => { const b=document.querySelector('.set-modal h3 .close'); if(b) b.click(); return 'ok' })()`)
     await wait(300)

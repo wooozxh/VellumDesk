@@ -1245,6 +1245,12 @@ export interface Api {
    * 关窗语义在 `src/main/index.ts`：点 X 收进托盘，真正退出走托盘菜单。
    */
   onTrayAction: (cb: (action: 'refresh') => void) => () => void
+
+  /**
+   * 第 81 批：打开使用手册（单文件 HTML）。
+   * 手册经 `build.extraResources` 打包到 `resources/manual.html`，开发态读 `docs/manual/` 下那份。
+   */
+  openManual: () => Promise<{ ok: boolean; error?: string }>
 }
 
 /** 第 62 批（docs/45）：PS 插件联动状态 */

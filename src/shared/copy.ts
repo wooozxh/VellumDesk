@@ -1545,7 +1545,10 @@ export const COPY = {
     aboutVersion: '版本',
     aboutVersionDesc: '报问题时带上这个号',
     aboutManual: '使用手册',
-    aboutManualDesc: '手册随安装包提供（docs/manual），也可在发布页下载单文件版',
+    /** 第 81 批修正：原来写「手册随安装包提供（docs/manual）」，但安装包从来没打进去过 —— 改成实话 */
+    aboutManualDesc: '上手步骤、快捷键、常见问题',
+    manualOpen: '打开手册',
+    manualMissing: '安装包里没找到手册文件，请重新安装',
     autoApply: '设置改了立即生效，不需要保存'
   }
 } as const

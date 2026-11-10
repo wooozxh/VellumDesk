@@ -263,7 +263,10 @@ const api = {
     const handler = (_e: IpcRendererEvent, action: 'refresh'): void => cb(action)
     ipcRenderer.on('tray:action', handler)
     return () => ipcRenderer.off('tray:action', handler)
-  }
+  },
+
+  /** 第 81 批：打开随安装包提供的中文使用手册（单文件 HTML，系统默认浏览器） */
+  openManual: () => ipcRenderer.invoke('manual:open')
 }
 
 if (process.contextIsolated) {

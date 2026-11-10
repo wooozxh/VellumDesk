@@ -3193,3 +3193,36 @@ Radix（focus-visible 环 / 命中区）、GOV.UK（危险动作隔离 + 文案�
 `TypeError: Cannot read properties of undefined (reading 'isPackaged')` —— 因为 Electron 以纯 Node 模式在跑，
 `electron.app` 根本不存在。
 **`VAR=` 置空没用**（Chromium 用 `getenv` 判非 null，空串也算存在），必须 `env -u VAR` 彻底删掉。
+
+#### 六、补：关于页手册入口 + 崩溃日志（用户反馈）
+
+**用户发截图报「这里排版有问题」**：设置 → 关于 → 使用手册那一行，左边说明挤成三行、
+右边孤零零挂着一个 `docs/manual`。
+
+**根因不是排版，是文案在骗人**：`aboutManualDesc` 写着「手册随安装包提供（docs/manual）」，
+但 `build.extraResources` 里只有 ffmpeg 和 wecom-cli，`files` 还把 `docs/**` 排除了
+—— **安装包里根本没有手册**，右侧那句是开发者路径。
+
+**修法（把功能补上，而不是把字改短）**：
+
+1. `build.extraResources` 加一条：`docs/manual/Vellum工作台-使用手册（单文件）.html` → `resources/manual.html`
+   （固定英文名，避免中文名和版本号进打包路径）
+2. 新 IPC `manual:open`：打包态读 `process.resourcesPath/manual.html`，开发态读 `docs/manual/` 下那份；
+   用 `shell.openPath`（本地文件），**不是** `openExternal`（那个拿绝对路径在 Windows 上会兜底打开资源管理器）
+3. 关于页右侧换成「打开手册」按钮；说明文字改实话「上手步骤、快捷键、常见问题」
+4. `manual:open` 加进 `NO_MIRROR_CHANNELS` —— 看手册不该触发一次镜像同步
+
+**顺带补的崩溃日志**（用户同时报「点模板闪退」，本机同一路径复现不出来）：
+
+- 主进程 `uncaughtException` 原来只 `showErrorBox` + `app.exit(1)`，用户点掉弹框现场全无 ——
+  现在先 `logCrash()` 追加写 `userData/crash.log` 再弹框
+- 渲染进程**原来没有任何监听**：页面进程挂掉就是白屏，而主进程还在后台活着（有托盘后更难判断），
+  用户只能描述成"闪退"。现在 `render-process-gone` 记日志并自动 reload，连崩 3 次停手
+
+**复现结论**：本机 dev（同分支、同工作区 `E:\vellum_workspace`、同一份代码）点「模板」→
+正常切到模板库空状态，6 个 electron 进程全在、日志零新增错误。所以用户那次更可能是
+**dev 热更新留下的旧状态**（这一批在 `App.tsx` 里加了 3 个 hook，Fast Refresh 遇到 hook 数量变化
+会保留旧组件状态，React 抛错白屏）。建议重启 dev；再犯就看 `crash.log`。
+
+**验收**：typecheck 0 错 / build 过 / accept 1460 项全过 / settings 场景新增 2 条
+（「关于页有打开手册按钮」「不再显示 docs/manual」）全绿。

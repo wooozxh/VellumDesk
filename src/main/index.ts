@@ -1,7 +1,7 @@
 import { COPY } from '../shared/copy'
 import { app, shell, BrowserWindow, dialog, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, appendFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
@@ -49,6 +49,28 @@ let tray: Tray | null = null
 let quitting = false
 /** 气泡提示只弹一次（每进程一次，不落盘 —— 重启后再关一次也值得提醒） */
 let trayHintShown = false
+/** 渲染进程连续崩溃次数（自动重载要有上限，否则就是无限白屏闪） */
+let renderCrashCount = 0
+
+/**
+ * 崩溃落盘（第 81 批）。
+ *
+ * 之前 `uncaughtException` 只做 `showErrorBox` + `app.exit(1)` —— 用户点掉弹框，
+ * 现场什么都不剩。2026-11-10 用户报「点模板闪退」，本机同样路径复现不出来，
+ * 因为没有日志就真的无从查起。现在主进程异常 / 渲染进程崩溃都追加写到
+ * `userData/crash.log`，下次出问题直接拿这个文件说话。
+ */
+function logCrash(kind: string, detail: string): void {
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'crash.log'),
+      `\n[${new Date().toISOString()}] ${kind}\n${detail}\n`,
+      'utf-8'
+    )
+  } catch {
+    // 盘只读等极端情况：落盘失败不能影响后续处理（该弹框还是要弹）
+  }
+}
 
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -163,6 +185,24 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null
   })
 
+  /**
+   * 第 81 批：渲染进程崩溃（页面白屏）的处置。
+   *
+   * 之前**没有任何监听** —— 页面进程挂了窗口就停在白屏，用户只能描述成「闪退」，
+   * 而主进程还在后台活着（有托盘后更难判断）。这里记日志并自动重载；
+   * 连崩 3 次就停手 —— 真有代码 bug 时无限重载只会刷屏，不如把白屏留给用户看。
+   */
+  win.webContents.on('render-process-gone', (_e, details) => {
+    logCrash(
+      'render-process-gone',
+      `reason=${details.reason} exitCode=${details.exitCode}`
+    )
+    if (details.reason === 'clean-exit') return
+    if (renderCrashCount >= 3) return
+    renderCrashCount++
+    if (!win.isDestroyed()) win.webContents.reload()
+  })
+
   // 窗口标题的唯一来源是字典（COPY.app.name）：页面 <title> 会在加载后覆盖窗口标题，
   // 一旦 index.html 里那个标题漂了（脚手架默认值是「Electron」），任务栏上就是另一个名字。
   // 这里把覆盖拦下来，改名字只改字典一处。
@@ -208,10 +248,12 @@ app.commandLine.appendSwitch('in-process-gpu')
 
 // 主进程兜底：任何未捕获异常至少弹个框，别再「静默退出让用户猜」
 process.on('uncaughtException', (err) => {
+  const detail = String(err && err.stack ? err.stack : err)
+  logCrash('main-uncaughtException', detail)
   try {
     dialog.showErrorBox(
       `${COPY.app.name} 启动/运行异常`,
-      `软件遇到未处理的错误，请截图反馈：\n\n${String(err && err.stack ? err.stack : err)}`
+      `软件遇到未处理的错误，请截图反馈：\n\n${detail}`
     )
   } catch {
     // showErrorBox 也不可用时只能放弃，保住退出码

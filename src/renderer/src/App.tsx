@@ -2442,6 +2442,14 @@ export default function App(): React.JSX.Element {
             setShowSettings(false)
             setShowPlugin(true)
           }}
+          onOpenManual={() => {
+            void window.api
+              .openManual()
+              .then((r) => {
+                if (!r.ok) toast(r.error || '打开手册失败', 'err')
+              })
+              .catch(() => toast('打开手册失败', 'err'))
+          }}
           version={info?.appVersion ?? '—'}
           onClose={() => setShowSettings(false)}
         />

@@ -31,6 +31,8 @@ export interface SettingsModalProps {
   onChangeWorkspace: () => void
   onOpenWecom: () => void
   onOpenPlugin: () => void
+  /** 第 81 批：打开随安装包提供的中文使用手册 */
+  onOpenManual: () => void
   version: string
   onClose: () => void
 }
@@ -59,6 +61,7 @@ export function SettingsModal({
   onChangeWorkspace,
   onOpenWecom,
   onOpenPlugin,
+  onOpenManual,
   version,
   onClose
 }: SettingsModalProps): React.JSX.Element {
@@ -233,7 +236,9 @@ export function SettingsModal({
                     <div className="d">{COPY.set.aboutManualDesc}</div>
                   </div>
                   <div className="ctl">
-                    <span className="set-soon">docs/manual</span>
+                    <button className="btn" onClick={onOpenManual}>
+                      {COPY.set.manualOpen}
+                    </button>
                   </div>
                 </div>
               </>
