@@ -91,6 +91,8 @@ export interface SyncResult {
    * 不一致就是「建了任务但没记进来」，accept 有断言盯着。
    */
   newTasks: Array<{ ticket_no: string; name: string }>
+  /** 第 84 批：本轮按审批意见 @ 本机**自动认领**了几张单（写回表格走 pending 补写） */
+  designerClaimed: number
   warnings: string[]
 }
 
@@ -106,6 +108,11 @@ export const META_KEYS = {
   designerCol: 'ticket_designer_col',
   /** 第 17 批：允许在本机指派设计师（'1'/'0'，默认关 —— 派单的人自己在工单设置里开） */
   allowAssign: 'ticket_allow_assign',
+  /**
+   * 第 84 批：审批意见里 @ 本机时**自动认领**（把本机写进设计师列并写回表格）。
+   * '0' = 关；未设 = 开（这是「@ 派单」的后半截：不认领的话，任务建了但表格还写着未指派）。
+   */
+  claimByFlow: 'ticket_claim_by_flow',
   /** 第 17 批：设计师列可用性（'0' = 同步时检测到列缺失/不是成员类型；未设 = 视为可用） */
   designerOk: 'ticket_designer_ok',
   /**
@@ -134,6 +141,21 @@ export function designerColName(): string {
 /** 本机是否允许指派设计师（docs/19 §10 #3：开关即门槛，不做身份校验） */
 export function allowAssignEnabled(): boolean {
   return getMeta(META_KEYS.allowAssign) === '1'
+}
+
+/**
+ * 第 84 批：审批意见 @ 本机时要不要自动认领（默认**开**）。
+ *
+ * 和「允许在本机指派设计师」是两个开关：那个是组长/管理员改**别人**的分单权，
+ * 这个是「审核人在意见里 @ 我，我自己把名字登进设计师列」—— 被 @ 的人本来没有指派权限，
+ * 所以要单独给一个开关，默认开着，不想要的人可以关。
+ */
+export function claimByFlowEnabled(): boolean {
+  return getMeta(META_KEYS.claimByFlow) !== '0'
+}
+
+export function setClaimByFlowEnabled(v: boolean): void {
+  setMeta(META_KEYS.claimByFlow, v ? '1' : '0')
 }
 
 // ---- 第 26 批（docs/31）：自动同步配置与「上次同步」状态 ----
@@ -602,6 +624,44 @@ function replaceTicketDesigners(
   })()
 }
 
+/**
+ * 第 84 批：把「审批意见里 @ 的本机」写进这张单的设计师列。
+ *
+ * 这是「@ 派单」的后半截：第 80 批只做到「本机建任务」，表格里仍然是空的，
+ * 于是任务建了、工单那行却还写着「未指派」，未指派口径也跟着虚高。
+ *
+ * 做法完全复用「手动指派」那条路：**本地先落**（设计师子表 + 冗余列 + pending=1），
+ * 真正的表格写入交给同步后的 `retryPendingDesignerWrites` —— 写失败就留在 pending，
+ * 下一轮同步自动重试，和组长手动指派一个待遇，不另起一套。
+ *
+ * 三个前提，缺一不认领（照旧只建任务）：
+ *  · 开关开着（默认开，设置里可关）
+ *  · 设计师列可用（列缺失/不是成员类型，写回去必失败）
+ *  · 这张单有 record_id（没有就无从写）
+ */
+function claimDesignerByFlow(ticket_no: string, identity: TicketIdentity): boolean {
+  if (!claimByFlowEnabled() || !designerColUsable()) return false
+  const row = getDb()
+    .prepare('SELECT record_id, sheet_id FROM tickets WHERE ticket_no = ?')
+    .get(ticket_no) as { record_id: string | null; sheet_id: string } | undefined
+  if (!row || !row.record_id || !row.sheet_id) return false
+  const now = new Date().toISOString()
+  const db = getDb()
+  db.transaction(() => {
+    replaceTicketDesigners(ticket_no, [{ userid: identity.userid, name: identity.name }])
+    // 自己认领自己，不用再给自己发一条「新工单」企微消息（写回成功后的通知只发给 notified=0 的人）
+    db.prepare('UPDATE ticket_designers SET notified = 1 WHERE ticket_no = ? AND userid = ?').run(
+      ticket_no,
+      identity.userid
+    )
+    db.prepare(
+      `UPDATE tickets SET designer_userid = ?, designer_name = ?, designer_write_pending = 1,
+         assigned_by = ?, assigned_at = ? WHERE ticket_no = ?`
+    ).run(identity.userid, identity.name, COPY.ticket.assignByFlow, now, ticket_no)
+  })()
+  return true
+}
+
 // ============================================================ 同步主流程（docs/15 §4.2）
 
 export interface ApplySyncInput {
@@ -633,6 +693,7 @@ export function applySync(input: ApplySyncInput): SyncResult {
     dupWarned: 0,
     newUnassigned: 0,
     newTasks: [],
+    designerClaimed: 0,
     warnings: []
   }
 
@@ -750,15 +811,33 @@ export function applySync(input: ApplySyncInput): SyncResult {
     if (existing) {
       // 第 17 批（docs/19 §5 冲突三态，第 18 批扩展为「集合」）：本机有待写回（上次写回失败
       // 的积压）时，设计师集合**不采纳表值**（本地守住子表，写出去再交权）——本轮同步后自动补写
+      let yieldToSheet = false
       if (existing.designer_write_pending === 1) {
-        const kept = designersOf(row.ticket_no)
-        bind.designer_userid = kept[0]?.userid ?? null
-        bind.designer_name = kept[0]?.name ?? null
+        // 第 84 批：`@ 认领` 与「手动指派」在这一步待遇不同。
+        // 两张单可以被同一条意见同时 @ 两个人，两台机器各自认领就会来回覆盖，
+        // 所以认领遇到「表里已经有别人」就让位（采纳表值 + 清 pending），不再抢；
+        // 手动指派仍守住本地 —— 那是人明确点的，写失败就该重试到底。
+        const isFlowClaim = existing.assigned_by === COPY.ticket.assignByFlow
+        if (isFlowClaim && row.designers.length > 0) {
+          replaceTicketDesigners(row.ticket_no, row.designers)
+          bind.designer_userid = row.designers[0]?.userid ?? null
+          bind.designer_name = row.designers[0]?.name ?? null
+          yieldToSheet = true
+        } else {
+          const kept = designersOf(row.ticket_no)
+          bind.designer_userid = kept[0]?.userid ?? null
+          bind.designer_name = kept[0]?.name ?? null
+        }
       } else {
         // 采纳表值：整表替换子表（冗余列已由 row.fields 带出 = 集合第一个）
         replaceTicketDesigners(row.ticket_no, row.designers)
       }
       updTicket.run(bind)
+      if (yieldToSheet) {
+        db.prepare(
+          'UPDATE tickets SET designer_write_pending = 0, assigned_by = NULL, assigned_at = NULL WHERE ticket_no = ?'
+        ).run(row.ticket_no)
+      }
       res.updated++
     } else {
       insTicket.run(bind)
@@ -885,6 +964,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
       res.tasksCreated++
       // 第 82 批：记下名字，托盘气泡要拿它说"哪个单来了"
       res.newTasks.push({ ticket_no: row.ticket_no, name: packName })
+      // 第 84 批：@ 兜底建出来的任务，顺手把本机登进设计师列（写回表格走同步后的补写）
+      if (mineByAt && claimDesignerByFlow(row.ticket_no, input.identity)) res.designerClaimed++
     } catch (e) {
       res.warnings.push(
         fmt(COPY.ticket.warnCreateFailed, { no: row.ticket_no, msg: (e as Error).message })
@@ -1012,6 +1093,8 @@ export function confirmPendingTickets(identity: TicketIdentity, workspaceRoot: s
       })
       setPack.run(pack.id, t.ticket_no)
       tasksCreated++
+      // 第 84 批：与 applySync 同口径 —— @ 兜底派下来的，顺手认领
+      if (mineByAt) claimDesignerByFlow(t.ticket_no, identity)
     } catch (e) {
       warnings.push(fmt(COPY.ticket.warnCreateFailed, { no: t.ticket_no, msg: (e as Error).message }))
     }

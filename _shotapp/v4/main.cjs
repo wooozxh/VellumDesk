@@ -4300,6 +4300,24 @@ app.whenReady().then(async () => {
     const swAfter = await js(`(() => { const c = document.querySelector('.tk-allowassign input'); return c ? c.checked : null })()`)
     ok(swAfter === true, '开关点开即存（meta 落库）')
 
+    // (9-2) 第 84 批：@ 自动认领开关 —— 默认开，点了即存，点回来还原
+    const claimBefore = await js(
+      `(() => { const c = document.querySelector('.tk-claimbyflow input'); return c ? c.checked : null })()`
+    )
+    ok(claimBefore === true, '「审批意见里 @ 我，就自动认领」开关默认开')
+    await js(
+      `(() => { const c = document.querySelector('.tk-claimbyflow input'); if (c) c.click(); return 'ok' })()`
+    )
+    await wait(700)
+    const claimAfter = await js(
+      `(() => { const c = document.querySelector('.tk-claimbyflow input'); return c ? c.checked : null })()`
+    )
+    ok(claimAfter === false, '自动认领开关点一下即关并落库')
+    await js(
+      `(() => { const c = document.querySelector('.tk-claimbyflow input'); if (c) c.click(); return 'ok' })()`
+    )
+    await wait(500)
+
     // (9a) 第 50 批（docs/35）：「缩略图」列可用性。
     // 两支互补，由环境变量 SHOT_THUMB_COL_BAD 选：
     //   默认（列可用）→ 断言**不出现**警示行（别没事也报警，狼来了就没人管了）

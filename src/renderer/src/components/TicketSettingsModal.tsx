@@ -55,6 +55,8 @@ export function TicketSettingsModal({
   const [err, setErr] = useState<string | null>(null)
   /** 第 17 批：允许在本机指派设计师（初始值来自 status；改动即存，不走「保存」按钮） */
   const [allowAssign, setAllowAssign] = useState(initial?.allowAssign ?? false)
+  /** 第 84 批：审批意见 @ 本机时自动认领（默认开） */
+  const [claimByFlow, setClaimByFlow] = useState(initial?.claimByFlow ?? true)
   /**第 50 批（docs/35）：「缩略图」image 列可用吗（来自 status；false = 缺失 / 改名 / 类型不对） */
   const [thumbColOk, setThumbColOk] = useState(initial?.thumbColOk ?? true)
   /** 第 20 批：清理预览（已关闭子表里有多少条可清 / 多少条因有任务包跳过） */
@@ -207,6 +209,16 @@ export function TicketSettingsModal({
       if (!r.allow) setAllowAssign(false)
     } catch {
       setAllowAssign(!v)
+    }
+  }
+
+  const toggleClaimByFlow = async (v: boolean): Promise<void> => {
+    setClaimByFlow(v)
+    try {
+      const r = await window.api.ticketSetClaimByFlow(v)
+      if (r.claimByFlow !== v) setClaimByFlow(r.claimByFlow)
+    } catch {
+      setClaimByFlow(!v)
     }
   }
 
@@ -363,6 +375,20 @@ export function TicketSettingsModal({
             <span>
               {COPY.ticket.allowAssignLabel}
               <em>（{COPY.ticket.allowAssignHint}）</em>
+            </span>
+          </label>
+
+          {/* 第 84 批：@ 自动认领 —— 与上一行同一个「改动即存」模式，但默认开：
+              没有它，「@ 派单」只建任务，表格里那行还写着「未指派」。 */}
+          <label className="tk-check tk-claimbyflow">
+            <input
+              type="checkbox"
+              checked={claimByFlow}
+              onChange={(e) => void toggleClaimByFlow(e.target.checked)}
+            />
+            <span>
+              {COPY.ticket.claimByFlowLabel}
+              <em>（{COPY.ticket.claimByFlowHint}）</em>
             </span>
           </label>
 

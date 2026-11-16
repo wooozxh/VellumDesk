@@ -154,6 +154,7 @@ const api = {
   ticketAssignDesigner: (input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) =>
     ipcRenderer.invoke('ticket:assignDesigner', input),
   ticketSetAllowAssign: (v: boolean) => ipcRenderer.invoke('ticket:setAllowAssign', v),
+  ticketSetClaimByFlow: (v: boolean) => ipcRenderer.invoke('ticket:setClaimByFlow', v),
   ticketUnassignedCount: () => ipcRenderer.invoke('ticket:unassignedCount'),
 
   // 第 19 批：导出报表（docs/22）

@@ -83,6 +83,8 @@ import {
 import {
   allowAssignEnabled,
   applySync,
+  claimByFlowEnabled,
+  setClaimByFlowEnabled,
   completeTicketTask,
   confirmPendingTickets,
   createTaskForTicketManually,
@@ -1177,6 +1179,8 @@ export function registerIpc(opts?: {
       firstSyncDone: cfg.firstSyncDone,
       // 第 17 批（docs/19 §10 #3）：本机开关（默认关，派单的人自己开）
       allowAssign: allowAssignEnabled(),
+      // 第 84 批：审批意见 @ 本机时自动认领（默认开）
+      claimByFlow: claimByFlowEnabled(),
       // 第 17 批：待指派存量（顶栏徽标口径 = 「未指派」筛选口径）
       unassignedCount: unassignedTicketCount(),
       // 第 50 批（docs/35）：「缩略图」image 列可用吗（未同步过 = 不设防，前端当可用）
@@ -1267,6 +1271,7 @@ export function registerIpc(opts?: {
       dupWarned: 0,
       newUnassigned: 0,
       newTasks: [] as Array<{ ticket_no: string; name: string }>,
+      designerClaimed: 0,
       warnings: [] as string[]
     }
     if (!cfg.docid || !cfg.identity)
@@ -1675,6 +1680,14 @@ export function registerIpc(opts?: {
     initWorkspace(root)
     setAllowAssignEnabled(!!v)
     return { ok: true, allow: allowAssignEnabled() }
+  })
+
+  /** 第 84 批：@ 自动认领开关（与「允许指派」同一个「改动即存」模式） */
+  handleIpc('ticket:setClaimByFlow', (_e, v: boolean) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    setClaimByFlowEnabled(!!v)
+    return { ok: true, claimByFlow: claimByFlowEnabled() }
   })
 
   handleIpc('ticket:unassignedCount', () => {

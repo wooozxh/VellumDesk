@@ -216,6 +216,8 @@ import {
   writeTicketSheets,
   // 第 17 批：设计师指派（docs/19）
   allowAssignEnabled,
+  claimByFlowEnabled,
+  setClaimByFlowEnabled,
   designerColName,
   designerColUsable,
   evaluateDesignerCol,
@@ -3803,6 +3805,93 @@ async function main(): Promise<void> {
     ok(packOf('F0025') === null, '【边界】名字出现在意见里但前面没 @ → 不建任务')
     ok(packOf('F0026') !== null, '【核心】多段审批流程，@ 落在第 3 段也认得（takeAllText 拼全了）')
     ok(atSync.tasksCreated === 3, `@ 兜底本轮只建 3 个任务（实际 ${atSync.tasksCreated}）`)
+
+    // ---- (10) 第 84 批：@ 派单顺手**认领** —— 把本机写进设计师列（否则界面还写着「未指派」）----
+    const dRow = (no: string): {
+      designer_userid: string | null
+      designer_name: string | null
+      designer_write_pending: number
+      assigned_by: string | null
+    } =>
+      getDb()
+        .prepare(
+          'SELECT designer_userid, designer_name, designer_write_pending, assigned_by FROM tickets WHERE ticket_no = ?'
+        )
+        .get(no) as never
+    ok(atSync.designerClaimed === 3, `@ 派单本轮认领 3 张（实际 ${atSync.designerClaimed}）`)
+    ok(
+      dRow('F0020').designer_userid === fIdentity.userid &&
+        dRow('F0020').designer_name === fIdentity.name,
+      '【核心】认领后设计师列的冗余字段 = 本机（界面不再显示未指派）'
+    )
+    ok(dRow('F0020').designer_write_pending === 1, '认领同时标了待写回（同步后的补写链路会推到表格）')
+    ok(dRow('F0020').assigned_by === COPY.ticket.assignByFlow, '来源标记 = @审批意见（和手动指派区分开）')
+    ok(
+      (
+        getDb()
+          .prepare('SELECT notified FROM ticket_designers WHERE ticket_no = ? AND userid = ?')
+          .get('F0020', fIdentity.userid) as { notified: number } | undefined
+      )?.notified === 1,
+      '认领时不再给自己发「新工单」通知（notified 直接置 1）'
+    )
+    ok(dRow('F0021').designer_userid === null, '@ 的是别人 → 不认领')
+    ok(
+      dRow('F0022').designer_name === '别人' && dRow('F0022').designer_write_pending === 0,
+      '设计师列已有别人 → 一个字节都不动'
+    )
+
+    // 让位：下一轮表里已经有别人（另一台机器先认领了）→ 采纳表值、清 pending，不再来回覆盖
+    const yieldSync = applySync({
+      payloads: [
+        fPayload([
+          flowRec('F0020', '已同意 | 审核人 @本机测试员 已同意 11/09 09:00;', [
+            { userId: 'uOTHER', userName: '别人' }
+          ])
+        ])
+      ],
+      structureChanged: false,
+      identity: fIdentity,
+      workspaceRoot: fWs
+    })
+    ok(
+      dRow('F0020').designer_name === '别人' &&
+        dRow('F0020').designer_write_pending === 0 &&
+        dRow('F0020').assigned_by === null,
+      '【边界】认领被别人抢先 → 让位采纳表值（不然两台机器会互相覆盖）'
+    )
+    ok(yieldSync.designerClaimed === 0, '让位这一轮不再认领')
+
+    // 开关关掉 → 只建任务，不碰表格的设计师列
+    ok(claimByFlowEnabled() === true, '「@ 自动认领」默认开')
+    setClaimByFlowEnabled(false)
+    const offSync = applySync({
+      payloads: [fPayload([flowRec('F0027', '已同意 | 审核人 @本机测试员 已同意 11/09 10:00;')])],
+      structureChanged: false,
+      identity: fIdentity,
+      workspaceRoot: fWs
+    })
+    ok(
+      packOf('F0027') !== null && dRow('F0027').designer_userid === null,
+      '开关关掉：任务照建，但设计师列不动'
+    )
+    ok(offSync.designerClaimed === 0, `开关关掉：认领 0 张（实际 ${offSync.designerClaimed}）`)
+    setClaimByFlowEnabled(true)
+
+    // 认领不是"只在界面上改个值"：同步后的补写链路会把它真的写到表格（这里用 mock 走一遍）
+    const claimWrites: Array<{ record_id: string; userids: string[] }> = []
+    const claimRetry = await retryPendingDesignerWrites({
+      updateDesigners: async (record_id, _sheet_id, userids) => {
+        claimWrites.push({ record_id, userids })
+        return { ok: true }
+      },
+      notify: async () => ({ ok: true })
+    })
+    ok(
+      claimWrites.some((w) => w.record_id === 'rec_F0023' && w.userids[0] === fIdentity.userid),
+      '认领会走同步后的补写链路，真的把本机 userid 写到表格'
+    )
+    ok(claimRetry.succeeded >= 2, `一轮补写把认领的单都推出去（成功 ${claimRetry.succeeded}）`)
+    ok(dRow('F0023').designer_write_pending === 0, '写回成功 → 认领的 pending 清掉')
     // 第 82 批：托盘通知靠 newTasks 说「哪个单来了」，数量和建任务数必须一致
     ok(
       atSync.newTasks.length === atSync.tasksCreated,

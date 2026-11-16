@@ -606,6 +606,8 @@ export interface TicketStatus {
   firstSyncDone: boolean
   /** 第 17 批（docs/19 §10 #3）：允许在本机指派设计师（本机开关，默认关） */
   allowAssign: boolean
+  /** 第 84 批：审批意见里 @ 本机时自动认领（把本机写进设计师列，默认开） */
+  claimByFlow: boolean
   /** 第 17 批：未指派存量数（顶栏徽标，口径 = 「未指派」筛选） */
   unassignedCount: number
   /**
@@ -1031,6 +1033,8 @@ export interface Api {
   ticketAssignDesigner: (input: { ticketNo: string; designers: Array<{ userid: string; name: string }> }) => Promise<TicketAssignResult>
   /** 工单设置：允许在本机指派设计师 开关 */
   ticketSetAllowAssign: (v: boolean) => Promise<{ ok: boolean; allow: boolean }>
+  /** 第 84 批：@ 自动认领开关 */
+  ticketSetClaimByFlow: (v: boolean) => Promise<{ ok: boolean; claimByFlow: boolean }>
   /** 未指派存量数（顶栏徽标） */
   ticketUnassignedCount: () => Promise<number>
 
