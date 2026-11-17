@@ -156,6 +156,7 @@ import {
   addWorkspace,
   switchWorkspace,
   removeWorkspace,
+  renameWorkspace,
   rewritePaths,
   migrateWorkspaceSameDisk,
   isSameVolume,
@@ -1998,6 +1999,30 @@ async function main(): Promise<void> {
     const w5RmLast = removeWorkspace(w5App, w5Left[0].id)
     ok(!w5RmLast.ok, '最后一个工作区不许移除（否则软件无处可去）')
   }
+
+  // (15b) 第 85 批：改显示名 —— **只动配置里的 name**，文件夹和根路径一个字节都不动
+  const w5RenBefore = readWorkspaceConfig(w5App)!
+  const w5RenTarget = w5RenBefore.workspaces.find((w) => w.id === w5RenBefore.activeId)!
+  const w5OldName = w5RenTarget.name
+  const w5RenOk = renameWorkspace(w5App, w5RenTarget.id, '公司主库')
+  ok(w5RenOk.ok && w5RenOk.name === '公司主库', '改工作区显示名')
+  const w5RenAfter = readWorkspaceConfig(w5App)!
+  const w5RenEntry = w5RenAfter.workspaces.find((w) => w.id === w5RenTarget.id)!
+  ok(w5RenEntry.name === '公司主库', '配置里存的是新名字')
+  ok(w5RenAfter.activeId === w5RenBefore.activeId, '改名不动当前激活项')
+  ok(
+    w5RenEntry.root === w5RenTarget.root,
+    '【铁则】根路径没被改（改的是标签，不是文件夹）'
+  )
+  ok(existsSync(w5RenTarget.root), '磁盘上的文件夹还在原位（没被重命名）')
+  ok(!renameWorkspace(w5App, w5RenTarget.id, '   ').ok, '空名字被拒绝（不会把库名清成空白）')
+  ok(
+    !renameWorkspace(w5App, w5RenTarget.id, '一二三四五六七八九十一二三四五六七八九十一二三四五').ok,
+    '超过 24 个字被拒绝'
+  )
+  ok(renameWorkspace(w5App, w5RenTarget.id, '公司主库').ok, '改成同一个名字视为成功（幂等，不报错）')
+  ok(!renameWorkspace(w5App, 'ws_not_exist', '随便').ok, '不存在的工作区改不了名')
+  ok(renameWorkspace(w5App, w5RenTarget.id, w5OldName).ok, '改回原名')
 
   hardRm(w5Root)
 

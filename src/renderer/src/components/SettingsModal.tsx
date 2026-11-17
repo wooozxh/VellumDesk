@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { COPY } from '../../../shared/copy'
 import type { Theme, Density, BootStart as StartView } from '../theme'
+import type { WorkspaceEntry } from '../../../shared/types'
 import { Icon } from './Icon'
 
 /**
@@ -18,6 +19,8 @@ import { Icon } from './Icon'
  * （第 10 批「两套清单」的教训）。
  */
 export interface SettingsModalProps {
+  /** 第 85 批：打开时落在哪一页（点顶栏的工作区按钮直接进「工作区」） */
+  initialTab?: SettingsTab
   theme: Theme
   onThemeChange: (t: Theme) => void
   /** 第 81 批：列表密度（标准 / 紧凑） */
@@ -28,7 +31,14 @@ export interface SettingsModalProps {
   onStartViewChange: (v: StartView) => void
   workspaceRoot: string
   onOpenWorkspace: () => void
-  onChangeWorkspace: () => void
+  /** 第 85 批：工作区管理（列表 / 切换 / 添加 / 移除 / 搬移 / 重命名） */
+  workspaces: WorkspaceEntry[]
+  activeId: string
+  onSwitchWorkspace: (id: string) => void
+  onAddWorkspace: () => void
+  onRemoveWorkspace: (w: WorkspaceEntry) => void
+  onMoveWorkspace: () => void
+  onRenameWorkspace: (id: string, name: string) => Promise<boolean>
   onOpenWecom: () => void
   onOpenPlugin: () => void
   /** 第 81 批：打开随安装包提供的中文使用手册 */
@@ -37,7 +47,8 @@ export interface SettingsModalProps {
   onClose: () => void
 }
 
-type Tab = 'general' | 'workspace' | 'wecom' | 'plugin' | 'about'
+export type SettingsTab = 'general' | 'workspace' | 'wecom' | 'plugin' | 'about'
+type Tab = SettingsTab
 
 /** 启动视图的选项（顺序按用户使用频率排：工单最多，模板库最少） */
 const START_VIEW_OPTIONS: Array<{ value: StartView; label: string }> = [
@@ -50,6 +61,7 @@ const START_VIEW_OPTIONS: Array<{ value: StartView; label: string }> = [
 ]
 
 export function SettingsModal({
+  initialTab = 'general',
   theme,
   onThemeChange,
   density,
@@ -58,14 +70,41 @@ export function SettingsModal({
   onStartViewChange,
   workspaceRoot,
   onOpenWorkspace,
-  onChangeWorkspace,
+  workspaces,
+  activeId,
+  onSwitchWorkspace,
+  onAddWorkspace,
+  onRemoveWorkspace,
+  onMoveWorkspace,
+  onRenameWorkspace,
   onOpenWecom,
   onOpenPlugin,
   onOpenManual,
   version,
   onClose
 }: SettingsModalProps): React.JSX.Element {
-  const [tab, setTab] = useState<Tab>('general')
+  const [tab, setTab] = useState<Tab>(initialTab)
+  /** 第 85 批：行内改名（Electron 里 window.prompt 不可用，自己做一个轻量的） */
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const startRename = (w: WorkspaceEntry): void => {
+    setRenaming(w.id)
+    setDraft(w.name)
+  }
+
+  /**
+   * 提交改名。Enter 与 blur 都会走到这里，靠 `renaming !== id` 挡住第二次
+   * （先 setRenaming(null) 再 await，第二次进来就已经不是这个 id 了）。
+   */
+  const submitRename = async (id: string): Promise<void> => {
+    if (renaming !== id) return
+    const next = draft.trim()
+    setRenaming(null)
+    if (!next) return
+    if (next === (workspaces.find((w) => w.id === id)?.name ?? '')) return
+    await onRenameWorkspace(id, next)
+  }
 
   const nav: { key: Tab; label: string; icon: 'sun' | 'archive' | 'wecom' | 'layers' | 'info'; group?: string }[] = [
     { key: 'general', label: '通用', icon: 'sun', group: COPY.set.groupApp },
@@ -168,23 +207,95 @@ export function SettingsModal({
             )}
 
             {tab === 'workspace' && (
-              <div className="set-row">
-                <div className="lab">
+              <div className="set-ws">
+                {/* 说明文字走全宽，不塞进 .set-row 那 168px 的左栏 ——
+                    「一整套库」这句话必须一次读顺，挤成六行就没人读了 */}
+                <div className="set-ws-intro">
                   <div className="t">{COPY.set.wsTitle}</div>
                   <div className="d">{COPY.set.wsDesc}</div>
                 </div>
-                <div className="ctl" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                <div className="set-ws-check">
                   <code className="set-path" title={workspaceRoot}>
                     {workspaceRoot || '—'}
                   </code>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn" onClick={onOpenWorkspace}>
-                      {COPY.set.wsOpen}
-                    </button>
-                    <button className="btn" onClick={onChangeWorkspace}>
-                      {COPY.set.wsChange}
-                    </button>
-                  </div>
+                  <button className="btn" onClick={onOpenWorkspace}>
+                    {COPY.set.wsOpen}
+                  </button>
+                </div>
+
+                {/* 第 85 批：完整的管理器 —— 原来这里只有「路径 + 更换位置」，
+                    列表 / 添加 / 移除 / 搬移全挤在文件视图左栏底部，三个用不到左栏的
+                    视图（工单 / 通用库 / 模板）里根本管不了。 */}
+                <div className="set-ws-head">
+                  <span>{COPY.wsUi.colName}</span>
+                  <span>{COPY.wsUi.colRoot}</span>
+                  <span>{COPY.wsUi.colActions}</span>
+                </div>
+                {workspaces.map((w) => {
+                  const cur = w.id === activeId
+                  return (
+                    <div key={w.id} className={`set-ws-row${cur ? ' on' : ''}`}>
+                      <div className="set-ws-namecell">
+                        {renaming === w.id ? (
+                          <input
+                            className="set-ws-input"
+                            value={draft}
+                            autoFocus
+                            maxLength={24}
+                            onChange={(ev) => setDraft(ev.target.value)}
+                            onKeyDown={(ev) => {
+                              if (ev.key === 'Enter') void submitRename(w.id)
+                              else if (ev.key === 'Escape') setRenaming(null)
+                            }}
+                            onBlur={() => void submitRename(w.id)}
+                          />
+                        ) : (
+                          <>
+                            <span className="set-ws-name">{w.name}</span>
+                            {cur && <span className="set-ws-tag">{COPY.common.current}</span>}
+                          </>
+                        )}
+                      </div>
+                      <span className="set-ws-root" title={w.root}>
+                        {w.root}
+                      </span>
+                      <div className="set-ws-acts">
+                        {!cur && (
+                          <button className="btn mini" onClick={() => onSwitchWorkspace(w.id)}>
+                            {COPY.wsUi.actSwitch}
+                          </button>
+                        )}
+                        {renaming !== w.id && (
+                          <button className="btn mini" onClick={() => startRename(w)}>
+                            {COPY.wsUi.actRename}
+                          </button>
+                        )}
+                        {cur && (
+                          <button className="btn mini" onClick={onOpenWorkspace}>
+                            {COPY.wsUi.actOpen}
+                          </button>
+                        )}
+                        {cur && (
+                          <button className="btn mini" onClick={onMoveWorkspace}>
+                            {COPY.wsUi.actMove}
+                          </button>
+                        )}
+                        {!cur && (
+                          <button className="btn mini danger" onClick={() => onRemoveWorkspace(w)}>
+                            {COPY.wsUi.actRemove}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <div className="set-ws-foot">
+                  <button className="btn primary" onClick={onAddWorkspace}>
+                    <Icon name="plus" size={12} strokeWidth={2} />
+                    {COPY.wsUi.add}
+                  </button>
+                  <span className="set-ws-hint">{COPY.wsUi.addTip}</span>
                 </div>
               </div>
             )}

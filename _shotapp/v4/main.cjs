@@ -358,6 +358,20 @@ app.whenReady().then(async () => {
     'utf-8'
   )
 
+  // 第 85 批：wslist 要验证「从顶栏真的切过去」，目标目录得存在 ——
+  // switchWorkspace 会先探目录，不存在的库直接拒绝（那是正确行为，不该为了测试放宽）
+  if (SCEN === 'wslist') mkdirSync(wsOther, { recursive: true })
+
+  /**
+   * 第 85 批：「启动时打开 = 上次那一屏」把视图写进了 localStorage，
+   * 而场景的 userData 是**跨次复用**的 —— 不清掉的话，第二次跑 lifecycle
+   * 会停在上一轮最后待的那一屏，表现为「启动默认落在工单队列」假失败。
+   * 这两个场景都断言首屏，必须从干净状态起跑。
+   */
+  if (SCEN === 'lifecycle' || SCEN === 'tickets') {
+    rmSync(join(s.userData, 'Local Storage'), { recursive: true, force: true })
+  }
+
   app.setPath('userData', s.userData)
 
   // ---- 第 6 批：三级结构场景 ----
@@ -1550,15 +1564,16 @@ app.whenReady().then(async () => {
   const leftPanelText = await js(
     `(() => { const el = document.querySelector('.side'); return el ? el.innerText : '' })()`
   )
-  // 第 5 批：左栏工作区列表
-  const wsItemCount = await js(`document.querySelectorAll('.wsitem').length`)
-  const wsActiveCount = await js(`document.querySelectorAll('.wsitem.on').length`)
-  const wsRemoveCount = await js(`document.querySelectorAll('.wsitem .wx').length`)
-  const wsPathCount = await js(`document.querySelectorAll('.wsitem .wpath').length`)
-  const wsActBtns = await js(`document.querySelectorAll('.wsitem.on .wacts button').length`)
-  const wsAddText = await js(
-    `(() => { const el = document.querySelector('.side .item.addws'); return el ? el.innerText : '' })()`
-  )
+  // 第 85 批：工作区从「文件视图左栏底部」搬到顶栏 —— 左栏不再有列表
+  const wsSwitch = await js(`(() => {
+    const b = document.querySelector('.topbar .ws-switch')
+    if (!b) return null
+    return {
+      name: (b.querySelector('.ws-switch-name')?.innerText || '').trim(),
+      w: Math.round(b.getBoundingClientRect().width)
+    }
+  })()`)
+  const sideWsCount = await js(`document.querySelectorAll('.side .wsitem, .side .addws').length`)
   // 第 6 批：三级结构相关的 DOM
   const infoBannerText = await js(
     `(() => { const el = document.querySelector('.wsbanner.info'); return el ? el.innerText : '' })()`
@@ -1607,6 +1622,7 @@ app.whenReady().then(async () => {
         const x = (el) => (el ? Math.round(el.getBoundingClientRect().x) : -1)
         const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : -1)
         return {
+          ws: x(q('.topbar .ws-switch')),
           search: x(q('.topbar .search-wrap')),
           searchW: w(q('.topbar .search-wrap')),
           tabs: x(q('.topbar .tabs')),
@@ -1636,10 +1652,13 @@ app.whenReady().then(async () => {
     await wait(420)
 
     for (const o of others) {
-      const same = ['search', 'searchW', 'tabs', 'rescan', 'gear', 'theme'].every((k) => o[k] === posPacks[k])
-      ok(same, `切到「${o.name}」后顶栏六个元素位置不变（${['search','tabs','rescan','gear','theme'].map(k=>o[k]).join(',')}）`)
+      const KEYS = ['ws', 'search', 'searchW', 'tabs', 'rescan', 'gear', 'theme']
+      const same = KEYS.every((k) => o[k] === posPacks[k])
+      ok(same, `切到「${o.name}」后顶栏七个元素位置不变（${KEYS.map(k=>o[k]).join(',')}）`)
     }
-    ok(posPacks.searchW >= 240, `搜索框够宽（${posPacks.searchW}px），占位文字不再被截`)
+    // 第 85 批加了工作区按钮后实测仍是 268 —— 加宽按钮没有牺牲搜索框（富余空间在 spacer 里）。
+    // 底线保持 240 不放宽：一旦顶栏再塞东西，这条要能先叫出来。
+    ok(posPacks.searchW >= 240, `搜索框够宽（${posPacks.searchW}px），占位文字不被截`)
 
     // 打开设置
     await js(`(() => { document.querySelector('.icon-btn-set').click(); return 'ok' })()`)
@@ -1717,6 +1736,63 @@ app.whenReady().then(async () => {
     ok(backRow === rowStd, `切回标准后行高复原（${backRow}）`)
 
     await shot('shot-b74-1-settings-general.png')
+
+    // ---- 第 85 批：设置 → 工作区 变成完整的管理器 ----
+    await js(`(() => { const b=[...document.querySelectorAll('.set-nav button')].find(x=>x.innerText.includes(${JSON.stringify(COPY.set.wsTitle)})); if(b) b.click(); return 'ok' })()`)
+    await wait(300)
+    const wsPage = await js(`(() => {
+      const m = document.querySelector('.set-modal')
+      if (!m) return null
+      const rows = [...m.querySelectorAll('.set-ws-row')]
+      return {
+        rows: rows.length,
+        curRows: rows.filter(r => r.classList.contains('on')).length,
+        curTag: rows.some(r => r.querySelector('.set-ws-tag')),
+        names: rows.map(r => (r.querySelector('.set-ws-name')?.innerText || '').trim()),
+        roots: rows.map(r => (r.querySelector('.set-ws-root')?.innerText || '').trim()),
+        acts: rows.flatMap(r => [...r.querySelectorAll('.set-ws-acts .btn')].map(b => b.innerText.trim())),
+        hasAdd: [...m.querySelectorAll('.set-ws-foot .btn')].some(b => b.innerText.includes(${JSON.stringify(COPY.wsUi.add)})),
+        hasRenameInput: !!m.querySelector('.set-ws-input')
+      }
+    })()`)
+    ok(wsPage !== null, '设置里有「工作区」页')
+    ok(wsPage && wsPage.rows >= 1, `工作区页列出 ${wsPage && wsPage.rows} 个工作区`)
+    ok(wsPage && wsPage.curRows === 1 && wsPage.curTag, '当前库只有一行被高亮，并标着「当前」')
+    ok(wsPage && wsPage.roots.every((r) => r.length > 0), '每行都带位置（路径）')
+    ok(wsPage && wsPage.acts.includes(COPY.wsUi.actOpen), '当前库给「打开」')
+    ok(wsPage && wsPage.acts.includes(COPY.wsUi.actMove), '当前库给「搬移」')
+    ok(wsPage && wsPage.acts.includes(COPY.wsUi.actRename), '每行都能「重命名」')
+    ok(wsPage && wsPage.hasAdd, '底部有「添加工作区」')
+    ok(wsPage && !wsPage.hasRenameInput, '没点重命名时不显示输入框（不占位）')
+
+    // 点一下「重命名」→ 名字变成输入框；Esc 撤销，名字不变
+    const beforeRename = wsPage && wsPage.names[0]
+    await js(`(() => {
+      const r = document.querySelector('.set-ws-row')
+      const b = r && [...r.querySelectorAll('.set-ws-acts .btn')].find(x => x.innerText.trim() === ${JSON.stringify(COPY.wsUi.actRename)})
+      if (b) b.click()
+      return 'ok'
+    })()`)
+    await wait(250)
+    const inRename = await js(`(() => {
+      const i = document.querySelector('.set-ws-input')
+      return { open: !!i, val: i ? i.value : '' }
+    })()`)
+    ok(inRename.open, '点「重命名」→ 名字变成输入框（行内改名）')
+    ok(inRename.val === beforeRename, `输入框里预填了原名（${inRename.val}）`)
+    await js(`(() => {
+      const i = document.querySelector('.set-ws-input')
+      if (i) i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return 'ok'
+    })()`)
+    await wait(250)
+    const afterEsc = await js(`(() => ({
+      open: !!document.querySelector('.set-ws-input'),
+      name: (document.querySelector('.set-ws-name')?.innerText || '').trim()
+    }))()`)
+    ok(!afterEsc.open, 'Esc 退出改名（输入框收起）')
+    ok(afterEsc.name === beforeRename, `Esc 不改名字（仍是「${afterEsc.name}」）`)
+    await shot('shot-b85-2-settings-workspace.png')
 
     // 切到「PS 插件联动」页
     await js(`(() => { const b=[...document.querySelectorAll('.set-nav button')].find(x=>x.innerText.includes('插件')); if(b) b.click(); return 'ok' })()`)
@@ -1886,22 +1962,63 @@ app.whenReady().then(async () => {
     ok(bannerText.includes('没动'), '提示条明确安抚：里面的东西一件没动')
     ok(bannerBtnCount === 2, `提示条有 2 个出口按钮（重试 / 更改位置），实际 ${bannerBtnCount}`)
     ok(/(^|[^0-9])v\d+\.\d+\.\d+/.test(statusText), '工作区挂了也能看到版本号：' + statusText.replace(/\s+/g, ' ').trim())
-    ok(wsItemCount >= 1 && wsAddText.includes('添加工作区'), '工作区挂了，左栏仍列出工作区并给出换库入口')
+    ok(wsSwitch !== null && wsSwitch.name.length > 0, '工作区挂了，顶栏仍显示当前库名（不是空白）')
+    ok(sideWsCount === 0, '左栏不再挂工作区列表（已整体搬到顶栏 + 设置页）')
   } else if (SCEN === 'wslist') {
     ok(bannerText === '' || bannerText === undefined || bannerText.length === 0, '工作区正常时不显示提示条')
-    ok(wsItemCount === 2, `左栏列出 2 个工作区，实际 ${wsItemCount}`)
-    ok(wsActiveCount === 1, `当前工作区只有一个且被高亮，实际 ${wsActiveCount}`)
+    ok(sideWsCount === 0, '左栏不再有工作区列表（第 85 批搬走）')
+    ok(wsSwitch && wsSwitch.name === '主素材库', `顶栏常驻当前库名（实际「${wsSwitch && wsSwitch.name}」）`)
+    // 宽度写死 —— 库名长短不一样时，后面的搜索框 / 页签不能跟着左右跳
+    // 宽度 = min(内容, 180)：短名不白占地方，长名也不会把顶栏撑开
+    ok(wsSwitch && wsSwitch.w > 60 && wsSwitch.w <= 200, `工作区按钮宽度有上限（${wsSwitch && wsSwitch.w}px）`)
+
+    // 点开面板：两个库都在、当前项打勾、每个都带路径
+    await js(`(() => { document.querySelector('.topbar .ws-switch')?.click(); return 'ok' })()`)
+    await wait(400)
+    const menu = await js(`(() => {
+      const m = document.querySelector('.ws-menu')
+      if (!m) return null
+      const items = [...m.querySelectorAll('.ws-menu-item')]
+      return {
+        count: items.length,
+        on: items.filter(i => i.classList.contains('on')).length,
+        names: items.map(i => (i.querySelector('.ws-menu-name')?.innerText || '').trim()),
+        roots: items.map(i => (i.querySelector('.ws-menu-root')?.innerText || '').trim()),
+        acts: [...m.querySelectorAll('.ws-menu-act')].map(a => a.innerText.trim())
+      }
+    })()`)
+    ok(menu !== null, '点顶栏的工作区按钮 → 弹出切换面板')
+    ok(menu && menu.count === 2, `面板列出 2 个工作区（实际 ${menu && menu.count}）`)
+    ok(menu && menu.on === 1, `当前项只有一个且被高亮（实际 ${menu && menu.on}）`)
     ok(
-      leftPanelText.includes('主素材库') && leftPanelText.includes('设计素材库'),
-      '两个工作区的名字都显示出来了'
+      menu && menu.names.includes('主素材库') && menu.names.includes('设计素材库'),
+      '两个工作区的名字都在面板里：' + JSON.stringify(menu && menu.names)
     )
-    ok(wsPathCount === 2, `每个工作区都显示完整路径（同名文件夹靠它区分），实际 ${wsPathCount}`)
-    ok(wsRemoveCount === 1, `非当前项才给「×」移除按钮，实际 ${wsRemoveCount}`)
-    ok(wsActBtns === 2, `当前项给了 2 个操作（打开文件夹 / 搬移位置），实际 ${wsActBtns}`)
-    ok(wsAddText.includes('添加工作区'), '底部有「＋ 添加工作区」入口')
-    ok(statusText.includes('主素材库'), '状态栏写明了当前是哪个工作区')
+    ok(
+      menu && menu.roots.length === 2 && menu.roots.every((r) => r.length > 0),
+      '每行都带完整路径（同名文件夹靠它区分）：' + JSON.stringify(menu && menu.roots)
+    )
+    ok(menu && menu.acts.some((a) => a.includes('添加工作区')), '面板底部有「添加工作区」')
+    ok(menu && menu.acts.some((a) => a.includes('管理工作区')), '面板底部有「管理工作区」')
+    await shot('shot-b85-1-ws-menu.png')
+
+    // 点另一行 → 真的切过去（顶栏名字、面板收起、状态栏三处都要跟上）
+    await js(`(() => {
+      const items = [...document.querySelectorAll('.ws-menu-item')]
+      if (items[1]) items[1].click()
+      return 'ok'
+    })()`)
+    await wait(1800)
+    const afterPick = await js(`(() => ({
+      name: (document.querySelector('.topbar .ws-switch-name')?.innerText || '').trim(),
+      menuOpen: !!document.querySelector('.ws-menu'),
+      status: (document.querySelector('.statusbar')?.innerText || '').replace(/\s+/g, ' ')
+    }))()`)
+    ok(afterPick.name === '设计素材库', `点面板里的另一行 → 顶栏立刻切过去（实际「${afterPick.name}」）`)
+    ok(!afterPick.menuOpen, '切完面板自动收起')
+    ok(afterPick.status.includes('设计素材库'), '状态栏也跟着换成了新库')
     // 第 69 批：改成正则 —— 写死 v1.0.0 在版本 bump 后会假失败
-    ok(/v\d+\.\d+\.\d+/.test(statusText), '状态栏仍显示版本号')
+    ok(/v\d+\.\d+\.\d+/.test(afterPick.status), '状态栏仍显示版本号')
   } else if (SCEN === 'threelevel') {
     // ---- 迁移提示条 ----
     ok(infoBannerText.length > 0, '刚迁移过的工作区出现「目录结构已升级」提示条')

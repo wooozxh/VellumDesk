@@ -22,6 +22,7 @@ const api = {
   wsAdd: (opts?: { root?: string; rewrite?: boolean }) => ipcRenderer.invoke('ws:add', opts),
   wsSwitch: (id: string) => ipcRenderer.invoke('ws:switch', id),
   wsRemove: (id: string) => ipcRenderer.invoke('ws:remove', id),
+  wsRename: (id: string, name: string) => ipcRenderer.invoke('ws:rename', id, name),
   wsMove: (opts?: { targetParentDir?: string }) => ipcRenderer.invoke('ws:move', opts),
 
   // 项目维护
@@ -264,6 +265,20 @@ const api = {
     const handler = (_e: IpcRendererEvent, action: 'refresh' | 'settings'): void => cb(action)
     ipcRenderer.on('tray:action', handler)
     return () => ipcRenderer.off('tray:action', handler)
+  },
+
+  /**
+   * 第 85 批：换库广播。切工作区换的是**整套库**，通用库 / 模板库 / 工单
+   * 都是自包含组件（只在挂载时拉一次数据）—— 没有这条广播，在通用库里切库
+   * 会变成「顶栏名字变了、列表还是旧库的」。返回退订函数。
+   */
+  onWsChanged: (cb: (p: { workspaceRoot: string; activeId: string }) => void): (() => void) => {
+    const handler = (
+      _e: IpcRendererEvent,
+      p: { workspaceRoot: string; activeId: string }
+    ): void => cb(p)
+    ipcRenderer.on('ws:changed', handler)
+    return () => ipcRenderer.off('ws:changed', handler)
   },
 
   /** 第 81 批：打开随安装包提供的中文使用手册（单文件 HTML，系统默认浏览器） */

@@ -178,6 +178,19 @@ export function TicketsView({
     return off
   }, [loadStatus, loadList])
 
+  /**
+   * 第 85 批：换库后重新拉。
+   * 工单数据也在库里（`tickets` 表），换库等于换一整套单 —— 不重新拉就会
+   * 拿旧库的单去点「建任务」，那个 id 在新库里根本不存在。
+   */
+  useEffect(() => {
+    const off = window.api.onWsChanged(() => {
+      void loadStatus()
+      void loadList('all')
+    })
+    return off
+  }, [loadStatus, loadList])
+
   const switchFilter = async (f: TkFilter): Promise<void> => {
     filterRef.current = f
     setFilter(f)

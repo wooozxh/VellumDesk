@@ -2156,131 +2156,297 @@ body:has(.side-resizer.dragging) {
 }
 
 /* ============================================================
-   第 5 批：左栏工作区列表（多工作区 + 搬移入口）
+   第 85 批：工作区 —— 从「文件视图左栏底部」提到顶栏常驻
+   ------------------------------------------------------------
+   工作区是整套库的根（任务 / 文件 / 通用素材 / 模板 / 工单都在里面），
+   所以「我在哪个库」必须在任何一屏都看得见；增删改这类重操作留在设置页。
    ============================================================ */
 
-/* 左栏底部的工作区卡：原型里的 .wscard —— 8px 圆角 + 一层淡描边，像个"卡片"而不是一行 */
-.wsitem {
-  padding: 7px 9px;
-  border-radius: var(--r-8);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    border-color 0.12s;
-}
-
-.wsitem:hover {
+/**
+ * 宽度 = min(内容, 180px)。
+ *
+ * 为什么不写死一个值：真实库名常常就是文件夹名（`vellum_workspace_local` 这种），
+ * 短名（「主库」）跟着占 180px 是白扔顶栏空间，长名又必须能截。
+ *
+ * 为什么这不违反第 75 批「切视图顶栏不许跳」：那条约束的是**同一屏内切视图**，
+ * 而库名只在换库那一刻变 —— 用户刚做完一个明确动作，界面跟着变是预期内的。
+ */
+.ws-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 180px;
+  height: var(--h-ctl);
+  padding: 0 8px;
+  border-radius: var(--r-6);
+  border: 1px solid var(--line-strong);
   background: var(--bg-mute);
-  border-color: var(--line);
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  transition:
+    color 0.12s,
+    border-color 0.12s,
+    background 0.12s;
 }
 
-.wsitem.on {
+.ws-switch:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}
+
+.ws-switch.on {
+  color: var(--accent-text);
   background: var(--accent-soft);
   border-color: var(--accent-line);
+}
+
+.ws-switch-name {
+  /* 0 1 auto：名字短就按内容宽，名字长才吃满剩余空间并截断 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* 下拉面板：贴着按钮下面展开，不推挤布局（绝对定位） */
+.ws-switch-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.ws-menu {
+  position: absolute;
+  top: calc(var(--h-ctl) + 6px);
+  left: 0;
+  z-index: 60;
+  width: 300px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-10);
+  box-shadow: var(--sh-2);
+}
+
+.ws-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: var(--r-6);
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.ws-menu-item:hover {
+  background: var(--bg-mute);
+}
+
+.ws-menu-item.on {
+  background: var(--accent-soft);
   cursor: default;
 }
 
-.wsitem .wrow {
-  display: flex;
+.ws-menu-check {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 18px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  justify-content: center;
+  color: var(--accent-text);
 }
 
-.wsitem .wname {
+.ws-menu-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ws-menu-name {
+  font-size: var(--fs-12);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wsitem.on .wname {
+.ws-menu-item.on .ws-menu-name {
   color: var(--accent-text);
   font-weight: 600;
 }
 
-.wsitem .wtag {
-  flex: 0 0 auto;
-  font-size: var(--fs-11);
-  line-height: 1;
-  height: 17px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 5px;
-  border-radius: var(--r-4);
-  color: var(--accent-text);
-  background: var(--accent-soft);
-}
-
-.wsitem .wx {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-  border-radius: 50%;
-  color: var(--text-3);
-  opacity: 0;
-  transition: all 0.12s;
-}
-
-.wsitem:hover .wx {
-  opacity: 1;
-}
-
-.wsitem .wx:hover {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.wsitem .wpath {
-  margin-top: 2px;
+/* 路径是区分同名库的唯一线索（两个库的文件夹都可能叫「素材」），
+   所以它是**必显**信息，不是可有可无的辅助文字。 */
+.ws-menu-root {
   font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--text-3);
-  word-break: break-all;
-}
-
-.wsitem.on .wpath {
-  color: var(--text-2);
-}
-
-.wsitem .wacts {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.wsitem .wacts button {
-  flex: 1 1 0;
-  height: 22px;
   font-size: var(--fs-11);
-  border-radius: var(--r-4);
+  line-height: 1.4;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--line);
+}
+
+.ws-menu-act {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: var(--h-ctl);
+  padding: 0 8px;
+  border-radius: var(--r-6);
+  font-size: var(--fs-12);
   color: var(--text-2);
-  background: var(--bg-mute);
-  border: 1px solid var(--line-strong);
   transition:
     color 0.12s,
-    border-color 0.12s;
+    background 0.12s;
 }
 
-.wsitem .wacts button:hover {
+.ws-menu-act:hover {
   color: var(--text);
-  border-color: var(--accent-line);
+  background: var(--bg-mute);
 }
 
-.side .item.addws {
-  justify-content: flex-start;
+/* ---- 设置页 → 工作区：列表 / 增删改 ---- */
+.set-ws {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.set-ws-intro .t {
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 一行放得下四十多个字：这段说明是「工作区到底是什么」的唯一解释，
+   宽度不够就会变成竖排短句，用户扫一眼就跳过了 */
+.set-ws-intro .d {
   margin-top: 4px;
+  max-width: 560px;
+  font-size: var(--fs-11);
+  line-height: 1.65;
   color: var(--text-3);
-  border: 1px dashed var(--line);
 }
 
-.side .item.addws:hover {
-  color: var(--accent);
-  border-color: var(--accent-line);
+.set-ws-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.set-ws-head,
+.set-ws-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.6fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.set-ws-head {
+  padding: 0 10px;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.set-ws-row {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-8);
+  transition: border-color 0.12s;
+}
+
+.set-ws-row:hover {
+  border-color: var(--line-strong);
+}
+
+.set-ws-row.on {
   background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.set-ws-namecell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.set-ws-name {
+  font-size: var(--fs-12);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.set-ws-row.on .set-ws-name {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.set-ws-tag {
+  flex: 0 0 auto;
+  height: 17px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-11);
+  line-height: 1;
+  border-radius: var(--r-4);
+  color: var(--accent-text);
+  background: var(--bg-raised);
+}
+
+.set-ws-root {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: var(--fs-11);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.set-ws-acts {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.set-ws-input {
+  width: 100%;
+  height: var(--h-ctl-sm);
+  padding: 0 6px;
+  border-radius: var(--r-4);
+  border: 1px solid var(--accent-line);
+  background: var(--bg-mute);
+  color: var(--text);
+  font-size: var(--fs-12);
+}
+
+.set-ws-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.set-ws-hint {
+  font-size: var(--fs-11);
+  color: var(--text-3);
 }
 
 /* ============================================================
@@ -2849,8 +3015,9 @@ body:has(.side-resizer.dragging) {
 .tm-edit:focus-visible,
 .row-tag-x:focus-visible,
 .claimbar select:focus-visible,
-.wsitem .wx:focus-visible,
-.wsitem .wacts button:focus-visible,
+.ws-switch:focus-visible,
+.ws-menu-item:focus-visible,
+.ws-menu-act:focus-visible,
 .ver-cell:focus-visible,
 .ver-cell .vbtn:focus-visible,
 .bind-row:focus-visible {
@@ -2883,7 +3050,6 @@ svg {
 .tp-clear,
 .tp-star,
 .row-tag-x,
-.wsitem .wx,
 .tp-dim-head .caret,
 .wsbanner .ico,
 .empty .big,
@@ -2892,13 +3058,6 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 4px;
-}
-
-/* 工作区名：图标 + 名字，间距单独给大一点 */
-.wname {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* 空状态那枚大图标：容器居中靠 .empty 的 text-align，这里只保证 svg 不歪 */
@@ -5354,6 +5513,9 @@ svg {
    是任务视图专属，却放在 L0 顶栏里，出现消失就把别人挤走。
    ============================================================ */
 /* 搜索框常驻定宽（原来只在任务/文件视图出现，切走就整块消失） */
+/* 顶栏的搜索框**定宽**：它是第 75 批「切视图顶栏不许跳」的落点 ——
+   一旦改成 flex 自适应，页签会跟着库名长短左右移。
+   第 85 批加了工作区按钮后仍是 268，空间从 spacer 里出。 */
 .topbar .search-wrap {
   width: 268px;
   flex: none;

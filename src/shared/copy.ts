@@ -257,16 +257,36 @@ export const COPY = {
     ignoredTip:
       '你看过并忽略掉的丢失记录。软件不会删它们 —— 点行尾的回转按钮就能撤销忽略，回到「文件已丢失」',
     allFiles: '全部文件',
+    /** 只剩状态栏在用（「工作区 D:////...」）；列表与切换已搬到顶栏 + 设置页 */
     workspace: '工作区',
-    wsSwitchTip: '{root}\n点一下切到这个工作区',
-    wsRemoveTip: '从列表移除（只去掉记录，磁盘上的文件一个字节都不动）',
-    moveWs: '搬移位置',
-    addWs: '添加工作区',
-    addWsTip: '选一个文件夹作为工作区：空的就新建，有素材库的直接接进来',
     collapse: '收起左栏',
     expand: '展开左栏',
     resizeTip: '拖动调整左栏宽度，双击恢复默认',
     packDiskPath: '磁盘位置：{root}\\{folder}'
+  },
+
+  // ==================== 工作区切换（顶栏标识 + 切换面板，第 85 批） ====================
+  wsUi: {
+    /** 顶栏按钮的悬浮说明：多库给切库提示，单库只说明「在哪」 */
+    tipMulti: '当前工作区：{root}\n点开换库',
+    tipSingle: '当前工作区：{root}\n点开管理工作区',
+    add: '添加工作区',
+    addTip: '选一个文件夹：空的就新建，有素材库的直接接进来',
+    manage: '管理工作区',
+    manageTip: '重命名、搬移、移除都在设置里',
+    colName: '名称',
+    colRoot: '位置',
+    colActions: '操作',
+    actOpen: '打开',
+    actSwitch: '切换',
+    actRename: '重命名',
+    actMove: '搬移',
+    actRemove: '移除',
+    renameTitle: '重命名工作区',
+    renameDesc: '只改显示名，磁盘上的文件夹不会跟着改名',
+    renamePlaceholder: '例如：公司主库',
+    removeConfirm: '从列表移除「{name}」？\n\n只去掉这条记录，{root} 里的文件一个字节都不会动（随时可以再添加回来）。',
+    empty: '未选择工作区'
   },
 
   // ==================== 顶部提示条 ====================
@@ -355,6 +375,8 @@ export const COPY = {
     wsRemoveConfirmA: '把工作区「{name}」从列表里去掉？\n\n',
     wsRemoveConfirmB: '只是从软件列表里去掉，磁盘上的文件夹和素材一个字节都不会动：\n{root}\n\n',
     wsRemoveConfirmC: '以后想用回来，点「＋ 添加工作区」选它就行。',
+    wsRenamed: '工作区已改名：{name}',
+    wsRenameFailed: '改名失败',
     wsRemoveFailed: '移除失败',
     wsRemoveError: '移除失败：',
     wsRemoved: '已从列表移除（磁盘上的文件没动）',
@@ -918,6 +940,8 @@ export const COPY = {
     wsMissing: '工作区不存在',
     wsOffline: '「{name}」当前位置连不上（磁盘未挂载 / 移动硬盘未连接 / 没有写入权限）',
     keepOneWs: '至少要保留一个工作区',
+    nameEmpty: '工作区名称不能为空',
+    nameTooLong: '工作区名称最多 24 个字',
     curWsDirMissing: '当前工作区目录不存在',
     targetMissing: '目标位置不存在',
     moveIntoItself: '不能把工作区搬到它自己里面',
@@ -1548,9 +1572,8 @@ export const COPY = {
     startupDesc: '打开软件后停在哪一屏',
     soon: '后续版本',
     wsTitle: '工作区',
-    wsDesc: '所有素材都存在这个目录里，不上传云端',
+    wsDesc: '一个工作区就是一整套库：任务、文件、通用素材、模板、工单都在里面。换工作区等于换一整套数据，磁盘上的文件一个都不会动。',
     wsOpen: '打开文件夹',
-    wsChange: '更换位置',
     wecomDesc: '工单同步用的账号级授权，一次授权长期有效',
     wecomAuth: '打开连接引导',
     wecomStateHint: '授权状态在引导里看',

@@ -824,6 +824,8 @@ export interface Api {
   ) => Promise<{ ok: boolean; workspaceRoot?: string; name?: string; error?: string }>
   /** 从列表移除工作区（只删配置记录，磁盘一个字节都不动） */
   wsRemove: (id: string) => Promise<{ ok: boolean; switchedTo?: string; error?: string }>
+  /** 第 85 批：改工作区显示名（只改配置里的 name，不重命名文件夹） */
+  wsRename: (id: string, name: string) => Promise<{ ok: boolean; name?: string; error?: string }>
   /** 同盘搬移当前工作区。不传 targetParentDir 时弹系统选目录对话框 */
   wsMove: (opts?: { targetParentDir?: string }) => Promise<MigrateWorkspaceResult>
 
@@ -1252,6 +1254,8 @@ export interface Api {
    * 「同步工单」不经这里（主进程直接跑，结果靠 `ticket:synced` 广播回界面）。
    */
   onTrayAction: (cb: (action: 'refresh' | 'settings') => void) => () => void
+  /** 第 85 批：换库广播（通用库 / 模板库 / 工单视图据此重载） */
+  onWsChanged: (cb: (p: { workspaceRoot: string; activeId: string }) => void) => () => void
 
   /**
    * 第 81 批：打开使用手册（单文件 HTML）。

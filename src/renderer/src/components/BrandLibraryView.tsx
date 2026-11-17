@@ -84,6 +84,20 @@ export function BrandLibraryView({
   }, [load])
 
   /**
+   * 第 85 批：换库后重新拉。
+   * 通用库是自包含组件，只在挂载时 load 一次 —— 而顶栏的库标识在**任何视图**
+   * 都能切库，所以「切完还显示旧库素材」这个洞必须在这里堵上，不能指望重挂。
+   */
+  useEffect(() => {
+    const off = window.api.onWsChanged(() => {
+      setSel('all')
+      setKeyword('')
+      void load()
+    })
+    return off
+  }, [load])
+
+  /**
    * 第 67 批（docs/50）：**换分组 / 改搜索词就清空勾选**。
    * 否则勾选会"跨筛选残留"：在「易拉宝」里勾了 3 条，切到「海报」后批量清除
    * —— 用户以为清的是眼前这几条，实际把看不见的那 3 条也清了。这是最危险的一类错。

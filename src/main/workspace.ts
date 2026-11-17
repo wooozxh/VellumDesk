@@ -4041,6 +4041,36 @@ export function removeWorkspace(
   return { ok: true, switchedTo: rest[0].root }
 }
 
+/**
+ * 改工作区的显示名。
+ *
+ * **只动配置里的 `name`**：文件夹不重命名、磁盘一个字节都不动 ——
+ * 显示名是给人看的标签，重命名文件夹会牵动一堆已登记的绝对路径。
+ *
+ * 为什么需要它：两个库的根目录都叫「素材」时，光看名字分不清，
+ * 而路径又长又难记（界面在两处都显示路径，但名字才是第一眼看到的东西）。
+ */
+export function renameWorkspace(
+  appDataDir: string,
+  id: string,
+  name: string
+): { ok: boolean; name?: string; error?: string } {
+  const cfg = readWorkspaceConfig(appDataDir)
+  if (!cfg) return { ok: false, error: COPY.wsErr.noWorkspace }
+
+  const next = (name || '').trim()
+  if (!next) return { ok: false, error: COPY.wsErr.nameEmpty }
+  if (next.length > 24) return { ok: false, error: COPY.wsErr.nameTooLong }
+  if (cfg.workspaces.some((w) => w.id === id && w.name === next)) return { ok: true, name: next }
+  if (!cfg.workspaces.some((w) => w.id === id)) return { ok: false, error: COPY.wsErr.wsMissing }
+
+  const list = cfg.workspaces.map((w) => (w.id === id ? { ...w, name: next } : w))
+  writeWorkspaceConfig(appDataDir, { ...cfg, workspaces: list })
+  // 状态里缓存着当前库的名字（状态栏 / 提示条在用），清一下才会读到新值
+  resetWorkspaceState()
+  return { ok: true, name: next }
+}
+
 // ---------------------------------------------------------------- 同盘搬移
 
 export interface MigrateResult {

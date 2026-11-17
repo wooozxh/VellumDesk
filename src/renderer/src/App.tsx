@@ -21,7 +21,8 @@ import type {
 } from './types'
 
 import { Icon } from './components/Icon'
-import { SettingsModal } from './components/SettingsModal'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
+import { SettingsModal, type SettingsTab } from './components/SettingsModal'
 import {
   applyTheme,
   applyDensity,
@@ -183,6 +184,16 @@ export default function App(): React.JSX.Element {
 
   /** 第 74 批（docs/57）：全局设置弹窗（插件 / 企微 / 工单同步这些配置项从顶栏收口到这里） */
   const [showSettings, setShowSettings] = useState(false)
+  /**
+   * 第 85 批：弹窗**落在哪一页**。
+   * 齿轮走「通用」，顶栏的工作区按钮走「工作区」—— 点哪个入口就到对应那页，
+   * 别让用户点「管理工作区」还落在一堆无关的开关上再自己找。
+   */
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  const openSettings = (tab: SettingsTab = 'general'): void => {
+    setSettingsTab(tab)
+    setShowSettings(true)
+  }
 
   /** 文案说的是「点了会变成什么」，不是「现在是什么」—— 按钮该往用户想去的地方指 */
   const themeTooltip = theme === 'light' ? COPY.top.themeToDark : COPY.top.themeToLight
@@ -721,7 +732,7 @@ export default function App(): React.JSX.Element {
         toast(r.error || COPY.toast.wsSwitchFailed, 'err')
         return
       }
-      await reloadAll()
+      // 刷新交给 `ws:changed` 广播（pickRoot 已在 WS_CHANNELS 里），这里只报结果
       toast(fmt(COPY.toast.wsSwitched, { root: r.workspaceRoot }), 'ok')
     } catch (e) {
       toast(COPY.toast.wsSwitchError + (e as Error).message, 'err')
@@ -742,11 +753,7 @@ export default function App(): React.JSX.Element {
         toast(r.error || COPY.toast.wsSwitchFailedPlain, 'err')
         return
       }
-      setSelectedTagIds([])
-      setSelected(new Set())
-      setKeyword('')
-      setUnassignedOnly(false)
-      await reloadAll()
+      // 清筛选 + 重拉由 `ws:changed` 广播做（切库的路径不止这一条，放一处才不会漏）
       toast(fmt(COPY.toast.wsActivated, { name: r.name ?? '' }), 'ok')
     } catch (e) {
       toast(COPY.toast.wsSwitchError + (e as Error).message, 'err')
@@ -762,9 +769,6 @@ export default function App(): React.JSX.Element {
         toast(r.error || COPY.toast.wsAddFailed, 'err')
         return
       }
-      setSelectedTagIds([])
-      setSelected(new Set())
-      await reloadAll()
       if (r.rewritten) {
         toast(fmt(COPY.toast.wsAddRewritten, { n: r.rewritten }), 'ok')
       } else {
@@ -792,10 +796,30 @@ export default function App(): React.JSX.Element {
         toast(r.error || COPY.toast.wsRemoveFailed, 'err')
         return
       }
-      await reloadAll()
       toast(COPY.toast.wsRemoved, 'ok')
     } catch (e) {
       toast(COPY.toast.wsRemoveError + (e as Error).message, 'err')
+    }
+  }
+
+  /**
+   * 第 85 批：改显示名。只改配置里的 `name`（文件夹不动）。
+   * 改名不进 `WS_CHANNELS`（根没变、不用重新指联动服务），所以广播不会来 ——
+   * 这里手动 `loadWs()` 刷一次，顶栏标识和状态栏立刻跟上。
+   */
+  const doRenameWs = async (id: string, name: string): Promise<boolean> => {
+    try {
+      const r = await window.api.wsRename(id, name)
+      if (!r.ok) {
+        toast(r.error || COPY.toast.wsRenameFailed, 'err')
+        return false
+      }
+      await loadWs()
+      toast(fmt(COPY.toast.wsRenamed, { name: r.name ?? name }), 'ok')
+      return true
+    } catch (e) {
+      toast(COPY.toast.wsRenameFailed + '：' + (e as Error).message, 'err')
+      return false
     }
   }
 
@@ -821,7 +845,6 @@ export default function App(): React.JSX.Element {
         if (!r.crossDisk) toast(r.error || COPY.toast.wsMoveFailed, 'err')
         return
       }
-      await reloadAll()
       toast(fmt(COPY.toast.wsMoved, { to: r.to }), 'ok')
       if (r.missing && r.missing > 0) {
         toast(fmt(COPY.toast.wsMissingFiles, { n: r.missing }), 'info')
@@ -893,8 +916,37 @@ export default function App(): React.JSX.Element {
     const off = window.api.onTrayAction((action) => {
       if (action === 'refresh') void doRefreshRef.current()
       // 第 81 批：托盘点「设置」—— 主进程已把窗口唤到前台，这里只管开弹窗
-      else if (action === 'settings') setShowSettings(true)
+      else if (action === 'settings') openSettings('general')
     })
+    return off
+  }, [])
+
+  /**
+   * 第 85 批：**换库广播**。顶栏切库 / 设置页切库 / 添加 / 移除 / 搬移，主进程都会发。
+   *
+   * 为什么不用 reloadAll：换的是另一套库，`reloadAll` 的闭包里还揣着旧的 keyword、
+   * 筛选和标签 id（标签 id 是各库独立的，带着旧 id 去查新库只会查出空）。
+   * 这里一律按「空条件」重拉，等价于一次冷启动。
+   */
+  const wsResetRef = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    wsResetRef.current = async (): Promise<void> => {
+      setSelectedTagIds([])
+      setSelected(new Set())
+      setKeyword('')
+      setUnassignedOnly(false)
+      setMissingOnly(false)
+      setIgnoredOnly(false)
+      setProjectFilter(null)
+      const i = await loadWs()
+      if (!i.workspaceOk) return
+      await loadTags(tagScope(null))
+      await loadPacks()
+      await loadAssets('', false, [], false, false, false)
+    }
+  })
+  useEffect(() => {
+    const off = window.api.onWsChanged(() => void wsResetRef.current())
     return off
   }, [])
 
@@ -1379,6 +1431,17 @@ export default function App(): React.JSX.Element {
           </span>
         )}
 
+        {/* 第 85 批：当前工作区标识 —— 五个视图都在同一位置，所以「我在哪个库」
+            这件事在任何一屏都看得见、切得到（原来只在任务/文件的左栏底部）。
+            宽度写死，保证后面的搜索框 x 坐标仍然不随视图跳动。 */}
+        <WorkspaceSwitcher
+          workspaces={info?.workspaces ?? []}
+          activeId={info?.activeId ?? ''}
+          onSwitch={(id) => void doSwitchWs(id)}
+          onAdd={() => void doAddWs()}
+          onManage={() => openSettings('workspace')}
+        />
+
         {/* 第 75 批（docs/57 续）：搜索框**常驻**且定宽 ——
             原来只在任务/文件视图出现，切到工单/模板时页签会整体左移，是顶栏"跳动"的主因之一。 */}
         <div className="search-wrap">
@@ -1469,7 +1532,7 @@ export default function App(): React.JSX.Element {
         <button
           className="btn icon-btn-set"
           title={COPY.set.title}
-          onClick={() => setShowSettings(true)}
+          onClick={() => openSettings('general')}
         >
           <Icon name="gear" size={15} />
         </button>
@@ -1726,74 +1789,11 @@ export default function App(): React.JSX.Element {
             <span className="n">{stats.files}</span>
           </button>
 
-          <div className="divider" />
-
-          <h4>{COPY.side.workspace}</h4>
-          {(info?.workspaces ?? []).map((w) => {
-            const isActive = w.id === info?.activeId
-            return (
-              <div
-                key={w.id}
-                className={`wsitem${isActive ? ' on' : ''}`}
-                onClick={() => {
-                  if (!isActive) void doSwitchWs(w.id)
-                }}
-                title={isActive ? w.root : fmt(COPY.side.wsSwitchTip, { root: w.root })}
-              >
-                <div className="wrow">
-                  <span className="wname">
-                    <Icon name={isActive ? 'folder' : 'archive'} size={13} /> {w.name}
-                  </span>
-                  {isActive ? (
-                    <span className="wtag">{COPY.common.current}</span>
-                  ) : (
-                    <button
-                      className="wx"
-                      title={COPY.side.wsRemoveTip}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void doRemoveWs(w)
-                      }}
-                    >
-                      <Icon name="close" size={12} />
-                    </button>
-                  )}
-                </div>
-                <div className="wpath">{w.root}</div>
-                {isActive && (
-                  <div className="wacts">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void window.api.wsOpenRoot()
-                      }}
-                    >
-                      
-                      {COPY.common.openFolder}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void doMoveWs()
-                      }}
-                    >
-                      
-                      {COPY.side.moveWs}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-          <button
-            className="item addws"
-            onClick={() => void doAddWs()}
-            title={COPY.side.addWsTip}
-          >
-            <span>
-              <Icon name="plus" size={13} strokeWidth={2} />  {COPY.side.addWs}
-            </span>
-          </button>
+          {/* 第 85 批：工作区列表从这里**整体搬走**。
+              工作区是整套库的根（任务 / 文件 / 通用素材 / 模板 / 工单都在里面），
+              挂在这个「文件筛选」下面既说不通，也只有在任务/文件两个视图里才看得见
+              —— 工单 / 通用库 / 模板三个视图不复用左栏，在那儿连库名都看不到。
+              现在：顶栏常驻「当前库」+ 快速切换面板，增删改在「设置 → 工作区」。 */}
         </div>
 
         {/* 左栏宽度拖拽条：按住左右拖，双击复位 */}
@@ -2427,6 +2427,7 @@ export default function App(): React.JSX.Element {
       {/* 第 74 批（docs/57）：全局设置（5 页：通用 / 工作区 / 企业微信 / PS 插件 / 关于） */}
       {showSettings && (
         <SettingsModal
+          initialTab={settingsTab}
           theme={theme}
           onThemeChange={changeTheme}
           density={density}
@@ -2435,7 +2436,13 @@ export default function App(): React.JSX.Element {
           onStartViewChange={changeStartView}
           workspaceRoot={info?.workspaceRoot ?? ''}
           onOpenWorkspace={() => void window.api.openFolder(info?.workspaceRoot ?? '')}
-          onChangeWorkspace={() => void doPickRoot()}
+          workspaces={info?.workspaces ?? []}
+          activeId={info?.activeId ?? ''}
+          onSwitchWorkspace={(id) => void doSwitchWs(id)}
+          onAddWorkspace={() => void doAddWs()}
+          onRemoveWorkspace={(w) => void doRemoveWs(w)}
+          onMoveWorkspace={() => void doMoveWs()}
+          onRenameWorkspace={doRenameWs}
           onOpenWecom={() => {
             setShowSettings(false)
             setShowWizard(true)

@@ -138,6 +138,16 @@ export function TplLibraryView({
     void load()
   }, [load])
 
+  /** 第 85 批：换库后重新拉（模板库同样只在挂载时 load 一次） */
+  useEffect(() => {
+    const off = window.api.onWsChanged(() => {
+      setSel('all')
+      setKeyword('')
+      void load()
+    })
+    return off
+  }, [load])
+
   /**
    * 第 67 批（docs/50）：换分组 / 改搜索词 ⇒ 清空勾选。
    * 不清的话，"在 A 组勾 3 条、切到 B 组点批量删除"会把看不见的 A 组那 3 条也删掉。

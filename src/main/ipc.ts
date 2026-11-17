@@ -19,6 +19,7 @@ import {
   addWorkspace,
   switchWorkspace,
   removeWorkspace,
+  renameWorkspace,
   migrateWorkspaceSameDisk,
   listProjectsWithCount,
   createProject,
@@ -366,8 +367,21 @@ export function registerIpc(opts?: {
     'manual:open',
     'setup:wizardDone'
   ])
-  /** 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容） */
-  const WS_CHANNELS = new Set<string>(['ws:switch', 'ws:setRoot', 'ws:add', 'ws:move'])
+  /**
+   * 换工作区：得先让联动服务指向新根，再排同步（否则写的是旧工作区的内容）。
+   *
+   * 第 85 批补三个：`ws:pickRoot`（选目录切过去）、`ws:remove`（移除当前库时
+   * 会自动切到剩下的第一个）、以及它们共用的 `ws:add`。漏掉的话界面不会收到
+   * `ws:changed`，切完之后列表还是旧库的。
+   */
+  const WS_CHANNELS = new Set<string>([
+    'ws:switch',
+    'ws:setRoot',
+    'ws:add',
+    'ws:move',
+    'ws:pickRoot',
+    'ws:remove'
+  ])
 
   const handleIpc = (
     channel: string,
@@ -375,7 +389,23 @@ export function registerIpc(opts?: {
   ): void => {
     ipcMain.handle(channel, async (e, ...args) => {
       const r = await fn(e, ...args)
-      if (WS_CHANNELS.has(channel)) await refreshLinkWorkspace(getWorkspaceRoot(appData))
+      if (WS_CHANNELS.has(channel)) {
+        await refreshLinkWorkspace(getWorkspaceRoot(appData))
+        // 第 85 批：**换库要通知所有窗口**。
+        // 通用库 / 模板库 / 工单视图都是自包含组件（各自 useCallback(() => load())），
+        // 只在挂载时拉一次数据 —— 入口还在左栏时切库必然发生在任务/文件视图，
+        // 所以这个洞一直没暴露。入口搬到顶栏之后，用户可以在通用库里直接切库：
+        // 不广播的话标题变了、列表还是旧库的。
+        const ws = listWorkspaces(appData)
+        for (const w of BrowserWindow.getAllWindows()) {
+          if (!w.webContents.isDestroyed()) {
+            w.webContents.send('ws:changed', {
+              workspaceRoot: getWorkspaceRoot(appData),
+              activeId: ws.activeId
+            })
+          }
+        }
+      }
       if (!NO_MIRROR_CHANNELS.has(channel)) scheduleMirror(channel)
       return r
     })
@@ -699,6 +729,13 @@ export function registerIpc(opts?: {
 
   // 只删配置里的一条记录，磁盘上一个字节都不动
   handleIpc('ws:remove', (_e, id: string) => removeWorkspace(appData, id))
+
+  /**
+   * 第 85 批：改显示名。只动配置里的 name，不重命名文件夹 ——
+   * 文件夹改名会牵动一堆已登记的绝对路径，代价远大于收益。
+   * 不进 WS_CHANNELS：根没变，不需要重指联动服务、也不需要广播换库。
+   */
+  handleIpc('ws:rename', (_e, id: string, name: string) => renameWorkspace(appData, id, name))
 
   handleIpc('ws:move', async (_e, opts?: { targetParentDir?: string }) => {
     let parent = opts?.targetParentDir
