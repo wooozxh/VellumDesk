@@ -121,6 +121,20 @@ NODE_OPTIONS= CODEBUDDY_SAFE_DELETE_BULK_THRESHOLD=20000 VELLUM_PLUGIN_SYNC=0 no
 **跑场景前先腾空工作区（防护栏）**：场景壳启动时会 `rmSync` 整个 `D:\_accept_ws\shot*` 工作区，残留文件一多会撞 AI 沙箱批量删除护栏（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`），场景「启动阶段炸了」还会连锁污染后面的场景（左栏空数据、大面积假失败）。正解：跑之前用 Python `shutil.move` 把 `shot*` 目录移到别处 —— **move 不触发护栏**（rmtree/rmSync 都会），工作区不存在时场景里的 `rmSync` 就是空操作。
 
 > ⚠️ 这里的 `shutil.move` 是**唯一**允许用 move 的场景（判空而不判内容，丢了也无所谓）。
+
+## 推送兜底（github.com 被网络挡住时）
+
+公司网络 / 代理常把 `github.com:443` 掐掉（CONNECT 502 或直接 reset），但 `api.github.com` 一般还通。
+这种情况用 Git Data API 把本地提交原样搬上去：
+
+```bash
+npm run push:api                # 推当前分支所有领先远端的提交
+npm run push:api -- --dry-run   # 只列出待推提交，不写远端
+```
+
+- token 从 `git credential fill` 取（Windows 凭据管理器里存的 GitHub 凭据），不读环境变量、不落盘、不打印。
+- author / committer / tree / message / parent 全部按本地原样传，**远端 commit sha 与本地一致**，不用改写历史。
+- 只支持 GitHub、直线历史；遇到 merge 提交或远端分叉会明确报错，这时改用 `git push`。
 > **改 `src` 源码树只许 `copytree`**，见下方「坑」表最后一行。
 
 **跑测试前抬高批量删除阈值**：护栏按「本轮请求」累计，一轮里跑完 accept + 10 个场景会远超 50 次。
