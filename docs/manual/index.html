@@ -46,13 +46,13 @@
     <!-- ============ 封面 ============ -->
     <header class="cover">
       <img class="logo" src="images/logo.png" alt="Vellum Desk" />
-      <span class="tag">USER MANUAL · v1.14.0</span>
+      <span class="tag">USER MANUAL · v1.15.0</span>
       <h1>Vellum工作台 用户使用手册</h1>
       <p class="lede">本地素材管理桌面软件。把设计物料、任务稿、企微工单这三件事，收进一个「看得见磁盘真相」的工作台里 —— 所有素材都在你本机硬盘上，不上传任何云端。</p>
       <div class="kv">
-        <div><b>1.14.0</b>软件版本</div>
+        <div><b>1.15.0</b>软件版本</div>
         <div><b>Windows 10 / 11 · 64 位</b>适用系统</div>
-        <div><b>2026-11-10</b>手册更新</div>
+        <div><b>2026-11-18</b>手册更新</div>
         <div><b>40+ 张</b>界面截图</div>
         <div><b>内部使用</b>分发范围</div>
       </div>
@@ -580,14 +580,14 @@
 
     <section id="s2-9">
       <h2><span class="n">2.9</span>导出报表</h2>
-      <p>导出不是导一份本地文件，而是把数据<b>写进另一张企微智能表格</b>（叫「工单报表」）的一个新子表里。</p>
+      <p>导出分两种：<b>流水报表</b>（按单据流水，一张子表）和<b>月度报表</b>（按设计师一人一张，用来汇报月度产出）。数据都写进「工单报表」这张企微智能表格的新子表里，<b>不是导本地文件</b>。</p>
       <figure>
         <img src="images/22-导出报表.png" alt="导出报表" />
-        <figcaption>图 2-9　导出报表 —— 报表表格链接 + 起止日期（默认当月 1 日 ~ 月末）</figcaption>
+        <figcaption>图 2-9　导出报表 —— 先选报表类型（流水 / 月度），再选起止日期（默认当月 1 日 ~ 月末）</figcaption>
       </figure>
 
-      <h3>前置条件</h3>
-      <p>「工单报表」这张智能表格里，要有一个子表叫 <b>「报表模板」</b>，并且下面这 12 列的<b>列名和类型完全一致</b>（表由管理员建好）：</p>
+      <h3>前置条件：两张模板子表</h3>
+      <p>「工单报表」里要有一个子表叫 <b>「报表模板（总报表）」</b>，并且下面这 12 列的<b>列名和类型完全一致</b>（表由管理员建好）：</p>
       <table>
         <thead><tr><th style="width:44px">#</th><th>列</th><th>类型</th><th>来源</th></tr></thead>
         <tbody>
@@ -606,15 +606,48 @@
         </tbody>
       </table>
 
-      <h3>操作三步</h3>
+      <p>月度报表另有一张模板子表 <b>「报表模板（月度报表）」</b>，9 列：</p>
+      <table>
+        <thead><tr><th style="width:44px">#</th><th>列</th><th>类型</th><th>来源</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>工单类型（印刷/电子）</td><td>单选（印刷 / 电子）</td><td>工单</td></tr>
+          <tr><td>2</td><td>编号</td><td>文本</td><td>工单</td></tr>
+          <tr><td>3</td><td>完成时间</td><td>日期</td><td>工单（筛选依据）</td></tr>
+          <tr><td>4</td><td>物料名称</td><td>文本</td><td>工单</td></tr>
+          <tr><td>5</td><td>业务归属</td><td>文本</td><td>工单</td></tr>
+          <tr><td>6</td><td>设计师</td><td>成员（多选）</td><td>工单（全量）</td></tr>
+          <tr><td>7</td><td>物料体量</td><td>数字</td><td><b>设计师手填</b>（导出留空）</td></tr>
+          <tr><td>8</td><td>缩略图</td><td>图片</td><td>「完成任务」时写回的图</td></tr>
+          <tr><td>9</td><td>备注</td><td>文本</td><td><b>设计师手填</b>（导出留空）</td></tr>
+        </tbody>
+      </table>
+
+      <div class="call info"><span class="h">模板名对不上怎么办</span>软件会自动认这两个名字；万一模板又改了名，导出时会列出这张表格里的所有子表让你选，选一次就记住。</div>
+
+      <h3>流水报表：三步</h3>
       <ol class="steps">
         <li>工单队列 → 顶栏 <span class="btnchip">导出报表</span>。</li>
-        <li>把「工单报表」的链接粘进「报表表格链接」—— <b>填过一次就记住了</b>，以后打开会自动预填。</li>
+        <li>类型选 <b>流水报表</b>，把「工单报表」的链接粘进「报表表格链接」—— <b>填过一次就记住了</b>，以后打开会自动预填。</li>
         <li>选开始 / 结束日期 → 点 <span class="btnchip">导出</span>。结果是在「工单报表」里新建一个子表，名字就是日期区间（如 <code>2026-10-01~2026-10-31</code>）。</li>
       </ol>
 
+      <h3>月度报表：一位设计师一张子表</h3>
+      <figure>
+        <img src="images/22b-导出报表-月度.png" alt="月度报表" />
+        <figcaption>图 2-9b　切到月度报表 —— 按设计师一人一张，物料体量 / 备注留空等设计师填</figcaption>
+      </figure>
+      <ul>
+        <li>类型选 <b>月度报表</b>，起止日期可以选整月，也可以只导半个月（如 1 日 ~ 15 日）。</li>
+        <li>软件按「设计师」拆表：<b>一个人一张子表</b>，只装他自己的单。</li>
+        <li>子表名：整月是 <code>2026-11 张三 月度报表</code>；非整月是 <code>2026-11-01~15 张三 月度报表</code> —— 同一个月导两次也不会重名。</li>
+        <li><b>物料体量、备注导出时是空的</b>，由设计师在表格里手填。</li>
+        <li>一张单有两个设计师 → 两个人的表里<b>各出现一次</b>（按人计产出）。</li>
+        <li>没有设计师的单不导出，结果里会提示「跳过 N 条（无设计师）」。</li>
+      </ul>
+      <div class="call info"><span class="h">子表为什么是平铺的</span>企微接口没有「子表文件夹 / 分组」能力。子表按创建顺序排列，同月几张会挨在一起；要收进分组，导出后在客户端手动拖一次。</div>
+
       <div class="call warn"><span class="h">报表里没数据？</span>多半是这段时间内没有「完成时间」落进来的单 —— <b>还在审批中的单，这一列是空的</b>，天然不进报表。导出为空时会提示「该时间段没有已完成工单」。</div>
-      <div class="call info"><span class="h">导出前顺手做一件事</span>工单详情里的「印刷金额 / 绩效金额 / 备注」是只存软件本地的三个字段（企微表里没有这几列）。想让报表带上它们，就在这里按单填好。</div>
+      <div class="call info"><span class="h">导出前顺手做一件事</span>工单详情里的「印刷金额 / 绩效金额 / 备注」是只存软件本地的三个字段（企微表里没有这几列）。想让流水报表带上它们，就在这里按单填好；月度报表的备注是留空手填的，不取这里的值。</div>
     </section>
 
     <section id="s2-10">
@@ -1249,21 +1282,36 @@
       <h2><span class="n">5.4</span>工作区管理与多库</h2>
       <p>「工作区」就是存放全部素材的根文件夹。整个文件夹拷走 = 完整备份。</p>
       <div class="fig2">
-        <figure><img src="images/36-多工作区.png" alt="多工作区" /><figcaption>图 5-5　左栏可以挂多个工作区，点一下切换</figcaption></figure>
-        <figure><img src="images/37-工作区连不上.png" alt="工作区连不上" /><figcaption>图 5-6　工作区连不上时的黄条 —— 重试 / 更改位置</figcaption></figure>
+        <figure><img src="images/36-多工作区.png" alt="多工作区" /><figcaption>图 5-5　顶栏的工作区按钮 —— 点开是库列表，两个库都在这里切</figcaption></figure>
+        <figure><img src="images/36b-工作区管理器.png" alt="工作区管理器" /><figcaption>图 5-6　设置 → 工作区 —— 切换 / 重命名 / 移除 / 搬移都在这里</figcaption></figure>
       </div>
+
+      <h3>切换：顶栏常驻当前库</h3>
+      <p>顶栏左上角（logo 右边）一直显示当前库的名字，<b>五个视图都能看见</b>。点它弹出库列表：</p>
+      <ul>
+        <li>每行是「名字 + 完整路径」—— 两个库重名时只有路径能区分；</li>
+        <li>当前库打勾并高亮；</li>
+        <li>点另一行当场切过去，整套重新加载（筛选状态清空）；</li>
+        <li>底部是 <span class="btnchip">添加工作区</span> 和 <span class="btnchip">管理工作区</span>。</li>
+      </ul>
+      <p>只有一个库时，点它直接进「设置 → 工作区」，不弹列表。</p>
+
+      <h3>管理：设置 → 工作区</h3>
       <table>
         <thead><tr><th style="width:150px">元素</th><th>说明</th></tr></thead>
         <tbody>
-          <tr><td>工作区卡片</td><td>点一下切到另一个库（会整套重新加载，筛选状态清空）</td></tr>
-          <tr><td>「当前」标记</td><td>表示正在用这个库</td></tr>
-          <tr><td>打开文件夹</td><td>用资源管理器打开工作区根目录</td></tr>
-          <tr><td>搬移位置</td><td>把整个工作区搬到别的路径。<b>同盘瞬间完成；跨盘软件不搬</b>，会弹窗教你先用资源管理器复制再「添加工作区」</td></tr>
-          <tr><td>✕</td><td>从列表移除（<b>只去掉记录，磁盘文件一个字节不动</b>）</td></tr>
+          <tr><td>库表格</td><td>每行「名称 / 位置 / 操作」，当前库高亮并标「当前」</td></tr>
+          <tr><td>切换</td><td>非当前行点「切换」就换过去（等同于顶栏面板里点一下）</td></tr>
+          <tr><td>重命名</td><td>行内编辑，Enter 提交、Esc 撤销。<b>只改显示名，不改文件夹名</b>（改了会牵动一堆已登记的路径）</td></tr>
+          <tr><td>打开</td><td>用资源管理器打开该库的根目录</td></tr>
+          <tr><td>搬移</td><td>把整个工作区搬到别的路径。<b>同盘瞬间完成；跨盘软件不搬</b>，会弹窗教你先用资源管理器复制再「添加工作区」</td></tr>
+          <tr><td>移除</td><td>从列表移除（<b>只去掉记录，磁盘文件一个字节不动</b>）</td></tr>
           <tr><td>＋ 添加工作区</td><td>选一个文件夹作为工作区：空的就新建库，有素材库的直接接进来</td></tr>
+          <tr><td>打开文件夹</td><td>页面顶部按钮，打开当前库的根目录</td></tr>
         </tbody>
       </table>
-      <div class="call warn"><span class="h">工作区连不上怎么办</span>顶部出现黄条「工作区『xxx』连不上，里面的东西一件没动」= 盘没挂上或没权限。插好移动硬盘后点 <span class="btnchip">重试</span>；路径变了就点 <span class="btnchip">更改位置</span> 指到新位置。<b>软件绝不会偷偷换位置。</b></div>
+
+      <div class="call warn"><span class="h">工作区连不上怎么办</span>顶部出现黄条「工作区『xxx』连不上，里面的东西一件没动」= 盘没挂上或没权限。插好移动硬盘后点 <span class="btnchip">重试</span>；路径真的变了，就去「设置 → 工作区」把旧库移除、用 <span class="btnchip">添加工作区</span> 指到新位置。<b>软件绝不会偷偷换位置。</b></div>
       <div class="call danger"><span class="h">不要用网盘同步目录当工作区</span>云端占位符、改名、并发写会让大批文件被判「文件已丢失」，甚至数据库损坏。放在本机固定盘或移动硬盘上。</div>
     </section>
 
@@ -1330,7 +1378,7 @@
         <thead><tr><th style="width:130px">页</th><th>管什么</th><th style="width:230px">里面有什么</th></tr></thead>
         <tbody>
           <tr><td>通用</td><td>界面主题（深色 / 浅色）、列表密度（标准 / 紧凑）、启动时打开（停在那一屏）</td><td>主题两颗按钮（当前那个实心蓝）；密度两颗按钮；启动是一个下拉，6 个选项</td></tr>
-          <tr><td>工作区</td><td>这台电脑上的素材目录 —— 所有素材都存在这里，不上传云端</td><td>完整路径 + <span class="btnchip">打开文件夹</span> <span class="btnchip">更换位置</span></td></tr>
+          <tr><td>工作区</td><td>这台电脑上的素材目录 —— 所有素材都存在这里，不上传云端；多个库在这里切换、重命名、移除</td><td>库表格（切换 / 重命名 / 打开 / 搬移 / 移除）+ <span class="btnchip">添加工作区</span></td></tr>
           <tr><td>企业微信连接</td><td>工单同步用的账号级授权，一次授权长期有效</td><td><span class="btnchip">打开连接引导</span>（授权状态在引导里看）</td></tr>
           <tr><td>PS 插件联动</td><td>PS 里「新建稿」用的模板目录与自动同步开关</td><td><span class="btnchip">打开配置</span>（开关与目录在配置里改）</td></tr>
           <tr><td>关于</td><td>版本号与使用手册</td><td>版本号（报问题时带上这个号）、<span class="btnchip">打开手册</span>（用系统浏览器打开随安装包一起装好的手册）</td></tr>
@@ -1363,7 +1411,7 @@
       <ul>
         <li><b>换主题</b>：直接点顶栏最右的太阳 / 月亮钮就行，和「设置 → 通用」里那两颗按钮是同一件事。</li>
         <li><b>换密度</b>：工单多、一屏看不完时选「紧凑」；截图、录屏、给别人演示时选「标准」更好看。改完立即生效，不用重启。</li>
-        <li><b>换工作区</b>：「工作区 → 更换位置」= 换一整库素材。原库不会被删也不会被改，随时能换回来，细节见 <a href="#s5-4">5.4</a>。</li>
+        <li><b>换工作区</b>：点顶栏左上角的库名，或走「设置 → 工作区 → 切换」= 换一整库素材。原库不会被删也不会被改，随时能换回来，细节见 <a href="#s5-4">5.4</a>。</li>
       </ul>
     </section>
 
@@ -1696,7 +1744,7 @@ note:主推款，上方留白给标题</code></pre>
           <tr><td>导出报表</td><td>工单队列「导出报表」</td><td>导出 / 取消</td></tr>
           <tr><td>确认清理工单</td><td>工单设置「危险操作 → 清理这些工单」</td><td>确认清理 / 取消</td></tr>
           <tr><td>PS 插件联动</td><td>设置 → PS 插件联动 → 打开配置（顶栏原来那个「插件」按钮已经收进设置）</td><td>同步到插件 / 选择目录 / 关闭</td></tr>
-          <tr><td>设置</td><td>顶栏最右 ⚙</td><td>深色 / 浅色 / 打开文件夹 / 更换位置 / 打开连接引导 / 打开配置 / 关闭</td></tr>
+          <tr><td>设置</td><td>顶栏最右 ⚙</td><td>深色 / 浅色 / 切换 / 重命名 / 打开 / 搬移 / 移除 / 添加工作区 / 打开连接引导 / 打开配置 / 关闭</td></tr>
           <tr><td>通用库 · 新建 / 改名分组</td><td>通用库工具栏「新建分组」，或分组行上的 ✎</td><td>新建分组 / 保存 / 取消</td></tr>
           <tr><td>通用库 · 删除分组 / 移出 / 复制到任务</td><td>分组行的删除按钮；素材卡片的移除与复制按钮</td><td>删除分组 / 移出到回收站 / 只移出记录 / 复制到任务 / 取消</td></tr>
         </tbody>
@@ -1906,9 +1954,9 @@ note:主推款，上方留白给标题</code></pre>
       <table>
         <thead><tr><th style="width:170px">位置</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td><code>1.14.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
+          <tr><td><code>1.15.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
           <tr><td>状态栏右下角</td><td>软件里唯一的版本号显示位置 —— 报问题时顺手截这里</td></tr>
-          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.14.0</b>）</td></tr>
+          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.15.0</b>）</td></tr>
         </tbody>
       </table>
 
@@ -1916,7 +1964,7 @@ note:主推款，上方留白给标题</code></pre>
       <div class="call warn"><span class="h">升级前顺手备份一次</span>把整个工作区文件夹复制一份到移动硬盘。虽然升级不动素材，但这是零成本的保险。</div>
 
       <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px">
-        本手册对应软件版本 <b>1.14.0</b>　|　最后更新 2026-11-10　|　内部使用，请勿外传
+        本手册对应软件版本 <b>1.15.0</b>　|　最后更新 2026-11-18　|　内部使用，请勿外传
       </div>
     </section>
 
@@ -1930,7 +1978,7 @@ note:主推款，上方留白给标题</code></pre>
 <button class="totop" id="totop" title="回到顶部">↑</button>
 
 <footer style="max-width:1240px;margin:0 auto;padding:0 24px 60px">
-  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.14.0　|　2026-11-10</span></div>
+  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.15.0　|　2026-11-18</span></div>
   <span>下载与更新见页面右上角 <b style="font-family:var(--mono)">GitHub</b> 图标，或翻到 <a href="#s7-7">7.7 下载与更新</a></span>
 </footer>
 
