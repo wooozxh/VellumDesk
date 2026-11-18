@@ -867,6 +867,18 @@ export function applySync(input: ApplySyncInput): SyncResult {
   const setReassigned = db.prepare('UPDATE tickets SET reassigned_to = ? WHERE ticket_no = ?')
   const clearReassigned = db.prepare('UPDATE tickets SET reassigned_to = NULL WHERE ticket_no = ?')
 
+  /**
+   * 第 87 批：建任务判定包进 `BEGIN IMMEDIATE` 事务。
+   *
+   * 原来的路径是「查 pack_id 为空 → createPack → 关联」，单实例锁挡住多开之后，
+   * 这一层是给**跨机器共用同一个工作区**（移动硬盘 / 网盘同步）留的兜底：
+   * 两个进程同时判空时，先拿到写锁的那个建完并提交，另一个要么等锁、要么直接失败，
+   * 不会两个人都建出一个同名任务。
+   *
+   * `immediate()` 是关键 —— 默认的 deferred 事务要等第一次写才升锁，
+   * 而这里最危险的时刻恰恰是「读 pack_id 之后、写入之前」。
+   */
+  const buildTasks = db.transaction(() => {
   for (const row of flat) {
     const t = selByNo.get(row.ticket_no) as
       | (Pick<TicketRowLite, 'pack_id' | 'is_history' | 'need_confirm' | 'approval_state' | 'reassigned_to'> & {
@@ -972,6 +984,8 @@ export function applySync(input: ApplySyncInput): SyncResult {
       )
     }
   }
+  })
+  buildTasks.immediate()
 
   // ---- ⑤ 删行处理（§4.2 步骤5）：本次拉到的子表里，record_id 消失的单留底标 gone ----
   const liveSheetIds = [...new Set(input.payloads.map((p) => p.sheet_id))]

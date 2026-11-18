@@ -210,6 +210,13 @@ export function openDb(workspaceRoot: string): Database.Database {
   db = new Database(join(dbDir, 'media.db'))
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  /**
+   * 第 87 批：写锁等待 8 秒。
+   * 建任务现在跑在 `BEGIN IMMEDIATE` 事务里；万一还有第二个进程（两台机器共用工作区）同时写，
+   * 默认 busy_timeout=0 会立刻 SQLITE_BUSY 报错 —— 用户看到的是"同步失败"，
+   * 给 8 秒让它排队，绝大多数情况能等到锁而不是报错。
+   */
+  db.pragma('busy_timeout = 8000')
 
   migrate(db, workspaceRoot)
   return db

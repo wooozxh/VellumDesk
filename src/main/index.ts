@@ -367,6 +367,25 @@ try {
 }
 app.setPath('userData', userDataDir)
 
+/**
+ * 第 87 批：**单实例锁**。
+ *
+ * 用户实测「点一下刷新，同名任务多一个」的根因：双击两次图标会开两个窗口，两个窗口各自跑
+ * 工单同步；建任务的判定是「查 pack_id → 为空就建」，两个进程都查到空，就各建一个
+ * （第二个文件夹自动带 `-2`、没有工单关联 → 卡片显示 `编号 T00xx`）。
+ *
+ * 单实例锁从源头禁止第二个实例起来；被挡住的实例把已有窗口叫到前台，
+ * 用户不会觉得「点了图标没反应」。注意窗口可能收在托盘里（隐藏但没销毁），
+ * showMainWindow 会先 restore + show 再 focus。
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  process.exit(0)
+}
+app.on('second-instance', () => {
+  showMainWindow()
+})
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.vellumdesk')
 
