@@ -17,27 +17,54 @@ import { parseThumbUrls } from './tickets'
 
 // ============================================================ 报表模板字段名（用户建好的模板，docs/22 §2.1）
 
-/** 报表配置的 meta 键（报表表格 docid + 模板子表名） */
+/** 报表配置的 meta 键（报表表格 docid + 两套模板子表名） */
 export const REPORT_META_KEYS = {
   docid: 'report_docid',
-  templateSheet: 'report_template_sheet'
+  /** 流水报表模板（老键名沿用，避免老工作区丢配置） */
+  templateSheet: 'report_template_sheet',
+  /** 月度报表模板（第 86 批新增） */
+  templateSheetMonth: 'report_template_sheet_month'
 } as const
 
-/** 读报表配置（未配置 docid → null；模板子表名默认「报表模板」） */
-export function readReportConfig(): { docid: string | null; templateSheet: string } {
+/** 两套模板的默认子表名（与用户真表现名一致） */
+export const DEFAULT_TEMPLATE_FLOW = '报表模板（总报表）'
+export const DEFAULT_TEMPLATE_MONTH = '报表模板（月度报表）'
+
+/**
+ * 历史默认名。读到这个值说明是**老工作区从没改过**，而真表已经改名 ——
+ * 直接当成"没配过"，升级成新默认；用户自定义过的名字一律原样保留。
+ */
+const LEGACY_TEMPLATE_FLOW = '报表模板'
+
+/** 读报表配置（未配置 docid → null；模板名各自回落默认） */
+export function readReportConfig(): {
+  docid: string | null
+  templateSheet: string
+  templateSheetMonth: string
+} {
+  const saved = getMeta(REPORT_META_KEYS.templateSheet)
   return {
     docid: getMeta(REPORT_META_KEYS.docid),
-    templateSheet: getMeta(REPORT_META_KEYS.templateSheet) || '报表模板'
+    templateSheet: !saved || saved === LEGACY_TEMPLATE_FLOW ? DEFAULT_TEMPLATE_FLOW : saved,
+    templateSheetMonth: getMeta(REPORT_META_KEYS.templateSheetMonth) || DEFAULT_TEMPLATE_MONTH
   }
 }
 
-/** 写报表配置（导出弹窗里粘贴链接时落库） */
-export function writeReportConfig(docid: string, templateSheet: string): void {
+/** 写报表配置（导出弹窗里粘贴链接 / 从候选里选模板时落库） */
+export function writeReportConfig(
+  docid: string,
+  templateSheet: string,
+  templateSheetMonth?: string
+): void {
   setMeta(REPORT_META_KEYS.docid, docid)
-  setMeta(REPORT_META_KEYS.templateSheet, templateSheet || '报表模板')
+  setMeta(REPORT_META_KEYS.templateSheet, templateSheet || DEFAULT_TEMPLATE_FLOW)
+  if (templateSheetMonth) setMeta(REPORT_META_KEYS.templateSheetMonth, templateSheetMonth)
 }
 
-/** 报表模板的 12 个字段名（精确匹配用户建好的「报表模板」子表列名） */
+/** 报表类型：流水（全字段）/ 月度（按设计师拆表，部分列留空） */
+export type ReportKind = 'flow' | 'monthly'
+
+/** 流水报表模板的 12 个字段名（精确匹配用户建好的「报表模板（总报表）」列名） */
 export const REPORT_FIELD = {
   type: '工单类型（印刷/电子）',
   no: '编号',
@@ -52,6 +79,51 @@ export const REPORT_FIELD = {
   performanceCost: '绩效金额',
   remark: '备注'
 } as const
+
+/**
+ * 月度报表模板的 9 个字段名（精确匹配「报表模板（月度报表）」列名）。
+ * 「物料体量」「备注」由设计师在表格里手填 —— 导出时**故意不写**，保持空白。
+ */
+export const REPORT_FIELD_MONTH = {
+  type: REPORT_FIELD.type,
+  no: REPORT_FIELD.no,
+  doneTime: REPORT_FIELD.doneTime,
+  title: REPORT_FIELD.title,
+  project: REPORT_FIELD.project,
+  designers: REPORT_FIELD.designers,
+  thumb: REPORT_FIELD.thumb,
+  /** 手填列：导出不写 */
+  bodySize: '物料体量',
+  /** 手填列：导出不写（与流水报表的本地备注不是一回事） */
+  remark: REPORT_FIELD.remark
+} as const
+
+/** 每种类型「模板里必须有」的列（缺了才警告；手填列不在此列） */
+export const REPORT_REQUIRED_FIELDS: Record<ReportKind, string[]> = {
+  flow: [
+    REPORT_FIELD.type,
+    REPORT_FIELD.no,
+    REPORT_FIELD.doneTime,
+    REPORT_FIELD.title,
+    REPORT_FIELD.project,
+    REPORT_FIELD.applicant,
+    REPORT_FIELD.designers,
+    REPORT_FIELD.thumb,
+    REPORT_FIELD.qty,
+    REPORT_FIELD.printCost,
+    REPORT_FIELD.performanceCost,
+    REPORT_FIELD.remark
+  ],
+  monthly: [
+    REPORT_FIELD_MONTH.type,
+    REPORT_FIELD_MONTH.no,
+    REPORT_FIELD_MONTH.doneTime,
+    REPORT_FIELD_MONTH.title,
+    REPORT_FIELD_MONTH.project,
+    REPORT_FIELD_MONTH.designers,
+    REPORT_FIELD_MONTH.thumb
+  ]
+}
 
 // ============================================================ 数据行
 
@@ -127,6 +199,8 @@ export function buildReportRows(start: string, end: string): ReportRow[] {
 export interface ReportAdapter {
   /** 读报表模板字段（复制字段结构用） */
   fetchTemplateFields(docid: string, sheetTitle: string): Promise<CliResult<ReportField[]>>
+  /** 列报表表格里的全部子表（模板名对不上时给用户选，第 86 批） */
+  listSheets(docid: string): Promise<CliResult<Array<{ title: string; fieldCount: number }>>>
   /** 建子表（按起止日期命名 + 复制字段结构） */
   addSheet(docid: string, sheetTitle: string, fields: ReportField[]): Promise<CliResult<null>>
   /** 把工单队列空间的缩略图 URL 重新上传到报表文档空间（返回报表空间图片 URL） */
@@ -143,7 +217,9 @@ export interface ReportAdapter {
 
 export interface ExportReportInput {
   docid: string
-  /** 报表模板子表名（默认「报表模板」） */
+  /** 报表类型（默认按流水处理，兼容老调用） */
+  kind?: ReportKind
+  /** 报表模板子表名（流水 / 月度各自的模板） */
   templateSheet: string
   /** 起止日期（YYYY-MM-DD） */
   start: string
@@ -152,14 +228,22 @@ export interface ExportReportInput {
 
 export interface ExportReportResult {
   ok: boolean
-  /** 新建的子表名（= 起止日期） */
+  /** 新建的子表名（流水 = 起止日期；月度是多张，取第一张供旧调用方使用） */
   sheetTitle?: string
-  /** 导出的条数 */
+  /** 导出的条数（月度 = 各人表内条数之和，一单多人会重复计） */
   count?: number
   /** 字段缺失 / 类型不符 / 选项缺失的警告（不阻断导出） */
   fieldWarnings?: string[]
-  kind?: 'cli-missing' | 'auth-expired' | 'unknown'
+  kind?: 'cli-missing' | 'auth-expired' | 'sheet-missing' | 'unknown'
   error?: string
+  /** kind = sheet-missing：该表格现有的全部子表名，供界面让用户选 */
+  candidates?: string[]
+  /** 月度：实际建出的子表（标题 + 条数） */
+  sheets?: Array<{ title: string; count: number }>
+  /** 月度：因「没有设计师」被跳过的原始工单条数 */
+  skipped?: number
+  /** 月度：建表 / 写记录失败的子表（其余继续导，最后如实汇报） */
+  failedSheets?: Array<{ title: string; error: string }>
 }
 
 // ============================================================ 值序列化
@@ -185,14 +269,17 @@ function toDateTime(iso: string): string {
 }
 
 /**
- * 一行 → 记录值（values 的 key = 字段名）。字段缺失/类型不匹配时跳过并留 warning。
- * 单值列 null → 不写该键（让表格保持空，而不是写空串/0）。
+ * 一行 → 记录值（values 的 key = 字段名）。
+ * - 单值列 null → 不写该键（让表格保持空，而不是写空串/0）
+ * - 月度：只写 7 个通用列；「物料体量」「备注」**故意不写**（设计师手填）
+ * - 列在模板里不存在 → 跳过（缺列警告由 exportReport 统一预检，避免每条都刷一遍）
  */
 function serializeRow(
   row: ReportRow,
   fieldMap: Map<string, ReportField>,
   thumbUrls: string[],
-  warnings: string[]
+  warnings: string[],
+  kind: ReportKind
 ): Record<string, unknown> {
   const v: Record<string, unknown> = {}
   const field = (k: string): ReportField | undefined => fieldMap.get(k)
@@ -204,26 +291,20 @@ function serializeRow(
     const id = optionId(typeF, typeText)
     v[REPORT_FIELD.type] = id ? [{ id, text: typeText }] : [{ text: typeText }]
     if (!id) warnings.push(`「工单类型」缺「${typeText}」选项，已按文本写入`)
-  } else {
-    warnings.push(`报表模板缺「${REPORT_FIELD.type}」字段`)
   }
 
   // 编号（文本）
   if (field(REPORT_FIELD.no)) v[REPORT_FIELD.no] = row.ticketNo
-  else warnings.push(`报表模板缺「${REPORT_FIELD.no}」字段`)
 
   // 完成时间（日期）
-  if (field(REPORT_FIELD.doneTime) && row.doneTime) v[REPORT_FIELD.doneTime] = toDateTime(row.doneTime)
-  else if (!field(REPORT_FIELD.doneTime)) warnings.push(`报表模板缺「${REPORT_FIELD.doneTime}」字段`)
+  if (field(REPORT_FIELD.doneTime) && row.doneTime) {
+    v[REPORT_FIELD.doneTime] = toDateTime(row.doneTime)
+  }
 
   // 物料名称 / 业务归属（文本）
   if (field(REPORT_FIELD.title) && row.title) v[REPORT_FIELD.title] = row.title
   if (field(REPORT_FIELD.project) && row.projectName) v[REPORT_FIELD.project] = row.projectName
 
-  // 申请人（成员，多选）：单元素数组
-  if (field(REPORT_FIELD.applicant) && row.applicantName) {
-    v[REPORT_FIELD.applicant] = [{ userName: row.applicantName }]
-  }
   // 设计师（成员，多选）：全量 [{userName}]
   if (field(REPORT_FIELD.designers) && row.designers.length) {
     v[REPORT_FIELD.designers] = row.designers.map((d) => ({ userName: d.name }))
@@ -234,68 +315,265 @@ function serializeRow(
     v[REPORT_FIELD.thumb] = thumbUrls.map((u) => ({ title: row.ticketNo, imageUrl: u }))
   }
 
-  // 印刷数量（数字）/ 印刷金额（货币）/ 绩效金额（货币）
-  if (field(REPORT_FIELD.qty) && row.printQty != null) v[REPORT_FIELD.qty] = row.printQty
-  if (field(REPORT_FIELD.printCost) && row.printCost != null) v[REPORT_FIELD.printCost] = row.printCost
-  if (field(REPORT_FIELD.performanceCost) && row.performanceCost != null) {
-    v[REPORT_FIELD.performanceCost] = row.performanceCost
+  // 流水专属：申请人 / 数量 / 两个金额 / 本地备注
+  if (kind === 'flow') {
+    if (field(REPORT_FIELD.applicant) && row.applicantName) {
+      v[REPORT_FIELD.applicant] = [{ userName: row.applicantName }]
+    }
+    if (field(REPORT_FIELD.qty) && row.printQty != null) v[REPORT_FIELD.qty] = row.printQty
+    if (field(REPORT_FIELD.printCost) && row.printCost != null) {
+      v[REPORT_FIELD.printCost] = row.printCost
+    }
+    if (field(REPORT_FIELD.performanceCost) && row.performanceCost != null) {
+      v[REPORT_FIELD.performanceCost] = row.performanceCost
+    }
+    if (field(REPORT_FIELD.remark) && row.remark) v[REPORT_FIELD.remark] = row.remark
   }
-
-  // 备注（文本）
-  if (field(REPORT_FIELD.remark) && row.remark) v[REPORT_FIELD.remark] = row.remark
 
   return v
 }
 
 // ============================================================ 导出主流程
 
-/** 起止日期 → 子表名（如 2026-10-01~2026-10-31，docs/22 §7 #3） */
+/** 起止日期 → 流水子表名（如 2026-10-01~2026-10-31，docs/22 §7 #3） */
 export function reportSheetTitle(start: string, end: string): string {
   return `${start}~${end}`
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+/** 起止是否正好覆盖一个自然月（1 号 ~ 当月最后一天） */
+export function isFullMonth(start: string, end: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start)
+  if (!m) return false
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  const last = new Date(y, mo, 0).getDate()
+  return d === 1 && end === `${y}-${pad2(mo)}-${pad2(last)}`
+}
+
+/** 区间短标签：同月 `2026-11-01~15`；跨月 `2026-11-20~12-05` */
+export function rangeLabel(start: string, end: string): string {
+  if (start.slice(0, 7) === end.slice(0, 7)) return `${start}~${end.slice(8, 10)}`
+  return `${start}~${end.slice(5)}`
+}
+
 /**
- * 导出报表：选起止日期 → 建子表（复制字段）→ 逐条写记录（含图片列重新上传）。
+ * 月度子表名（第 86 批）：
+ * - 整月：`2026-11 张三 月度报表`
+ * - 非整月：`2026-11-01~15 张三 月度报表`（同月导两次靠区间区分，不会同名）
+ */
+export function monthSheetTitle(start: string, end: string, name: string): string {
+  const prefix = isFullMonth(start, end) ? start.slice(0, 7) : rangeLabel(start, end)
+  return `${prefix} ${name} 月度报表`
+}
+
+export interface DesignerGroup {
+  name: string
+  rows: ReportRow[]
+}
+
+/**
+ * 月度：按设计师拆组。一单多人 → 每个人的组里各放一份（按人计产出）。
+ * 返回 skipped = 没有任何可归组设计师的**原始**工单条数（不是人-单数）。
+ */
+export function groupRowsByDesigner(rows: ReportRow[]): {
+  groups: DesignerGroup[]
+  skipped: number
+} {
+  const map = new Map<string, ReportRow[]>()
+  let skipped = 0
+  for (const r of rows) {
+    const names = r.designers.map((d) => (d.name ?? '').trim()).filter(Boolean)
+    if (names.length === 0) {
+      skipped++
+      continue
+    }
+    for (const name of names) {
+      const arr = map.get(name) ?? []
+      arr.push(r)
+      map.set(name, arr)
+    }
+  }
+  const groups = [...map.entries()]
+    .map(([name, list]) => ({ name, rows: list }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+  return { groups, skipped }
+}
+
+/** 读模板；读不到时（且不是 CLI/授权问题）把候选子表带回去 */
+async function fetchTemplate(
+  input: ExportReportInput,
+  adapter: ReportAdapter
+): Promise<{ ok: true; fields: ReportField[] } | { ok: false; result: ExportReportResult }> {
+  const tpl = await adapter.fetchTemplateFields(input.docid, input.templateSheet)
+  if (tpl.ok && tpl.data) return { ok: true, fields: tpl.data }
+  if (tpl.kind !== 'cli-missing' && tpl.kind !== 'auth-expired') {
+    const ls = await adapter.listSheets(input.docid)
+    if (ls.ok && ls.data) {
+      const titles = ls.data.map((s) => s.title)
+      if (!titles.includes(input.templateSheet)) {
+        return {
+          ok: false,
+          result: {
+            ok: false,
+            kind: 'sheet-missing',
+            error: `报表表格里找不到模板子表「${input.templateSheet}」`,
+            candidates: titles
+          }
+        }
+      }
+    }
+  }
+  return { ok: false, result: { ok: false, kind: tpl.kind ?? 'unknown', error: tpl.error } }
+}
+
+/** 模板缺列预检（每种类型只查「必须有」的列；手填列不在此列） */
+function checkFields(kind: ReportKind, fields: ReportField[], warnings: string[]): void {
+  const have = new Set(fields.map((f) => f.field_title))
+  const label = kind === 'monthly' ? '月度报表' : '流水报表'
+  for (const need of REPORT_REQUIRED_FIELDS[kind]) {
+    if (!have.has(need)) warnings.push(`${label}模板缺「${need}」列`)
+  }
+}
+
+/** 一条工单的缩略图逐张重传（同一张图在整次导出里只传一次，多人协作单不重复上传） */
+async function rehostThumbs(
+  row: ReportRow,
+  docid: string,
+  adapter: ReportAdapter,
+  cache: Map<string, string>,
+  warnings: string[]
+): Promise<string[]> {
+  const out: string[] = []
+  for (const src of row.thumbUrls) {
+    const hit = cache.get(src)
+    if (hit) {
+      out.push(hit)
+      continue
+    }
+    const rh = await adapter.rehostThumb(src, docid)
+    if (rh.ok && rh.data) {
+      out.push(rh.data)
+      cache.set(src, rh.data)
+    } else {
+      warnings.push(`工单 ${row.ticketNo} 缩略图重新上传失败：${rh.error ?? ''}`)
+    }
+  }
+  return out
+}
+
+/** 流水：一张子表，12 字段全写 */
+async function exportFlow(
+  input: ExportReportInput,
+  rows: ReportRow[],
+  fields: ReportField[],
+  adapter: ReportAdapter,
+  warnings: string[]
+): Promise<ExportReportResult> {
+  const sheetTitle = reportSheetTitle(input.start, input.end)
+  const add = await adapter.addSheet(input.docid, sheetTitle, fields)
+  if (!add.ok) {
+    return { ok: false, kind: add.kind ?? 'unknown', error: add.error, sheetTitle }
+  }
+  const fieldMap = buildFieldMap(fields)
+  const cache = new Map<string, string>()
+  const records: Array<{ values: Record<string, unknown> }> = []
+  for (const row of rows) {
+    const urls = await rehostThumbs(row, input.docid, adapter, cache, warnings)
+    records.push({ values: serializeRow(row, fieldMap, urls, warnings, 'flow') })
+  }
+  const wr = await adapter.addRecords(input.docid, sheetTitle, records)
+  if (!wr.ok) {
+    return {
+      ok: false,
+      kind: wr.kind ?? 'unknown',
+      error: wr.error,
+      sheetTitle,
+      fieldWarnings: warnings
+    }
+  }
+  return { ok: true, count: rows.length, sheetTitle, fieldWarnings: warnings }
+}
+
+/** 月度：一位设计师一张子表；「物料体量」「备注」留空 */
+async function exportMonthly(
+  input: ExportReportInput,
+  rows: ReportRow[],
+  fields: ReportField[],
+  adapter: ReportAdapter,
+  warnings: string[]
+): Promise<ExportReportResult> {
+  const { groups, skipped } = groupRowsByDesigner(rows)
+  if (groups.length === 0) {
+    return { ok: true, count: 0, skipped, sheets: [], fieldWarnings: warnings }
+  }
+  const fieldMap = buildFieldMap(fields)
+  const cache = new Map<string, string>()
+  const sheets: Array<{ title: string; count: number }> = []
+  const failedSheets: Array<{ title: string; error: string }> = []
+  let total = 0
+
+  for (const g of groups) {
+    const title = monthSheetTitle(input.start, input.end, g.name)
+    const add = await adapter.addSheet(input.docid, title, fields)
+    if (!add.ok) {
+      failedSheets.push({ title, error: add.error ?? '建子表失败' })
+      continue
+    }
+    const records: Array<{ values: Record<string, unknown> }> = []
+    for (const row of g.rows) {
+      const urls = await rehostThumbs(row, input.docid, adapter, cache, warnings)
+      records.push({ values: serializeRow(row, fieldMap, urls, warnings, 'monthly') })
+    }
+    const wr = await adapter.addRecords(input.docid, title, records)
+    if (!wr.ok) {
+      failedSheets.push({ title, error: wr.error ?? '写记录失败' })
+      continue
+    }
+    sheets.push({ title, count: g.rows.length })
+    total += g.rows.length
+  }
+
+  return {
+    ok: failedSheets.length === 0,
+    count: total,
+    sheetTitle: sheets[0]?.title,
+    sheets,
+    skipped,
+    failedSheets: failedSheets.length ? failedSheets : undefined,
+    fieldWarnings: warnings,
+    error: failedSheets.length ? `${failedSheets.length} 张子表没导成` : undefined,
+    kind: failedSheets.length ? 'unknown' : undefined
+  }
+}
+
+/**
+ * 导出报表：
+ * - 流水：建 1 张子表，12 字段全写
+ * - 月度：按设计师一人一张，只写 7 列（体量 / 备注留空）
  * 0 条时直接成功返回（不建子表，避免留空子表）。
  */
 export async function exportReport(
   input: ExportReportInput,
   adapter: ReportAdapter
 ): Promise<ExportReportResult> {
+  const kind: ReportKind = input.kind === 'monthly' ? 'monthly' : 'flow'
   const warnings: string[] = []
   const rows = buildReportRows(input.start, input.end)
-  const sheetTitle = reportSheetTitle(input.start, input.end)
+  const sheetTitle = kind === 'flow' ? reportSheetTitle(input.start, input.end) : undefined
   if (rows.length === 0) {
-    return { ok: true, count: 0, sheetTitle }
+    return { ok: true, count: 0, sheetTitle, skipped: 0 }
   }
 
-  const tpl = await adapter.fetchTemplateFields(input.docid, input.templateSheet)
-  if (!tpl.ok || !tpl.data) {
-    return { ok: false, kind: tpl.kind ?? 'unknown', error: tpl.error, sheetTitle }
-  }
-  const fieldMap = buildFieldMap(tpl.data)
+  const tpl = await fetchTemplate(input, adapter)
+  if (!tpl.ok) return { ...tpl.result, sheetTitle }
+  checkFields(kind, tpl.fields, warnings)
 
-  // 建子表（复制「报表模板」字段结构）
-  const add = await adapter.addSheet(input.docid, sheetTitle, tpl.data)
-  if (!add.ok) {
-    return { ok: false, kind: add.kind ?? 'unknown', error: add.error, sheetTitle }
-  }
-
-  // 逐条序列化 + 缩略图重新上传（第 27 批：一条可能有几张成品图，逐张重传、单张失败只记警告）
-  const records: Array<{ values: Record<string, unknown> }> = []
-  for (const row of rows) {
-    const thumbUrls: string[] = []
-    for (const src of row.thumbUrls) {
-      const rh = await adapter.rehostThumb(src, input.docid)
-      if (rh.ok && rh.data) thumbUrls.push(rh.data)
-      else warnings.push(`工单 ${row.ticketNo} 缩略图重新上传失败：${rh.error ?? ''}`)
-    }
-    records.push({ values: serializeRow(row, fieldMap, thumbUrls, warnings) })
-  }
-
-  const wr = await adapter.addRecords(input.docid, sheetTitle, records)
-  if (!wr.ok) {
-    return { ok: false, kind: wr.kind ?? 'unknown', error: wr.error, sheetTitle, fieldWarnings: warnings }
-  }
-  return { ok: true, count: rows.length, sheetTitle, fieldWarnings: warnings }
+  return kind === 'monthly'
+    ? exportMonthly(input, rows, tpl.fields, adapter, warnings)
+    : exportFlow(input, rows, tpl.fields, adapter, warnings)
 }

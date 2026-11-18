@@ -12,9 +12,12 @@ function defaultRange(): { start: string; end: string } {
 }
 
 /**
- * 第 19 批（docs/22 §5）：导出报表弹窗。
- * 选起止日期（默认当月，按「完成时间」筛）+ 填报表表格链接（预填已存的，随手存）。
- * 点「导出」→ 在「工单报表」智能表格按起止日期新建子表 + 写记录。
+ * 导出报表弹窗。
+ * 第 19 批（docs/22 §5）：起止日期 + 报表表格链接。
+ * 第 86 批（docs/60）：加「报表类型」——
+ *   - 流水报表：一张子表，12 字段全写
+ *   - 月度报表：按设计师一人一张子表，物料体量 / 备注留空
+ * 两种类型都用同一对起止日期（月度也支持只导半个月）。
  */
 export function ExportReportModal({
   onClose,
@@ -26,8 +29,12 @@ export function ExportReportModal({
   const [link, setLink] = useState('')
   const [start, setStart] = useState(defaultRange().start)
   const [end, setEnd] = useState(defaultRange().end)
+  const [kind, setKind] = useState<'flow' | 'monthly'>('flow')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  /** 模板名对不上时，表格里现有的子表（第 86 批） */
+  const [candidates, setCandidates] = useState<string[]>([])
+  const [pickedTemplate, setPickedTemplate] = useState('')
 
   useEffect(() => {
     void window.api
@@ -38,6 +45,14 @@ export function ExportReportModal({
       .catch(() => {})
   }, [])
 
+  const switchKind = (next: 'flow' | 'monthly'): void => {
+    setKind(next)
+    // 换类型 = 换模板，上一次的候选不再适用
+    setCandidates([])
+    setPickedTemplate('')
+    setErr(null)
+  }
+
   const doExport = async (): Promise<void> => {
     if (busy) return
     if (link.trim() === '') {
@@ -47,18 +62,52 @@ export function ExportReportModal({
     setBusy(true)
     setErr(null)
     try {
-      const r = await window.api.reportExport({ link, start, end })
+      const r = await window.api.reportExport({
+        link,
+        start,
+        end,
+        kind,
+        templateSheet: pickedTemplate || undefined
+      })
       if (!r.ok) {
+        if (r.kind === 'sheet-missing') {
+          setCandidates(r.candidates ?? [])
+          setErr(r.error ?? COPY.ticket.exportReportPickTemplate)
+          return
+        }
+        // 月度：部分子表失败 —— 已建出来的照常报，剩下的说清失败张数（重试会重复建表，先不重试）
+        if (r.failedSheets?.length) {
+          if (r.sheets?.length) {
+            onToast?.(
+              fmt(COPY.ticket.exportReportMonthOk, { n: r.count ?? 0, m: r.sheets.length })
+            )
+          }
+          onToast?.(fmt(COPY.ticket.exportReportPartial, { n: r.failedSheets.length }))
+          if (r.fieldWarnings?.length) onToast?.(r.fieldWarnings.join('；'))
+          onClose()
+          return
+        }
         if (r.kind === 'cli-missing') setErr(COPY.ticket.cliMissing)
         else if (r.kind === 'auth-expired') setErr(COPY.ticket.authExpired)
         else if (r.kind === 'bad-link') setErr(COPY.ticket.exportReportNoLink)
         else setErr(r.error ?? COPY.common.failed)
         return
       }
+
       if ((r.count ?? 0) === 0) {
-        onToast?.(COPY.ticket.exportReportEmpty)
+        // 月度：有单但全都没设计师 → 不是「没工单」，要说清跳过了多少
+        if (kind === 'monthly' && (r.skipped ?? 0) > 0) {
+          onToast?.(fmt(COPY.ticket.exportReportSkipped, { n: r.skipped ?? 0 }))
+        } else {
+          onToast?.(COPY.ticket.exportReportEmpty)
+        }
+      } else if (kind === 'monthly') {
+        onToast?.(fmt(COPY.ticket.exportReportMonthOk, { n: r.count ?? 0, m: r.sheets?.length ?? 0 }))
       } else {
         onToast?.(fmt(COPY.ticket.exportReportOk, { n: r.count, sheet: r.sheetTitle ?? '' }))
+      }
+      if (kind === 'monthly' && (r.skipped ?? 0) > 0) {
+        onToast?.(fmt(COPY.ticket.exportReportSkipped, { n: r.skipped ?? 0 }))
       }
       if (r.fieldWarnings?.length) onToast?.(r.fieldWarnings.join('；'))
       onClose()
@@ -78,6 +127,31 @@ export function ExportReportModal({
         </h3>
 
         <div className="tk-settings">
+          <label className="tk-label">{COPY.ticket.exportReportKindLabel}</label>
+          <div className="tk-kinds">
+            <label className="tk-kind">
+              <input
+                type="radio"
+                name="reportKind"
+                checked={kind === 'flow'}
+                onChange={() => switchKind('flow')}
+              />
+              <span>{COPY.ticket.exportReportKindFlow}</span>
+            </label>
+            <label className="tk-kind">
+              <input
+                type="radio"
+                name="reportKind"
+                checked={kind === 'monthly'}
+                onChange={() => switchKind('monthly')}
+              />
+              <span>{COPY.ticket.exportReportKindMonth}</span>
+            </label>
+          </div>
+          {kind === 'monthly' && (
+            <div className="tk-month-hint">{COPY.ticket.exportReportMonthHint}</div>
+          )}
+
           <label className="tk-label">{COPY.ticket.exportReportLink}</label>
           <input
             type="text"
@@ -96,6 +170,23 @@ export function ExportReportModal({
               <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </label>
           </div>
+
+          {candidates.length > 0 && (
+            <label className="tk-label">
+              {COPY.ticket.exportReportTemplate}
+              <select
+                value={pickedTemplate}
+                onChange={(e) => setPickedTemplate(e.target.value)}
+              >
+                <option value="">{COPY.ticket.exportReportPickHint}</option>
+                {candidates.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {err && <div className="tk-err">{err}</div>}
         </div>

@@ -168,8 +168,15 @@ const api = {
   }) => ipcRenderer.invoke('ticket:metricsSet', input),
   ticketCompleteByPack: (packId: number) => ipcRenderer.invoke('ticket:completeByPack', packId),
   reportStatus: () => ipcRenderer.invoke('report:status'),
-  reportExport: (input: { link: string; start: string; end: string }) =>
-    ipcRenderer.invoke('report:export', input),
+  reportExport: (input: {
+    link: string
+    start: string
+    end: string
+    kind?: 'flow' | 'monthly'
+    templateSheet?: string
+  }) => ipcRenderer.invoke('report:export', input),
+  // 第 86 批：模板名对不上时，列子表让用户选
+  reportSheets: (link: string) => ipcRenderer.invoke('report:sheets', link),
   // 第 54 批（docs/40 S4）：只记住报表表格链接
   reportSaveLink: (link: string) => ipcRenderer.invoke('report:saveLink', link),
 

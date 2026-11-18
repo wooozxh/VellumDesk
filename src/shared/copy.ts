@@ -1187,6 +1187,18 @@ export const COPY = {
     exportReportNoLink: '请先粘贴报表表格链接',
     exportReportEmpty: '该时间段没有已完成工单',
     exportReportOk: '已导出 {n} 条到「工单报表」子表「{sheet}」',
+    /** 第 86 批：模板子表名对不上时，让用户从候选里选 */
+    exportReportTemplate: '模板子表',
+    exportReportPickHint: '请选择模板子表',
+    exportReportPickTemplate: '找不到模板子表，请从下面选一个',
+    /** 第 86 批：流水 / 月度两种报表 */
+    exportReportKindLabel: '报表类型',
+    exportReportKindFlow: '流水报表',
+    exportReportKindMonth: '月度报表',
+    exportReportMonthHint: '按设计师一人一张子表；物料体量、备注导出后由设计师填写',
+    exportReportMonthOk: '已导出 {n} 条，共 {m} 张子表',
+    exportReportSkipped: '跳过 {n} 条（无设计师）',
+    exportReportPartial: '{n} 张子表没导成，其余已导出',
     /** 第 20 批（docs/24）：清理已禁用子表工单 */
     purgeSectionTitle: '危险操作',
     purgeHint: '已关闭的子表：{sheets}',

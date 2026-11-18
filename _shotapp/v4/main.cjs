@@ -4291,6 +4291,44 @@ app.whenReady().then(async () => {
     ok(!!erModal && erModal.hasLink && erModal.dateCount === 2, '弹窗含报表链接输入框 + 起止日期两个日期框')
     ok(!!erModal && erModal.runBtn, `「${COPY.ticket.exportReportRun}」按钮在`)
     await shot('shot-b19-1-export-modal.png')
+
+    // (2c) 第 86 批（docs/60）：报表类型二选一 + 月度说明 + 月度仍保留起止日期
+    const kindUI = await js(`(() => {
+      const m = document.querySelector('.mask .modal'); if (!m) return null
+      const radios = [...m.querySelectorAll('input[type=radio]')]
+      return {
+        count: radios.length,
+        checked: radios.map(r => r.checked),
+        labels: radios.map(r => ((r.closest('label') || {}).innerText || '').trim())
+      }
+    })()`)
+    ok(kindUI && kindUI.count === 2, `【第 86 批】报表类型有两个单选（实际 ${kindUI ? kindUI.count : 0}）`)
+    ok(
+      kindUI && kindUI.checked[0] === true && kindUI.checked[1] === false,
+      `默认落在「${plain(COPY.ticket.exportReportKindFlow)}」`
+    )
+    ok(
+      kindUI && kindUI.labels[0].includes(COPY.ticket.exportReportKindFlow) && kindUI.labels[1].includes(COPY.ticket.exportReportKindMonth),
+      `两个选项文案正确（${kindUI ? kindUI.labels.join(' / ') : '—'}）`
+    )
+    await js(`(() => { const rs = [...document.querySelectorAll('.mask .modal input[type=radio]')]; if (rs[1]) rs[1].click(); return 'ok' })()`)
+    await wait(350)
+    const monthUI = await js(`(() => {
+      const m = document.querySelector('.mask .modal'); if (!m) return null
+      return {
+        hint: ((m.querySelector('.tk-month-hint') || {}).innerText || '').trim(),
+        dateCount: [...m.querySelectorAll('input[type=date]')].length
+      }
+    })()`)
+    ok(
+      !!monthUI && monthUI.hint.includes(COPY.ticket.exportReportMonthHint.slice(0, 8)),
+      `切到月度后出现手填说明（${monthUI ? monthUI.hint.slice(0, 20) : '—'}）`
+    )
+    ok(!!monthUI && monthUI.dateCount === 2, '月度仍保留起止日期两个框（可只导半个月）')
+    await shot('shot-b86-1-export-monthly.png')
+    await js(`(() => { const rs = [...document.querySelectorAll('.mask .modal input[type=radio]')]; if (rs[0]) rs[0].click(); return 'ok' })()`)
+    await wait(250)
+
     await js(`(() => { const b = document.querySelector('.mask .modal .close'); if (b) b.click(); return 'ok' })()`)
     await wait(500)
 

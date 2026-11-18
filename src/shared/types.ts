@@ -728,6 +728,14 @@ export interface TicketCompleteResult {
 export interface ReportStatus {
   docid: string | null
   templateSheet: string
+  /** 月度报表模板子表名（第 86 批） */
+  templateSheetMonth: string
+}
+
+/** 候选模板子表（模板名对不上时给用户选） */
+export interface ReportSheetRef {
+  title: string
+  fieldCount: number
 }
 
 /** 一次导出报表的结果（toast 的原料） */
@@ -739,8 +747,16 @@ export interface ExportReportResult {
   count?: number
   /** 字段缺失 / 类型不符 / 选项缺失的警告（不阻断导出） */
   fieldWarnings?: string[]
-  kind?: 'cli-missing' | 'auth-expired' | 'unknown' | 'bad-link'
+  kind?: 'cli-missing' | 'auth-expired' | 'unknown' | 'bad-link' | 'sheet-missing'
   error?: string
+  /** kind = sheet-missing：该表格现有的子表名，供界面选择 */
+  candidates?: string[]
+  /** 月度：实际建出的子表（标题 + 条数） */
+  sheets?: Array<{ title: string; count: number }>
+  /** 月度：因「没有设计师」被跳过的原始工单条数 */
+  skipped?: number
+  /** 月度：建表 / 写记录失败的子表 */
+  failedSheets?: Array<{ title: string; error: string }>
 }
 
 // ---------------- 第 20 批：清理已禁用子表工单（docs/24） ----------------
@@ -1054,8 +1070,25 @@ export interface Api {
   ticketCompleteByPack: (packId: number) => Promise<TicketCompleteResult>
   /** 报表配置状态（预填导出弹窗） */
   reportStatus: () => Promise<ReportStatus>
-  /** 导出报表：起止日期 → 建子表 → 写记录 */
-  reportExport: (input: { link: string; start: string; end: string }) => Promise<ExportReportResult>
+  /** 导出报表：流水（一张表）/ 月度（设计师一人一张） */
+  reportExport: (input: {
+    link: string
+    start: string
+    end: string
+    /** 报表类型，缺省按流水 */
+    kind?: 'flow' | 'monthly'
+    /** 用户从候选里选定的模板子表名（可选，覆盖配置） */
+    templateSheet?: string
+  }) => Promise<ExportReportResult>
+  /** 列报表表格的全部子表（模板名对不上时给用户选） */
+  reportSheets: (
+    link: string
+  ) => Promise<{
+    ok: boolean
+    data?: ReportSheetRef[]
+    kind?: 'bad-link' | 'auth-expired' | 'cli-missing' | 'unknown'
+    error?: string
+  }>
   /** 第 54 批（docs/40 S4）：只记住报表表格链接（不导出）—— 向导里「配置报表表」用 */
   reportSaveLink: (link: string) => Promise<{ ok: boolean; docid?: string; kind?: 'bad-link' }>
 

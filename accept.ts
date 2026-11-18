@@ -265,8 +265,14 @@ import {
 import {
   buildReportRows,
   exportReport,
+  groupRowsByDesigner,
+  isFullMonth,
+  monthSheetTitle,
+  readReportConfig,
   reportSheetTitle,
   REPORT_FIELD,
+  REPORT_FIELD_MONTH,
+  REPORT_META_KEYS,
   type ReportAdapter,
   type ReportRow
 } from './src/main/report'
@@ -5162,6 +5168,13 @@ async function main(): Promise<void> {
     let addedRecords: Array<{ values: Record<string, unknown> }> = []
     const mockReportAdapter: ReportAdapter = {
       fetchTemplateFields: async () => ({ ok: true, data: tplFields }),
+      listSheets: async () => ({
+        ok: true,
+        data: [
+          { title: '报表模板（总报表）', fieldCount: tplFields.length },
+          { title: '报表模板（月度报表）', fieldCount: 9 }
+        ]
+      }),
       addSheet: async (docid, sheetTitle, fields) => {
         addedSheets.push({ docid, sheetTitle, fields })
         return { ok: true, data: null }
@@ -5205,6 +5218,145 @@ async function main(): Promise<void> {
     ok(rec1?.values[REPORT_FIELD.printCost] === 500, '印刷金额写货币数值')
     ok(rec2?.values[REPORT_FIELD.performanceCost] === 200, '绩效金额写数值（R2）')
     ok(rec2?.values[REPORT_FIELD.thumb] === undefined, '无缩略图的单不写图片字段')
+
+    // ---- (5b) 第 86 批：模板名对不上 → 返回候选子表，不静默失败 ----
+    const missingTplAdapter: ReportAdapter = {
+      ...mockReportAdapter,
+      fetchTemplateFields: async () => ({ ok: false, kind: 'unknown', error: 'sheet not found' }),
+      listSheets: async () => ({
+        ok: true,
+        data: [
+          { title: '报表模板（总报表）', fieldCount: 12 },
+          { title: '报表模板（月度报表）', fieldCount: 9 }
+        ]
+      })
+    }
+    const mr = await exportReport(
+      { docid: 's3_REPORT', templateSheet: '报表模板', start: '2026-10-01', end: '2026-10-31' },
+      missingTplAdapter
+    )
+    ok(!mr.ok && mr.kind === 'sheet-missing', `模板名对不上 → 报 sheet-missing（实际 ${mr.kind}）`)
+    ok(
+      (mr.candidates ?? []).length === 2 && mr.candidates?.[0] === '报表模板（总报表）',
+      '候选子表原样带回来（供界面选择）'
+    )
+
+    // ---- (5c) 第 86 批：模板名配置的升级与保留 ----
+    setMeta(REPORT_META_KEYS.templateSheet, '报表模板')
+    ok(
+      readReportConfig().templateSheet === '报表模板（总报表）',
+      '【第 86 批】旧默认名「报表模板」自动升级为新模板名'
+    )
+    setMeta(REPORT_META_KEYS.templateSheet, '我自己改的模板')
+    ok(
+      readReportConfig().templateSheet === '我自己改的模板',
+      '【第 86 批】用户自定义模板名原样保留（不被默认值覆盖）'
+    )
+    ok(
+      readReportConfig().templateSheetMonth === '报表模板（月度报表）',
+      '【第 86 批】月度模板名缺省正确'
+    )
+    setMeta(REPORT_META_KEYS.templateSheetMonth, '月度自定义')
+    ok(readReportConfig().templateSheetMonth === '月度自定义', '【第 86 批】月度模板可单独配置')
+
+    // ---- (6) 第 86 批：月度报表（按设计师一人一张 + 两列留空）----
+    const monthFields: ReportField[] = [
+      {
+        field_title: '工单类型（印刷/电子）',
+        field_type: 'single_select',
+        property_single_select: {
+          options: [
+            { id: 'opt_print', text: '印刷' },
+            { id: 'opt_digital', text: '电子' }
+          ]
+        }
+      },
+      { field_title: '编号', field_type: 'text' },
+      { field_title: '完成时间', field_type: 'date_time' },
+      { field_title: '物料名称', field_type: 'text' },
+      { field_title: '业务归属', field_type: 'text' },
+      { field_title: '设计师', field_type: 'user', property_user: { is_multiple: true } },
+      { field_title: '物料体量', field_type: 'number' },
+      { field_title: '缩略图', field_type: 'image' },
+      { field_title: '备注', field_type: 'text' }
+    ]
+    const mSheets: Array<{ title: string; fields: ReportField[] }> = []
+    const mRecords = new Map<string, Array<{ values: Record<string, unknown> }>>()
+    const mockMonthAdapter: ReportAdapter = {
+      fetchTemplateFields: async () => ({ ok: true, data: monthFields }),
+      listSheets: async () => ({ ok: true, data: [] }),
+      addSheet: async (_docid, title, fields) => {
+        mSheets.push({ title, fields })
+        return { ok: true, data: null }
+      },
+      rehostThumb: async (src) => ({
+        ok: true,
+        data: 'https://report-space/m-' + (src.split('/').pop() ?? 'x')
+      }),
+      addRecords: async (_docid, title, records) => {
+        mRecords.set(title, records)
+        return { ok: true, data: null }
+      }
+    }
+    // 一单多人：给 R1 加第二位设计师；无设计师：清掉 R2 的
+    getDb()
+      .prepare('INSERT INTO ticket_designers (ticket_no, userid, name, seq) VALUES (?,?,?,?)')
+      .run('R1', 'uSECOND', '第二位设计师', 1)
+    getDb().prepare('DELETE FROM ticket_designers WHERE ticket_no = ?').run('R2')
+
+    const mres = await exportReport(
+      {
+        docid: 's3_REPORT',
+        kind: 'monthly',
+        templateSheet: '报表模板（月度报表）',
+        start: '2026-10-01',
+        end: '2026-10-31'
+      },
+      mockMonthAdapter
+    )
+    ok(mres.ok, `月度导出成功（${mres.error ?? 'ok'}）`)
+    ok(mres.sheets?.length === 2, `两位设计师 → 2 张子表（实际 ${mres.sheets?.length ?? 0}）`)
+    ok(mres.skipped === 1, `无设计师的 1 条被跳过并计数（实际 ${mres.skipped ?? '—'}）`)
+    ok(mres.count === 2, `总条数 = 各人表内之和（实际 ${mres.count ?? '—'}）`)
+    ok(
+      mSheets.every((s) => s.fields.length === 9),
+      '每张子表都复制月度模板 9 字段'
+    )
+    const tA = '2026-10 别的同事 月度报表'
+    const tB = '2026-10 第二位设计师 月度报表'
+    ok(
+      !!mRecords.get(tA) && !!mRecords.get(tB),
+      `整月子表名 = 2026-10 姓名 月度报表（${mSheets.map((s) => s.title).join(' / ')}）`
+    )
+    const mrecA = mRecords.get(tA)?.[0]
+    ok(mrecA?.values[REPORT_FIELD_MONTH.bodySize] === undefined, '物料体量导出留空（设计师手填）')
+    ok(mrecA?.values[REPORT_FIELD_MONTH.remark] === undefined, '备注导出留空（设计师手填）')
+    ok(mrecA?.values[REPORT_FIELD.applicant] === undefined, '月度不写申请人（模板无此列）')
+    ok(mrecA?.values[REPORT_FIELD.qty] === undefined, '月度不写印刷数量')
+    const mDesigners = mrecA?.values[REPORT_FIELD.designers] as
+      | Array<{ userName: string }>
+      | undefined
+    ok(mDesigners?.length === 2, `设计师列写全量两人（实际 ${mDesigners?.length ?? 0}）`)
+    ok(
+      mRecords.get(tB)?.[0]?.values[REPORT_FIELD.no] === 'R1',
+      '多人协作单在第二人的表里也出现一次'
+    )
+    ok(
+      monthSheetTitle('2026-11-01', '2026-11-15', '某人') === '2026-11-01~15 某人 月度报表',
+      '非整月命名带区间（同月导两次不会同名）'
+    )
+    ok(
+      monthSheetTitle('2026-11-01', '2026-11-30', '某人') === '2026-11 某人 月度报表',
+      '整月命名不带区间'
+    )
+    ok(
+      !isFullMonth('2026-11-01', '2026-11-15') && isFullMonth('2026-11-01', '2026-11-30'),
+      '整月判定正确（1 号 ~ 月末）'
+    )
+    ok(
+      reportSheetTitle('2026-10-01', '2026-10-31') === '2026-10-01~2026-10-31',
+      '流水子表名仍是「起~止」（老行为不变）'
+    )
 
     closeDb()
     hardRm(bRoot)

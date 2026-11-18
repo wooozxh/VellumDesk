@@ -10,7 +10,7 @@
  * 架构铁律延续（docs/15 §4.3）：引擎（report.ts）不碰网络，本文件是实现注入；
  * 自动测试全部喂 mock，真企微只在人工验收时点一次。
  */
-import { runCliJson, type CliResult } from './ticketsWecom'
+import { runCliJson, fetchSheets, type CliResult } from './ticketsWecom'
 import { createWriteStream } from 'fs'
 import { join, extname } from 'path'
 import { tmpdir } from 'os'
@@ -42,6 +42,24 @@ export async function fetchReportTemplateFields(
   ])
   if (!r.ok || !r.data) return { ok: false, kind: r.kind ?? 'unknown', error: r.error }
   return { ok: true, data: r.data.fields ?? [] }
+}
+
+/**
+ * 列报表表格里的全部子表（第 86 批）：模板改名后，让用户在候选里选，而不是静默失败。
+ * 复用同步那套 sheets list 解析（fields 拿不到就只给标题）。
+ */
+export async function listReportSheets(
+  docid: string
+): Promise<CliResult<Array<{ title: string; fieldCount: number }>>> {
+  const r = await fetchSheets(docid)
+  if (!r.ok || !r.data) return { ok: false, kind: r.kind ?? 'unknown', error: r.error }
+  return {
+    ok: true,
+    data: r.data.sheets.map((s) => ({
+      title: s.title,
+      fieldCount: (r.data?.fieldsBySheet?.[s.sheet_id] ?? []).length
+    }))
+  }
 }
 
 /** fields list 的字段 → sheets add 的 fields（只留 field_title + field_type + property_*） */

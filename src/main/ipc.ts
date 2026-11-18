@@ -154,6 +154,7 @@ import {
   addReportRecords,
   addReportSheet,
   fetchReportTemplateFields,
+  listReportSheets,
   rehostReportThumb,
   uploadReportImage
 } from './reportWecom'
@@ -351,6 +352,7 @@ export function registerIpc(opts?: {
     'ticket:purgeDisabled',
     'ticket:autoSyncGet',
     'report:status',
+    'report:sheets',
     'file:open',
     'file:reveal',
     'shell:openPath',
@@ -1908,31 +1910,60 @@ export function registerIpc(opts?: {
   /** 报表 wecom 适配器（引擎注入实现 —— 真企微不进自动测试） */
   const reportAdapter: ReportAdapter = {
     fetchTemplateFields: (docid, sheetTitle) => fetchReportTemplateFields(docid, sheetTitle),
+    listSheets: (docid) => listReportSheets(docid),
     addSheet: (docid, sheetTitle, fields) => addReportSheet(docid, sheetTitle, fields),
     rehostThumb: (sourceUrl, docid) => rehostReportThumb(sourceUrl, docid),
     addRecords: (docid, sheetTitle, records) => addReportRecords(docid, sheetTitle, records)
   }
 
-  /** 导出报表：起止日期 → 建子表（复制字段）→ 写记录（含图片列重新上传） */
+  /** 导出报表：流水（一张表全字段）/ 月度（设计师一人一张，部分列留空） */
   handleIpc(
     'report:export',
-    async (_e, input: { link: string; start: string; end: string }) => {
+    async (
+      _e,
+      input: {
+        link: string
+        start: string
+        end: string
+        kind?: 'flow' | 'monthly'
+        templateSheet?: string
+      }
+    ) => {
       const root = getWorkspaceRoot(appData)
       initWorkspace(root)
       const docid = extractDocid(input.link)
       if (!docid) return { ok: false, kind: 'bad-link' as const, error: '链接里解析不出表格编号' }
       const cfg = readReportConfig()
+      const kind: 'flow' | 'monthly' = input.kind === 'monthly' ? 'monthly' : 'flow'
       // 链接变了 → 落库（导出弹窗每次粘贴都带上，这里顺手存）
-      if (docid !== cfg.docid) writeReportConfig(docid, cfg.templateSheet)
+      if (docid !== cfg.docid) writeReportConfig(docid, cfg.templateSheet, cfg.templateSheetMonth)
+      // 用户在候选里选过模板 → 覆盖对应类型并落库（第 86 批）
+      const picked = (input.templateSheet ?? '').trim()
+      const defaultTpl = kind === 'monthly' ? cfg.templateSheetMonth : cfg.templateSheet
+      const templateSheet = picked || defaultTpl
+      if (picked) {
+        if (kind === 'monthly') writeReportConfig(docid, cfg.templateSheet, picked)
+        else writeReportConfig(docid, picked, cfg.templateSheetMonth)
+      }
       const expInput: ExportReportInput = {
         docid,
-        templateSheet: cfg.templateSheet || '报表模板',
+        kind,
+        templateSheet,
         start: input.start,
         end: input.end
       }
       return exportReport(expInput, reportAdapter)
     }
   )
+
+  /** 列报表表格的全部子表（模板名对不上时给用户选，第 86 批） */
+  handleIpc('report:sheets', async (_e, link: string) => {
+    const root = getWorkspaceRoot(appData)
+    initWorkspace(root)
+    const docid = extractDocid(String(link ?? ''))
+    if (!docid) return { ok: false, kind: 'bad-link' as const, error: '链接里解析不出表格编号' }
+    return listReportSheets(docid)
+  })
 
   /**
    * 第 54 批（docs/40 S4）：只记住报表表格链接（**不导出**）。
@@ -1945,7 +1976,7 @@ export function registerIpc(opts?: {
     const docid = extractDocid(String(link ?? ''))
     if (!docid) return { ok: false, kind: 'bad-link' as const }
     const cfg = readReportConfig()
-    writeReportConfig(docid, cfg.templateSheet || '报表模板')
+    writeReportConfig(docid, cfg.templateSheet, cfg.templateSheetMonth)
     return { ok: true, docid }
   })
 
