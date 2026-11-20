@@ -76,6 +76,7 @@
       "!out/test/**",
       "!素材工作区/**",
       "!release*/**",
+      "!rel_out*/**",
       "!*.md",
       "!*.log*",
       "!*.tsbuildinfo",

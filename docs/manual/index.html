@@ -46,13 +46,13 @@
     <!-- ============ 封面 ============ -->
     <header class="cover">
       <img class="logo" src="images/logo.png" alt="Vellum Desk" />
-      <span class="tag">USER MANUAL · v1.15.0</span>
+      <span class="tag">USER MANUAL · v1.15.1</span>
       <h1>Vellum工作台 用户使用手册</h1>
       <p class="lede">本地素材管理桌面软件。把设计物料、任务稿、企微工单这三件事，收进一个「看得见磁盘真相」的工作台里 —— 所有素材都在你本机硬盘上，不上传任何云端。</p>
       <div class="kv">
-        <div><b>1.15.0</b>软件版本</div>
+        <div><b>1.15.1</b>软件版本</div>
         <div><b>Windows 10 / 11 · 64 位</b>适用系统</div>
-        <div><b>2026-11-18</b>手册更新</div>
+        <div><b>2026-11-20</b>手册更新</div>
         <div><b>40+ 张</b>界面截图</div>
         <div><b>内部使用</b>分发范围</div>
       </div>
@@ -418,7 +418,7 @@
       <table>
         <thead><tr><th style="width:190px">显示</th><th>含义</th><th>怎么办</th></tr></thead>
         <tbody>
-          <tr><td>任务：某某</td><td>已经关联到任务了</td><td>正常，点进去干活</td></tr>
+          <tr><td>任务：某某</td><td>已经关联到任务了</td><td>正常，<b>点这个名字直接跳到任务详情</b></td></tr>
           <tr><td>已改派给 某某</td><td>任务还在本机，但设计师已换成别人</td><td>按需交接</td></tr>
           <tr><td>未指派给我</td><td>本机使用者不在设计师列里</td><td>要去表格里或指派功能里改</td></tr>
           <tr><td>不是我的单</td><td>同上，口径不同（历史遗留）</td><td>—</td></tr>
@@ -447,7 +447,7 @@
           <tr><td>基本信息</td><td>审批单编号 / 申请人 / 申请部门 / 业务归属 / 设计师 / 交稿日期 / 提交时间 / 完成时间 / 物料申请用途 / 备注</td></tr>
           <tr><td>印刷信息</td><td><b>只有印刷单有</b>：尺寸 / 印制数量 / 物料形态 / 物料类别 / 收货人 / 收货电话 / 送达日期</td></tr>
           <tr><td>电子物料信息</td><td><b>只有电子单有</b>：物料使用场景 / 物料类别</td></tr>
-          <tr><td>关联任务</td><td>已关联时显示任务名 + 文件数；未关联时给一个 <span class="btnchip">建任务</span> 按钮</td></tr>
+          <tr><td>关联任务</td><td>已关联时显示任务名 + 文件数，<b>点一下直接跳到任务详情</b>（列表最后一列的任务名也能点）；未关联时给一个 <span class="btnchip">建任务</span> 按钮</td></tr>
           <tr><td>报表统计</td><td>三个<b>只存软件本地</b>的字段：印刷金额 / 绩效金额 / 备注（离开输入框即存，专供导出报表用）</td></tr>
           <tr><td>底部按钮</td><td><span class="btnchip">在表格中打开</span>（逃生口，直接跳企微表）/ <span class="btnchip">打开审批（含附件）</span> / <span class="btnchip">关闭</span></td></tr>
         </tbody>
@@ -553,10 +553,12 @@
         ③ 候选设计师为空时，先在表格里填一次设计师，软件会记住这些人。
       </div>
 
-      <div class="call info"><span class="h">另一种派单：在审批意见里 @ 你</span>
-        提交时「设计师」列<b>空着</b>的单，审核人在审批意见里 @ 谁，谁的电脑上就会自动建任务（不用再点指派）。<br>
+      <div class="call info"><span class="h">另一种派单：审批意见里 @ 谁，就填谁</span>
+        提交时「设计师」列<b>空着</b>的单，审核人在审批意见里 @ 谁，软件同步时就把谁写进设计师列（不用再点指派）。<br>
         · 只认「<b>@ + 姓名</b>」：光是意见里出现名字不算 —— 抄送、办理这些节点都会写名字；<br>
-        · <b>设计师列已经填了人时，@ 不生效</b>：那是转交或叮嘱，不是派单，软件不抢。
+        · 名字会拿去<b>企微通讯录核对</b>：搜不到、或有重名且不在营销中心时，软件不猜，会在同步结果里提示「未自动指派」；<br>
+        · <b>设计师列已经填了人时，@ 不生效</b>：那是转交或叮嘱，不是派单，软件不抢；<br>
+        · 想改派就以设计师列为准：在软件里手动指派一次，覆盖即可。
       </div>
     </section>
 
@@ -1954,9 +1956,9 @@ note:主推款，上方留白给标题</code></pre>
       <table>
         <thead><tr><th style="width:170px">位置</th><th>含义</th></tr></thead>
         <tbody>
-          <tr><td><code>1.15.0</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
+          <tr><td><code>1.15.1</code></td><td>主版本 . 功能版本 . 修订号。修订号变大 = 小修小补；功能版本变大 = 加了一批新功能</td></tr>
           <tr><td>状态栏右下角</td><td>软件里唯一的版本号显示位置 —— 报问题时顺手截这里</td></tr>
-          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.15.0</b>）</td></tr>
+          <tr><td>本手册封面</td><td>手册对应的软件版本（本手册对应 <b>1.15.1</b>）</td></tr>
         </tbody>
       </table>
 
@@ -1964,7 +1966,7 @@ note:主推款，上方留白给标题</code></pre>
       <div class="call warn"><span class="h">升级前顺手备份一次</span>把整个工作区文件夹复制一份到移动硬盘。虽然升级不动素材，但这是零成本的保险。</div>
 
       <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px">
-        本手册对应软件版本 <b>1.15.0</b>　|　最后更新 2026-11-18　|　内部使用，请勿外传
+        本手册对应软件版本 <b>1.15.1</b>　|　最后更新 2026-11-20　|　内部使用，请勿外传
       </div>
     </section>
 
@@ -1978,7 +1980,7 @@ note:主推款，上方留白给标题</code></pre>
 <button class="totop" id="totop" title="回到顶部">↑</button>
 
 <footer style="max-width:1240px;margin:0 auto;padding:0 24px 60px">
-  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.15.0　|　2026-11-18</span></div>
+  <div class="fl"><img src="images/logo.png" alt="Vellum Desk" /><span>Vellum工作台 · 用户使用手册　|　软件版本 1.15.1　|　2026-11-20</span></div>
   <span>下载与更新见页面右上角 <b style="font-family:var(--mono)">GitHub</b> 图标，或翻到 <a href="#s7-7">7.7 下载与更新</a></span>
 </footer>
 
