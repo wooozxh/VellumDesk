@@ -1554,6 +1554,11 @@ export default function App(): React.JSX.Element {
               onToast={(m) => toast(m)}
               onUnassignedCount={(n) => setTkUnassigned(n)}
               onOpenWizard={() => setShowWizard(true)}
+              onOpenTask={(packId) => {
+                // 第 89 批：工单 → 任务详情。先切视图，再让 App 那层的详情弹窗打开
+                setView('packs')
+                setOpenPackId(packId)
+              }}
             />
           </div>
         ) : view === 'brand' ? (

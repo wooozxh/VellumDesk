@@ -3413,6 +3413,16 @@ svg {
 .tk-linked {
   color: var(--accent-text);
 }
+/* 第 89 批：关联任务可点 → 跳任务详情 */
+.tk-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.tk-link:hover {
+  text-decoration-style: solid;
+}
 .tk-dim {
   color: var(--text-3);
 }
@@ -3538,6 +3548,15 @@ svg {
 .tk-packcard.empty {
   color: var(--text-3);
   justify-content: space-between;
+}
+/* 第 89 批：详情里的关联任务卡可点 → 跳任务详情 */
+.tk-packcard-link {
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.tk-packcard-link:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
 }
 /* 第 62 批（docs/45 Step 3b）：PS 插件联动设置弹窗 */
 .pl-intro {

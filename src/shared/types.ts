@@ -1120,6 +1120,8 @@ export interface Api {
   wecomCliInfo: () => Promise<WecomCliInfo & { onboardSeen: boolean }>
   /** 只读授权状态（引导页轮询用） */
   wecomAuthStatus: () => Promise<{ auth: WecomAuthState }>
+  /** 第 89 批：扫码进程是否还在跑（重新授权时用它判断完成，而不是看可能过期的旧状态） */
+  wecomAuthProgress: () => Promise<{ running: boolean }>
   /** 发起扫码授权：返回二维码 data URL */
   wecomAuthStart: () => Promise<WecomAuthStart>
   /** 取消授权（关弹窗 / 点取消） */

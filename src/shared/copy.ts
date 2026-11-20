@@ -1155,6 +1155,12 @@ export const COPY = {
     claimByFlowHint: '设计师列空着时把本机名字写进企微表格的设计师列，需要表格可编辑权限',
     /** 自动认领时写进 assigned_by 的来源标记（只在库里用，界面不显示） */
     assignByFlow: '@审批意见',
+    /** 第 89 批：按审批意见里 @ 的**别人**自动指派（不是本机认领） */
+    assignByMention: '@审批意见（指派他人）',
+    mentionSearchFailed: '审批意见 @「{name}」通讯录搜索失败：{msg}',
+    mentionNotFound: '审批意见 @「{name}」在通讯录里找不到，未自动指派',
+    mentionAmbiguous: '审批意见 @「{name}」有重名且不在营销中心，未自动指派',
+    mentionAssigned: '按审批意见 @ 自动指派了 {n} 张单',
     /** 详情弹窗「在表格中打开」逃生口 */
     openTable: '在表格中打开',
     /* ---- 第 19 批：导出报表 + 本地字段 + 完成任务（docs/22） ---- */

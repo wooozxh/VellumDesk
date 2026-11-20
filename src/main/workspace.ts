@@ -1104,9 +1104,19 @@ export function scanAll(workspaceRoot: string): ScanResult {
   const cleanedPacks = cleanupMissingPacks(workspaceRoot, rootReadable)
 
   // 7. 更新包的 updated_at（取包内最新文件时间）
+  /**
+   * 第 89 批：只在**内容真的变了**时才前进。
+   *
+   * 原来用 `MAX(assets.scanned_at)` —— scanned_at 是"这次扫描的时间"，于是每刷一次，
+   * 所有有素材的任务都被刷成"刚刚更新"，新建的空任务反而沉底（用户报：新建任务没排到最顶）。
+   * 现在取 `max(创建时间, 文件最后修改时间)`：
+   *   - 空任务：保持创建时间 → 新建的天然在顶部；
+   *   - 老任务：只有真往里面放了/改了文件（mtime 变）才上浮。
+   */
   db.prepare(
-    `UPDATE packs SET updated_at = COALESCE(
-       (SELECT MAX(scanned_at) FROM assets WHERE assets.pack_id = packs.id), updated_at)`
+    `UPDATE packs SET updated_at = MAX(
+       created_at,
+       COALESCE((SELECT MAX(modified_at) FROM assets WHERE assets.pack_id = packs.id), created_at))`
   ).run()
 
   const packsCount = (db.prepare('SELECT COUNT(*) AS c FROM packs').get() as { c: number }).c

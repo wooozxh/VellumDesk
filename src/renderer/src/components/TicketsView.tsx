@@ -55,13 +55,16 @@ function hhmm(iso: string | null): string {
 export function TicketsView({
   onToast,
   onUnassignedCount,
-  onOpenWizard
+  onOpenWizard,
+  onOpenTask
 }: {
   onToast?: (msg: string) => void
   /** 第 17 批：同步/加载后回传未指派存量，顶栏徽标跟着刷新（App.tsx 只管显示） */
   onUnassignedCount?: (n: number) => void
   /** 第 54 批（docs/40 §4.3）：从工单设置里重新打开「首次配置引导」 */
   onOpenWizard?: () => void
+  /** 第 89 批：点「关联任务」跳到任务视图并打开详情 */
+  onOpenTask?: (packId: number) => void
 }): React.JSX.Element {
   const [status, setStatus] = useState<TicketStatus | null>(null)
   const [list, setList] = useState<TicketListItem[]>([])
@@ -450,7 +453,22 @@ export function TicketsView({
                 ) : t.dupWarn ? (
                   <span className="tk-warn">{COPY.ticket.dupWarnLabel}</span>
                 ) : t.packId !== null ? (
-                  <span className="tk-linked" title={t.packName ?? ''}>
+                  <span
+                    className="tk-linked tk-link"
+                    title={`${t.packName ?? ''}（点击打开任务）`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (t.packId !== null) onOpenTask?.(t.packId)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && t.packId !== null) {
+                        e.stopPropagation()
+                        onOpenTask?.(t.packId)
+                      }
+                    }}
+                  >
                     {fmt(COPY.ticket.linkedTask, { name: t.packName ?? '' })}
                     {t.reassignedTo ? ` · ${fmt(COPY.ticket.reassignedTo, { name: t.reassignedTo })}` : ''}
                   </span>
@@ -475,6 +493,11 @@ export function TicketsView({
             await loadList(filter)
           }}
           onToast={toast}
+          onOpenTask={(packId) => {
+            // 第 89 批：先关掉工单详情，再跳任务详情（否则两层弹窗叠着）
+            setDetailNo(null)
+            onOpenTask?.(packId)
+          }}
         />
       )}
       {showSettings && (

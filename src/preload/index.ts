@@ -187,6 +187,8 @@ const api = {
   // 第 21 批：企微连接（wecom-cli 内置 + 扫码授权引导，docs/16 §4）
   wecomCliInfo: () => ipcRenderer.invoke('wecom:cliInfo'),
   wecomAuthStatus: () => ipcRenderer.invoke('wecom:authStatus'),
+  // 第 89 批：扫码进程是否还在跑（重新授权时判断完成，不看旧授权状态）
+  wecomAuthProgress: () => ipcRenderer.invoke('wecom:authProgress'),
   wecomAuthStart: () => ipcRenderer.invoke('wecom:authStart'),
   wecomAuthCancel: () => ipcRenderer.invoke('wecom:authCancel'),
   wecomIdentity: () => ipcRenderer.invoke('wecom:identity'),

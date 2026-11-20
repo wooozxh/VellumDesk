@@ -56,6 +56,35 @@ export async function fetchIdentity(): Promise<CliResult<WecomIdentity>> {
   return { ok: true, data: { name: m[1], userid: m[2] } }
 }
 
+// ============================================================ 通讯录（第 89 批：审批意见 @ 指派）
+
+export interface ContactUserLite {
+  userid: string
+  name: string
+  departments: string[]
+}
+
+/**
+ * 按姓名搜企微通讯录。
+ * 只返回判定要用的三个字段 —— 部门用来处理重名（优先营销中心，见 pickMentionCandidate）。
+ */
+export async function searchContactUsers(
+  keyword: string
+): Promise<{ ok: boolean; data?: ContactUserLite[]; error?: string }> {
+  const r = await runCliJson<{
+    users?: Array<{ userid: string; name: string; departments?: string[] }>
+  }>(['contact', 'users', 'search', '--json', JSON.stringify({ keywords: [keyword] })])
+  if (!r.ok || !r.data) return { ok: false, error: r.error }
+  return {
+    ok: true,
+    data: (r.data.users ?? []).map((u) => ({
+      userid: u.userid,
+      name: u.name,
+      departments: Array.isArray(u.departments) ? u.departments : []
+    }))
+  }
+}
+
 // ============================================================ 子表清单
 
 export interface WecomFieldRef {

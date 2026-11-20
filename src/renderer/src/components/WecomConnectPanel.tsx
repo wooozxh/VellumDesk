@@ -67,6 +67,11 @@ export function WecomConnectPanel({
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 是否正在等扫码（决定关闭时要不要通知主进程杀进程） */
   const waitingRef = useRef(false)
+  /**
+   * 轮询代次（第 89 批）：发起 / 取消时 +1，让「正在飞」的那次探测结果作废。
+   * 不加这个，取消后残留的请求可能读到旧 authorized，回报一次假成功。
+   */
+  const epochRef = useRef(0)
 
   const stopPoll = useCallback((): void => {
     if (pollRef.current) {
@@ -84,9 +89,10 @@ export function WecomConnectPanel({
     [onAuthChange]
   )
 
-  /** 每 2 秒问一次授权状态；成功后自动读身份、提示成功 */
+  /** 每 2 秒问一次：扫码进程还在不在 → 退出了再读状态 */
   const tick = useCallback(
     async (elapsed: number): Promise<void> => {
+      const ep = epochRef.current
       if (!waitingRef.current) return
       if (elapsed >= MAX_WAIT_S) {
         waitingRef.current = false
@@ -94,7 +100,23 @@ export function WecomConnectPanel({
         return
       }
       try {
+        /**
+         * 第 89 批：先用「auth init 进程是否退出」判完成。
+         *
+         * 重新授权时旧凭据还没失效，CLI 在扫码完成前**一直报告 authorized** ——
+         * 直接看状态会在第一轮（2 秒）就误判成功，二维码刚出现就被清掉，
+         * 用户看到的就是「闪一下又跳回连接页」。
+         */
+        const pr = await window.api.wecomAuthProgress()
+        if (ep !== epochRef.current) return
+        if (pr.running) {
+          setWaited(elapsed + POLL_MS / 1000)
+          pollRef.current = setTimeout(() => void tick(elapsed + POLL_MS / 1000), POLL_MS)
+          return
+        }
+        // 进程已退出（扫码完成 / 失败 / 被取消）→ 这时读到的状态才是新的
         const r = await window.api.wecomAuthStatus()
+        if (ep !== epochRef.current) return
         if (r.auth === 'authorized') {
           waitingRef.current = false
           publish('authorized')
@@ -108,7 +130,11 @@ export function WecomConnectPanel({
           }
           return
         }
+        // 进程退了但没授权 → 明确失败，不再空转
+        waitingRef.current = false
         publish(r.auth)
+        setErr(COPY.wecom.timeout)
+        return
       } catch {
         // 单次探测失败不打断轮询（CLI 偶发占用），下一个周期再试
       }
@@ -151,6 +177,7 @@ export function WecomConnectPanel({
 
   const startAuth = async (): Promise<void> => {
     if (busy) return
+    epochRef.current += 1
     setBusy(true)
     setErr(null)
     setLog('')
@@ -175,6 +202,7 @@ export function WecomConnectPanel({
   }
 
   const cancelAuth = async (): Promise<void> => {
+    epochRef.current += 1
     waitingRef.current = false
     stopPoll()
     setQr(null)

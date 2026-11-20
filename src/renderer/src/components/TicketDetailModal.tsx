@@ -17,12 +17,15 @@ export function TicketDetailModal({
   ticketNo,
   onClose,
   onChanged,
-  onToast
+  onToast,
+  onOpenTask
 }: {
   ticketNo: string
   onClose: () => void
   onChanged?: () => void | Promise<void>
   onToast?: (msg: string) => void
+  /** 第 89 批：点「关联任务」跳到任务视图并打开它的详情 */
+  onOpenTask?: (packId: number) => void
 }): React.JSX.Element {
   const [d, setD] = useState<TicketDetailT | null>(null)
   const [busy, setBusy] = useState(false)
@@ -274,7 +277,18 @@ export function TicketDetailModal({
 
             <h4>{COPY.ticket.taskSection}</h4>
             {d.packId !== null ? (
-              <div className="tk-packcard">
+              <div
+                className="tk-packcard tk-packcard-link"
+                role="button"
+                tabIndex={0}
+                title="打开任务详情"
+                onClick={() => {
+                  if (d.packId !== null) onOpenTask?.(d.packId)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && d.packId !== null) onOpenTask?.(d.packId)
+                }}
+              >
                 <span className="name">{fmt(COPY.ticket.linkedTask, { name: d.packName ?? '' })}</span>
                 {d.packSummary && (
                   <span className="meta">

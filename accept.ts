@@ -208,11 +208,15 @@ import {
 // 第 15 批：交付打包（M5，docs/18）
 import { buildPackExportPlan, executePackExport, listDeliveryRecords, previewPackExport } from './src/main/exportPack'
 import {
+  applyFlowMentions,
   applySync,
   detectStructure,
   confirmPendingTickets,
   createTaskForTicketManually,
+  extractMentions,
+  pickMentionCandidate,
   takeLink,
+  type ContactUser,
   META_KEYS,
   writeTicketSheets,
   // 第 17 批：设计师指派（docs/19）
@@ -4499,6 +4503,83 @@ async function main(): Promise<void> {
   ok(pv.ok && pv.innerPaths.length === 3, '预览返回 3 个包内路径')
   ok(pv.zipName.endsWith('.zip'), '预览返回含 .zip 的压缩包名')
   ok(pv.innerPaths.some((p) => p.includes('成品/')), '预览包含成品分组路径')
+
+  // ============ 第 89 批：审批意见 @ 别人 → 自动指派 ============
+  log('\n[89] 第 89 批：审批意见 @ 别人 → 自动写进设计师列')
+  {
+    // 纯函数：从审批流程文本里抠 @ 名字
+    ok(
+      JSON.stringify(extractMentions('已同意 | 审核人 @张子涵  做完高报的做这个吧')) ===
+        JSON.stringify(['张子涵']),
+      '@ 名字解析：带空格与后续文字也能只取名字'
+    )
+    ok(
+      JSON.stringify(extractMentions('@张三 @李四 一起做，@张三')) ===
+        JSON.stringify(['张三', '李四']),
+      '多个 @ 去重且保持顺序'
+    )
+    ok(extractMentions('没有任何提及的意见').length === 0, '没有 @ 时返回空数组')
+
+    // 纯函数：重名优先营销中心
+    const u1: ContactUser = { userid: 'u1', name: '张伟', departments: ['总部/教学部'] }
+    const u2: ContactUser = { userid: 'u2', name: '张伟', departments: ['总部/营销中心'] }
+    ok(pickMentionCandidate('张伟', [u1]).user?.userid === 'u1', '只有一个同名 → 直接命中')
+    ok(pickMentionCandidate('张伟', [u1, u2]).user?.userid === 'u2', '重名 → 优先营销中心')
+    ok(
+      pickMentionCandidate('张伟', [u1, { ...u1, userid: 'u3' }]).reason === 'ambiguous',
+      '重名且都不在营销中心 → 不猜，报 ambiguous'
+    )
+    ok(pickMentionCandidate('查无此人', [u1]).reason === 'none', '通讯录没有 → none')
+
+    // 集成：造一张「设计师空 + 审批意见 @ 了人」的单
+    setMeta(META_KEYS.designerOk, '1')
+    const db89 = getDb()
+    db89
+      .prepare(
+        `INSERT INTO tickets (sheet_id, ticket_type, ticket_no, title, approval_state, raw_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        'tlzJfN',
+        'digital',
+        'M89-1',
+        '第 89 批测试单',
+        '审批中',
+        JSON.stringify({ 审批流程: [{ text: '已同意 | 审核人 @王小明  这个给他做' }] })
+      )
+    const mockContact = {
+      searchUsers: async (
+        kw: string
+      ): Promise<{ ok: boolean; data?: ContactUser[]; error?: string }> =>
+        kw === '王小明'
+          ? {
+              ok: true,
+              data: [{ userid: 'uWXM', name: '王小明', departments: ['总部/营销中心'] }]
+            }
+          : { ok: true, data: [] }
+    }
+    const m89 = await applyFlowMentions(mockContact)
+    ok(m89.assigned >= 1, `按 @ 自动指派至少 1 张（实际 ${m89.assigned}）`)
+    const r89 = db89
+      .prepare(
+        'SELECT designer_userid, designer_name, designer_write_pending FROM tickets WHERE ticket_no = ?'
+      )
+      .get('M89-1') as
+      | { designer_userid: string | null; designer_name: string | null; designer_write_pending: number }
+      | undefined
+    ok(
+      r89?.designer_userid === 'uWXM' && r89?.designer_name === '王小明',
+      '本地设计师列落到被 @ 的人（不是本机）'
+    )
+    ok(r89?.designer_write_pending === 1, '标记 pending，交给写回重试统一写表')
+    const ds89 = db89
+      .prepare('SELECT userid FROM ticket_designers WHERE ticket_no = ?')
+      .all('M89-1') as Array<{ userid: string }>
+    ok(ds89.length === 1 && ds89[0].userid === 'uWXM', '设计师子表同步写入')
+
+    const m89b = await applyFlowMentions(mockContact)
+    ok(m89b.assigned === 0, '已指派的单不会被重复处理')
+  }
 
   closeDb()
   hardRm(p15Root)

@@ -662,6 +662,131 @@ function claimDesignerByFlow(ticket_no: string, identity: TicketIdentity): boole
   return true
 }
 
+// ============================================================ 第 89 批：审批意见 @ 别人 → 自动指派
+
+/** 通讯录里搜到的成员（只留判定要用的字段） */
+export interface ContactUser {
+  userid: string
+  name: string
+  departments: string[]
+}
+
+/** 通讯录搜索适配器（tickets.ts 不碰网络，由调用方注入） */
+export interface ContactSearchAdapter {
+  searchUsers(keyword: string): Promise<{ ok: boolean; data?: ContactUser[]; error?: string }>
+}
+
+/**
+ * 从审批流程文本里抠出所有 @ 的名字。
+ *
+ * 企微的 @ 会带一个空格（`@张子涵  做完…`），所以按「空白 / 标点 / 再一个 @」切。
+ * 不做模糊猜测：抠出来是什么就是什么，匹配交给人名精确比对（见 pickMentionCandidate）。
+ */
+export function extractMentions(flowText: string): string[] {
+  if (!flowText) return []
+  const out: string[] = []
+  const re = /@([^\s@，,。；;：:、|]+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(flowText)) !== null) {
+    const name = m[1].trim()
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
+/**
+ * 在一组通讯录结果里挑出「@ 的那个人」。
+ *
+ * 规则（用户 2026-11-20 拍板）：
+ *   - 姓名精确匹配；
+ *   - 只有一个 → 就是他；
+ *   - 有重名 → **优先营销中心**（本部门重名概率最低，99% 的重名不是本部门的）；
+ *   - 营销中心也区分不了（没有 / 有两个）→ 不猜，报 ambiguous，留给人工。
+ */
+export function pickMentionCandidate(
+  name: string,
+  users: ContactUser[]
+): { user: ContactUser | null; reason: 'ok' | 'none' | 'ambiguous' } {
+  const hits = users.filter((u) => u.name === name)
+  if (hits.length === 0) return { user: null, reason: 'none' }
+  if (hits.length === 1) return { user: hits[0], reason: 'ok' }
+  const inDept = hits.filter((u) => u.departments.some((d) => d.includes('营销中心')))
+  if (inDept.length === 1) return { user: inDept[0], reason: 'ok' }
+  return { user: null, reason: 'ambiguous' }
+}
+
+/**
+ * 按审批意见里的 @ 给「设计师列为空」的单自动指派**别人**。
+ *
+ * 与 claimDesignerByFlow 的区别：那个是「@ 了本机 → 本机认领」，只有被 @ 的人自己的
+ * 电脑同步时才生效；这个是谁看到谁处理 —— 审核人 @ 完，任何一台在同步的机器都能把
+ * 被 @ 的人写进设计师列。
+ *
+ * 还是走「手动指派」那条老路：本地先落（子表 + 冗余列 + pending=1），真正写表交给
+ * retryPendingDesignerWrites，失败下轮重试。
+ */
+export async function applyFlowMentions(
+  adapter: ContactSearchAdapter
+): Promise<{ assigned: number; warnings: string[] }> {
+  if (!claimByFlowEnabled() || !designerColUsable()) return { assigned: 0, warnings: [] }
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT ticket_no, raw_json FROM tickets
+        WHERE designer_userid IS NULL AND approval_state IN ('审批中','已通过')`
+    )
+    .all() as Array<{ ticket_no: string; raw_json: string | null }>
+
+  const cache = new Map<string, ContactUser[]>()
+  const warnings: string[] = []
+  const now = new Date().toISOString()
+  let assigned = 0
+
+  for (const r of rows) {
+    const mentions = extractMentions(flowTextOfRaw(r.raw_json))
+    if (mentions.length === 0) continue
+
+    const picked: ContactUser[] = []
+    for (const name of mentions) {
+      let users = cache.get(name)
+      if (!users) {
+        const s = await adapter.searchUsers(name)
+        if (!s.ok || !s.data) {
+          warnings.push(fmt(COPY.ticket.mentionSearchFailed, { name, msg: s.error ?? '' }))
+          continue
+        }
+        users = s.data
+        cache.set(name, users)
+      }
+      const p = pickMentionCandidate(name, users)
+      if (p.reason === 'none') {
+        warnings.push(fmt(COPY.ticket.mentionNotFound, { name }))
+        continue
+      }
+      if (p.reason === 'ambiguous') {
+        warnings.push(fmt(COPY.ticket.mentionAmbiguous, { name }))
+        continue
+      }
+      if (p.user && !picked.some((u) => u.userid === p.user!.userid)) picked.push(p.user)
+    }
+
+    if (picked.length === 0) continue
+    db.transaction(() => {
+      replaceTicketDesigners(
+        r.ticket_no,
+        picked.map((u) => ({ userid: u.userid, name: u.name }))
+      )
+      db.prepare(
+        `UPDATE tickets SET designer_userid = ?, designer_name = ?, designer_write_pending = 1,
+           assigned_by = ?, assigned_at = ? WHERE ticket_no = ?`
+      ).run(picked[0].userid, picked[0].name, COPY.ticket.assignByMention, now, r.ticket_no)
+    })()
+    assigned++
+  }
+
+  return { assigned, warnings }
+}
+
 // ============================================================ 同步主流程（docs/15 §4.2）
 
 export interface ApplySyncInput {

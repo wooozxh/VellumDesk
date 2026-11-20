@@ -83,6 +83,7 @@ import {
 // 第 13 批：工单（docs/15）—— 引擎在 tickets.ts，企微适配在 ticketsWecom.ts
 import {
   allowAssignEnabled,
+  applyFlowMentions,
   applySync,
   claimByFlowEnabled,
   setClaimByFlowEnabled,
@@ -130,6 +131,7 @@ import {
   fetchIdentity,
   fetchSheetRecords,
   fetchSheets,
+  searchContactUsers,
   sendBotTextMessage,
   updateRecords
 } from './ticketsWecom'
@@ -137,6 +139,7 @@ import {
 import {
   cancelWecomAuth,
   getCliInfo,
+  isWecomAuthRunning,
   readAuthStatus,
   startWecomAuth,
   type CliFailKind,
@@ -1361,6 +1364,14 @@ export function registerIpc(opts?: {
         })
       )
     }
+    // 第 89 批：审批意见里 @ 了谁 → 自动写进设计师列。
+    // 放在写回重试**之前**：新落的 pending 同一轮就能写出去，用户不用再等一次同步。
+    const mention = await applyFlowMentions({ searchUsers: (kw) => searchContactUsers(kw) })
+    if (mention.assigned > 0) {
+      result.warnings.push(fmt(COPY.ticket.mentionAssigned, { n: mention.assigned }))
+    }
+    result.warnings.push(...mention.warnings)
+
     // 第 17 批（docs/19 §5）：同步后补写 pending 的指派（写回失败积压的，每次同步自动重试）
     const retry = await retryPendingDesignerWrites(wecomDesignerAdapter)
     if (retry.retried > 0) {
@@ -1776,6 +1787,15 @@ export function registerIpc(opts?: {
     initWorkspace(root)
     return { auth: await readAuthStatus() }
   })
+
+  /**
+   * 第 89 批：扫码进程还在不在。
+   *
+   * 为什么需要它：重新授权时，CLI 在扫码完成前**仍然报告「已授权」**（旧凭据没过期），
+   * 界面只轮询 authStatus 就会在第一次探测时误判成功，二维码刚出来就被清掉。
+   * 现在以「auth init 进程是否退出」作为完成信号：还在跑 = 继续等，退出了 = 再去读状态。
+   */
+  handleIpc('wecom:authProgress', () => ({ running: isWecomAuthRunning() }))
 
   /**
    * 发起扫码授权：调 `auth init --noninteractive --output-qrcode <临时图>`，
